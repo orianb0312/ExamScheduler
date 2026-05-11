@@ -8,8 +8,8 @@ from src.interfaces import ISchedulingRule
 
 class Scheduler:
     """
-        The core engine responsible for generating all valid exam schedule permutations.
-        Uses a backtracking approach to find collision-free systems.
+    מנוע הליבה האחראי על יצירת מערכות בחינות.
+    משתמש ב-Backtracking עם Heuristic מסוג MCV/MRV לשיפור ביצועים (EXS-32).
     """
 
     def __init__(self, rules: List[ISchedulingRule]):
@@ -18,18 +18,27 @@ class Scheduler:
 
     def run(self, courses: List[Course], period: ExamPeriod) -> List[Dict[Course, date]]:
         """
-            Initializes the recursive generation process and returns all found schedules.
+        מריץ את אלגוריתם החיפוש ומדפיס דוח ביצועים.
         """
+        start_time = time.time()
         self.all_valid_schedules = []
         available_dates = self._get_available_dates(period)
 
-        # Start the recursive search
+        # התחלת החיפוש הרקורסיבי
         self._backtrack({}, courses, available_dates)
+
+        duration = time.time() - start_time
+        print(f"\n" + "=" * 40)
+        print(f" PERFORMANCE REPORT (EXS-32)")
+        print(f" - Execution Time: {duration:.4f} seconds")
+        print(f" - Solutions Found: {len(self.all_valid_schedules)}")
+        print(f" - Status: {'PASSED' if duration < 30 else 'FAILED'}")
+        print("=" * 40 + "\n")
 
         return self.all_valid_schedules
 
     def _get_available_dates(self, period: ExamPeriod) -> List[date]:
-        """Generates all valid dates within the period, excluding blocked dates."""
+        """מייצר את כל התאריכים הזמינים בתקופה, ללא החרגות."""
         available = []
         current = period.start_date
         while current <= period.end_date:
@@ -38,31 +47,45 @@ class Scheduler:
             current += timedelta(days=1)
         return available
 
-    def _backtrack(self, current_state: Dict[Course, date], remaining_courses: List[Course], available_dates: List[date]):
-        """Recursive backtracking function to build exam systems."""
-        # Base Case: All courses have been scheduled
+    def _backtrack(self, current_state: Dict[Course, date], remaining_courses: List[Course],
+                   available_dates: List[date]):
+        # תנאי עצירה - כל הקורסים שובצו
         if not remaining_courses:
             self.all_valid_schedules.append(current_state.copy())
             return
 
-        # Pick the next course to schedule
-        course = remaining_courses[0]
-        next_remaining = remaining_courses[1:]
+        # בחירת הקורס הבא לפי MCV/MRV - הקורס עם הכי פחות אופציות
+        course = self._get_mrv_course(remaining_courses, current_state, available_dates)
+        next_remaining = [c for c in remaining_courses if c != course]
 
         for exam_date in available_dates:
-            # Create a potential assignment
             current_state[course] = exam_date
 
-            # Validate the assignment against all rules (Conflict Logic)
+            # Pruning: המשך רק אם המצב הנוכחי חוקי
             if self._is_state_valid(current_state):
-                # Recurse to the next course
                 self._backtrack(current_state, next_remaining, available_dates)
 
-            # Backtrack: Remove the assignment before trying the next date
-            del current_state[course]
+            # ניקוי המפתח מהמילון (Backtrack)
+            current_state.pop(course, None)
+
+    def _get_mrv_course(self, remaining_courses: List[Course], current_state: Dict[Course, date],
+                        available_dates: List[date]) -> Course:
+        """מזהה את הקורס שיהיה הכי קשה לשבץ כדי לצמצם את עץ החיפוש."""
+
+        def count_valid_options(c):
+            options = 0
+            for d in available_dates:
+                current_state[c] = d
+                if self._is_state_valid(current_state):
+                    options += 1
+                current_state.pop(c, None)
+            return options
+
+        # החזרת הקורס עם מספר האופציות הקטן ביותר
+        return min(remaining_courses, key=count_valid_options)
 
     def _is_state_valid(self, state: Dict[Course, date]) -> bool:
-        """Checks the current assignment state against all registered scheduling rules."""
+        """בודק את מצב השיבוץ הנוכחי מול כל החוקים."""
         for rule in self.rules:
             if not rule.is_valid(state):
                 return False
