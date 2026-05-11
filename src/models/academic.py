@@ -58,6 +58,7 @@ class Course:
     def add_affiliation(self, affiliation: ProgramAffiliation) -> None:
         """Appends a program affiliation to the course."""
         self.affiliations.append(affiliation)
+        
 
     def needs_exam_slot(self) -> bool:
         """Returns True only if the evaluation method requires an exam slot."""
