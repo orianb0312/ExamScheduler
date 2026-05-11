@@ -55,6 +55,14 @@ class Course:
     evaluation: Evaluation
     affiliations: List[ProgramAffiliation] = field(default_factory=list)
 
+    def __hash__(self):
+        return hash(self.course_id)
+
+    def __eq__(self, other):
+        if not isinstance(other, Course):
+            return False
+        return self.course_id == other.course_id
+
     def add_affiliation(self, affiliation: ProgramAffiliation) -> None:
         """Appends a program affiliation to the course."""
         self.affiliations.append(affiliation)
