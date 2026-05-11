@@ -1,7 +1,7 @@
 import unittest
 from datetime import date
-from src.core.models import ScheduledExam, Semester, Term
-from src.logic.schedule_sorter import ScheduleSorter
+from models import ScheduledExam, Semester, Term
+from schedule_sorter import ScheduleSorter
 
 
 class TestScheduleSorter(unittest.TestCase):
