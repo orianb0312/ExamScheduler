@@ -43,15 +43,21 @@ class ExamPeriod:
 
     def is_date_valid(self, check_date: date) -> bool:
         """
-            Validates if a given date is strictly within the exam period bounds
-            and is not blocked by any exclusions.
+        Validates if a given date is strictly within the exam period bounds
+        and is not blocked by any exclusions (Holidays/Saturdays).
         """
-        # Check if the <check_date> is within the date "limits".
+        # 1. Boundary Check
         if not (self.start_date <= check_date <= self.end_date):
             return False
 
+        # 2. Exclusion Check (Crucial for satisfying Appendix A requirements)
+        for exclusion in self.exclusions:
+            if exclusion.is_date_excluded(check_date):
+                return False
+
         return True
 
-def filter_exam_courses(courses: list[Course]) -> list[Course]:
-    """Return only courses that require exam scheduling."""
+
+def filter_exam_courses(courses: List[Course]) -> List[Course]:
+    """ Return only courses that require exam scheduling"""
     return [course for course in courses if course.needs_exam_slot()]
