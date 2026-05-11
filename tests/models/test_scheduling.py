@@ -53,3 +53,25 @@ def test_filter_exam_courses_preserves_original_order():
     result = filter_exam_courses([c1, c2, c3])
 
     assert result == [c1, c3]
+
+def test_filter_exam_courses_empty_input_returns_empty():
+    assert filter_exam_courses([]) == []
+
+def test_filter_exam_courses_does_not_mutate_input_list():
+    a = _affiliation()
+    c1 = Course(20001, "Exam", "Dr. X", Exam(), [a])
+    c2 = Course(20002, "Project", "Dr. Y", Project(), [a])
+    original = [c1, c2]
+
+    result = filter_exam_courses(original)
+
+    assert original == [c1, c2]
+    assert result == [c1]
+
+def test_filter_exam_courses_affiliations_not_required_for_filtering():
+    c_exam = Course(20003, "Exam no aff", "Dr. Z", Exam(), [])
+    c_proj = Course(20004, "Proj no aff", "Dr. W", Project(), [])
+
+    result = filter_exam_courses([c_exam, c_proj])
+
+    assert result == [c_exam]

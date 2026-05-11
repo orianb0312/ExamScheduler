@@ -155,3 +155,26 @@ def test_multi_affiliation_conflict_detected_on_any_shared_program_year(conflict
     }
 
     assert conflict_rule.is_valid(attempt_state) is False
+
+def test_is_valid_empty_attempt_state(conflict_rule):
+    assert conflict_rule.is_valid({}) is True
+
+def test_is_valid_single_course(conflict_rule):
+    eval_method = Exam()
+    affil = ProgramAffiliation(83108, 2, Semester.FALL, RequirementType.OBLIGATORY)
+    course = Course(30001, "Single", "Dr. A", eval_method)
+    course.add_affiliation(affil)
+
+    assert conflict_rule.is_valid({course: date(2026, 1, 15)}) is True
+
+def test_same_date_without_shared_program_year_is_valid(conflict_rule):
+    eval_method = Exam()
+
+    c1 = Course(30002, "C1", "Dr. B", eval_method)
+    c1.add_affiliation(ProgramAffiliation(83108, 1, Semester.FALL, RequirementType.OBLIGATORY))
+
+    c2 = Course(30003, "C2", "Dr. C", eval_method)
+    c2.add_affiliation(ProgramAffiliation(83108, 2, Semester.FALL, RequirementType.OBLIGATORY))
+
+    attempt_state = {c1: date(2026, 1, 15), c2: date(2026, 1, 15)}
+    assert conflict_rule.is_valid(attempt_state) is True

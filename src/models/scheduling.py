@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 from datetime import date
 from src.models.enums import Semester, Term
+from src.models.academic import Course
 
 
 @dataclass
@@ -50,3 +51,7 @@ class ExamPeriod:
             return False
 
         return True
+
+def filter_exam_courses(courses: list[Course]) -> list[Course]:
+    """Return only courses that require exam scheduling."""
+    return [course for course in courses if course.needs_exam_slot()]
