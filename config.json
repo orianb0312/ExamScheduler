@@ -1,0 +1,16 @@
+{
+  "source_type": "file",
+  "file": {
+    "course_file": "Courses.txt",
+    "dates_file":  "Dates.txt",
+    "user_file":   "Programs.txt"
+  },
+  "database": {
+    "connection_string": "postgresql://user:pass@localhost/university",
+    "schema": "academic"
+  },
+  "api": {
+    "url":     "https://api.university.edu/courses",
+    "api_key": "your-api-key-here"
+  }
+}
