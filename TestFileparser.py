@@ -68,7 +68,8 @@ FALL,Aleph
 
 VALID_PERIOD_RECORD_SIMPLE = """\
 SPRI,Bet
-15-04-2026"""
+15-04-2026, 30-04-2026
+20-04-2026"""
 
 VALID_DATES_TEXT = (
     RECORD_SEPARATOR + "\n"
@@ -80,6 +81,7 @@ VALID_DATES_TEXT = (
 
 COURSE_KEYS  = {"name", "number", "instructor", "programs", "evaluation"}
 PROGRAM_KEYS = {"number", "year", "semester", "requirement"}
+PERIOD_KEYS  = {"semester", "moed", "start_date", "end_date", "exclusions"}
 
 
 # ===========================================================================
@@ -591,7 +593,7 @@ class TestParsePeriodRecord:
         assert isinstance(parse_period_record(VALID_PERIOD_RECORD_ONE_DATE), dict)
 
     def test_dict_has_all_keys(self):
-        assert parse_period_record(VALID_PERIOD_RECORD_ONE_DATE).keys() == {"semester", "moed", "dates"}
+        assert parse_period_record(VALID_PERIOD_RECORD_ONE_DATE).keys() == PERIOD_KEYS
 
     def test_semester_correct(self):
         assert parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["semester"] == "FALL"
@@ -599,37 +601,43 @@ class TestParsePeriodRecord:
     def test_moed_correct(self):
         assert parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["moed"] == "Aleph"
 
-    def test_dates_is_list(self):
-        assert isinstance(parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["dates"], list)
+    def test_start_date_correct(self):
+        assert parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["start_date"] == "29-01-2026"
 
-    def test_correct_number_of_dates(self):
-        assert len(parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["dates"]) == 2
+    def test_end_date_correct(self):
+        assert parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["end_date"] == "11-03-2026"
 
-    def test_first_date_entry(self):
-        d = parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["dates"][0]
-        assert d["start_date"] == "29-01-2026"
-        assert d["end_date"]   == "11-03-2026"
-        assert d["comment"]    is None
+    def test_exclusions_is_list(self):
+        assert isinstance(parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["exclusions"], list)
 
-    def test_second_date_entry(self):
-        d = parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["dates"][1]
+    def test_correct_number_of_exclusions(self):
+        assert len(parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["exclusions"]) == 1
+
+    def test_exclusion_entry(self):
+        d = parse_period_record(VALID_PERIOD_RECORD_ONE_DATE)["exclusions"][0]
         assert d["start_date"] == "31-01-2026"
         assert d["end_date"]   is None
         assert d["comment"]    == "Saturday"
 
     def test_valid_moeds(self):
         for moed in ("Aleph", "Bet", "Gimel"):
-            assert parse_period_record(f"FALL,{moed}\n01-01-2026")["moed"] == moed
+            result = parse_period_record(f"FALL,{moed}\n01-01-2026, 31-01-2026\n15-01-2026")
+            assert result["moed"] == moed
 
     def test_valid_semesters(self):
         for sem in ("FALL", "SPRI", "SUMM"):
-            assert parse_period_record(f"{sem},Aleph\n01-01-2026")["semester"] == sem
+            result = parse_period_record(f"{sem},Aleph\n01-01-2026, 31-01-2026\n15-01-2026")
+            assert result["semester"] == sem
 
-    def test_gimel_moed_with_date_range(self):
-        """moed=Gimel with a date range — combination not previously tested"""
-        result = parse_period_record("SUMM,Gimel\n01-06-2026, 30-06-2026")
-        assert result["moed"]                 == "Gimel"
-        assert result["dates"][0]["end_date"] == "30-06-2026"
+    def test_gimel_moed_with_date_range_exclusion(self):
+        """moed=Gimel with a date range exclusion — combination not previously tested"""
+        result = parse_period_record(
+            "SUMM,Gimel\n01-06-2026, 30-06-2026\n10-06-2026, 12-06-2026 Holiday"
+        )
+        assert result["moed"]                             == "Gimel"
+        assert result["start_date"]                       == "01-06-2026"
+        assert result["end_date"]                         == "30-06-2026"
+        assert result["exclusions"][0]["end_date"]        == "12-06-2026"
 
     def test_simple_period_record_is_json_serialisable(self):
         assert isinstance(json.dumps(parse_period_record(VALID_PERIOD_RECORD_SIMPLE)), str)
@@ -638,44 +646,49 @@ class TestParsePeriodRecord:
 
     def test_invalid_semester_raises(self):
         with pytest.raises(ValueError, match="semester"):
-            parse_period_record("WINT,Aleph\n01-01-2026")
+            parse_period_record("WINT,Aleph\n01-01-2026, 31-01-2026\n15-01-2026")
 
     def test_invalid_moed_raises(self):
         with pytest.raises(ValueError, match="moed"):
-            parse_period_record("FALL,Dalet\n01-01-2026")
+            parse_period_record("FALL,Dalet\n01-01-2026, 31-01-2026\n15-01-2026")
 
     def test_too_few_lines_raises(self):
         with pytest.raises(ValueError, match="too few lines"):
-            parse_period_record("FALL,Aleph")
+            parse_period_record("FALL,Aleph\n01-01-2026, 31-01-2026")
 
     def test_invalid_header_format_raises(self):
         with pytest.raises(ValueError, match="header"):
-            parse_period_record("FALL\n01-01-2026")
+            parse_period_record("FALL\n01-01-2026, 31-01-2026\n15-01-2026")
+
+    def test_bounds_missing_end_date_raises(self):
+        """Bounds line with only start date — must raise ValueError"""
+        with pytest.raises(ValueError, match="both start and end"):
+            parse_period_record("FALL,Aleph\n01-01-2026\n15-01-2026")
 
     # --- Boundary checks -----------------------------------------------------
 
-    def test_simple_period_record_single_date(self):
-        """VALID_PERIOD_RECORD_SIMPLE — period with exactly one date line"""
+    def test_simple_period_record_single_exclusion(self):
+        """VALID_PERIOD_RECORD_SIMPLE — period with exactly one exclusion line"""
         result = parse_period_record(VALID_PERIOD_RECORD_SIMPLE)
-        assert result["semester"]               == "SPRI"
-        assert result["moed"]                   == "Bet"
-        assert len(result["dates"])             == 1
-        assert result["dates"][0]["start_date"] == "15-04-2026"
-        assert result["dates"][0]["end_date"]   is None
-        assert result["dates"][0]["comment"]    is None
+        assert result["semester"]                    == "SPRI"
+        assert result["moed"]                        == "Bet"
+        assert result["start_date"]                  == "15-04-2026"
+        assert result["end_date"]                    == "30-04-2026"
+        assert len(result["exclusions"])             == 1
+        assert result["exclusions"][0]["start_date"] == "20-04-2026"
 
-    def test_period_with_three_date_lines(self):
-        """Period with 3 date lines — upper boundary on number of dates"""
-        record = "SUMM,Gimel\n01-06-2026\n15-06-2026\n30-06-2026"
+    def test_period_with_three_exclusion_lines(self):
+        """Period with 3 exclusion lines — upper boundary on number of exclusions"""
+        record = "SUMM,Gimel\n01-06-2026, 30-06-2026\n05-06-2026\n15-06-2026\n25-06-2026"
         result = parse_period_record(record)
-        assert len(result["dates"]) == 3
-        assert result["dates"][2]["start_date"] == "30-06-2026"
+        assert len(result["exclusions"])             == 3
+        assert result["exclusions"][2]["start_date"] == "25-06-2026"
 
     # --- Edge cases ----------------------------------------------------------
 
     def test_header_with_spaces_around_comma(self):
         """Spaces around the comma in the header — whitespace tolerance"""
-        result = parse_period_record("FALL , Aleph\n01-01-2026")
+        result = parse_period_record("FALL , Aleph\n01-01-2026, 31-01-2026\n15-01-2026")
         assert result["semester"] == "FALL"
         assert result["moed"]     == "Aleph"
 
@@ -697,8 +710,17 @@ class TestParsePeriodText:
     def test_all_items_are_dicts(self):
         assert all(isinstance(p, dict) for p in parse_periods_text(VALID_DATES_TEXT))
 
+    def test_all_dicts_have_period_keys(self):
+        assert all(p.keys() == PERIOD_KEYS for p in parse_periods_text(VALID_DATES_TEXT))
+
     def test_first_period_semester(self):
         assert parse_periods_text(VALID_DATES_TEXT)[0]["semester"] == "FALL"
+
+    def test_first_period_start_date(self):
+        assert parse_periods_text(VALID_DATES_TEXT)[0]["start_date"] == "29-01-2026"
+
+    def test_first_period_end_date(self):
+        assert parse_periods_text(VALID_DATES_TEXT)[0]["end_date"] == "11-03-2026"
 
     def test_second_period_moed(self):
         assert parse_periods_text(VALID_DATES_TEXT)[1]["moed"] == "Bet"
@@ -911,12 +933,15 @@ class TestFileParser:
         finally:
             self._cleanup(cp, dp, up)
 
-    def test_periods_node_dates_present(self):
+    def test_periods_node_bounds_present(self):
+        """Period bounds (start_date, end_date) are correctly stored"""
         config, cp, dp, up = self._make_config()
         try:
             period = json.loads(FileParser().parse_to_json(config))["periods_node"][0]
-            assert len(period["dates"]) == 2
-            assert period["dates"][0]["start_date"] == "29-01-2026"
+            assert period["start_date"]                  == "29-01-2026"
+            assert period["end_date"]                    == "11-03-2026"
+            assert len(period["exclusions"])             == 1
+            assert period["exclusions"][0]["start_date"] == "31-01-2026"
         finally:
             self._cleanup(cp, dp, up)
 
@@ -925,10 +950,12 @@ class TestFileParser:
         config, cp, dp, up = self._make_config()
         try:
             periods = json.loads(FileParser().parse_to_json(config))["periods_node"]
-            assert periods[1]["semester"]               == "SPRI"
-            assert periods[1]["moed"]                   == "Bet"
-            assert len(periods[1]["dates"])             == 1
-            assert periods[1]["dates"][0]["start_date"] == "15-04-2026"
+            assert periods[1]["semester"]                    == "SPRI"
+            assert periods[1]["moed"]                        == "Bet"
+            assert periods[1]["start_date"]                  == "15-04-2026"
+            assert periods[1]["end_date"]                    == "30-04-2026"
+            assert len(periods[1]["exclusions"])             == 1
+            assert periods[1]["exclusions"][0]["start_date"] == "20-04-2026"
         finally:
             self._cleanup(cp, dp, up)
 
@@ -1003,7 +1030,8 @@ class TestFileParser:
         bad_dates = (
             f"{RECORD_SEPARATOR}\n"
             "BAD_HEADER\n"
-            "01-01-2026\n"
+            "01-01-2026, 31-01-2026\n"
+            "15-01-2026\n"
             f"{RECORD_SEPARATOR}"
         )
         config, cp, dp, up = self._make_config(dates_content=bad_dates)
@@ -1074,7 +1102,3 @@ class TestFileParser:
             assert result["periods_node"] == []
         finally:
             self._cleanup(cp, dp, up)
-
-
-
-

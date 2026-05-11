@@ -190,14 +190,15 @@ def parse_period_record(record_text: str) -> dict:
     Parse a single period record block into a dict.
 
     Line order:
-      0    - "Semester,Moed"  e.g. "FALL,Aleph"
-      1..n - Date lines (at least one required)
+      0    - "Semester,Moed"          e.g. "FALL,Aleph"
+      1    - "start_date, end_date"   e.g. "29-01-2026, 11-03-2026"
+      2..n - Exclusion date lines     (at least one required)
     """
     lines = [ln.strip() for ln in record_text.splitlines() if ln.strip()]
 
-    if len(lines) < 2:
+    if len(lines) < 3:
         raise ValueError(
-            f"Period record has too few lines (need at least 2, got {len(lines)}): {lines}"
+            f"Period record has too few lines (need at least 3, got {len(lines)}): {lines}"
         )
 
     header_parts = [p.strip() for p in lines[0].split(",")]
@@ -210,10 +211,18 @@ def parse_period_record(record_text: str) -> dict:
     if moed not in VALID_MOEDS:
         raise ValueError(f"Invalid moed '{moed}' (must be Aleph/Bet/Gimel)")
 
+    bounds = parse_date_line(lines[1])
+    if not bounds["end_date"]:
+        raise ValueError(
+            f"Period bounds line must contain both start and end dates: '{lines[1]}'"
+        )
+
     return {
-        "semester": semester,
-        "moed":     moed,
-        "dates":    [parse_date_line(ln) for ln in lines[1:]],
+        "semester":   semester,
+        "moed":       moed,
+        "start_date": bounds["start_date"],
+        "end_date":   bounds["end_date"],
+        "exclusions": [parse_date_line(ln) for ln in lines[2:]],
     }
 
 

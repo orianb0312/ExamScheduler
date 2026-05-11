@@ -74,7 +74,23 @@ class IParser(ABC):
                     },
                     ...
                 ],
-                "periods_node": [ ... ],
-                "user_node":    [ ... ]
+                "periods_node": [
+                    {
+                        "semester":   str,           # "FALL"|"SPRI"|"SUMM"
+                        "moed":       str,           # "Aleph"|"Bet"|"Gimel"
+                        "start_date": str,           # "DD-MM-YYYY"  – period open
+                        "end_date":   str,           # "DD-MM-YYYY"  – period close
+                        "exclusions": [
+                            {
+                                "start_date": str,   # "DD-MM-YYYY"
+                                "end_date":   str|null,
+                                "comment":    str|null
+                            },
+                            ...
+                        ]
+                    },
+                    ...
+                ],
+                "user_node":    [ str, ... ]         # list of 5-digit program numbers
             }
         """
