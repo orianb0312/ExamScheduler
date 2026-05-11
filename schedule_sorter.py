@@ -1,31 +1,28 @@
 from collections import defaultdict
-from typing import List, Dict
-# Assuming models are imported from your existing structure
-from src.core.models import ScheduledExam, Semester, Term
+from typing import List, Dict, Optional
+from models import ScheduledExam, Semester, Term
 
 class ScheduleSorter:
     """
-    Responsible for organizing exams into a mandatory hierarchical view.
-    SOLID - SRP: This class has only one reason to change: changes in sorting/grouping logic.
+    Logic for organizing exams into a hierarchical view.
+    SRP: Handles only the data transformation and sorting strategy.
     """
 
-    def categorize(self, exams: List[ScheduledExam]) -> Dict[Semester, Dict[Term, List[ScheduledExam]]]:
+    def categorize(self, exams: Optional[List[ScheduledExam]]) -> Dict[Semester, Dict[Term, List[ScheduledExam]]]:
         """
-        Organizes a list of exams into a nested dictionary:
-        Semester -> Term -> List[Exams]
-        Exams are sorted primarily by date and secondarily by course name.
+        Groups exams by Semester -> Term and sorts them by date and name (Case-Insensitive).
+        Handles None or empty inputs gracefully.
         """
-        if not exams:
+        if exams is None or not exams:
             return {}
 
-        # Hierarchical structure: Semester -> Term -> List of Exams
         hierarchical_view = defaultdict(lambda: defaultdict(list))
 
-        # Sort by date first, then by course_name as a secondary tie-breaker for same-day exams
-        sorted_exams = sorted(exams, key=lambda x: (x.exam_date, x.course_name))
+        # Primary sort: exam_date
+        # Secondary sort: course_name.lower() to ensure Case-Insensitive alphabetical order
+        sorted_exams = sorted(exams, key=lambda x: (x.exam_date, x.course_name.lower()))
 
         for exam in sorted_exams:
             hierarchical_view[exam.semester][exam.term].append(exam)
 
-        # Convert defaultdict back to standard dict for consistency
         return {sem: dict(terms) for sem, terms in hierarchical_view.items()}
