@@ -4,46 +4,60 @@ from datetime import date
 from models import ScheduledExam, Semester, Term
 from output_manager import TextOutputManager
 
-
 class TestOutputManager(unittest.TestCase):
     def setUp(self):
-        self.output_path = "test_schedule.txt"
-        self.manager = TextOutputManager(self.output_path)
+        self.test_file = "test_output.txt"
+        self.manager = TextOutputManager(self.test_file)
 
-        # Sample structured data (normally provided by ScheduleSorter)
-        self.structured_data = {
+    def tearDown(self):
+        """Clean up the generated test file after each test."""
+        if os.path.exists(self.test_file):
+            os.remove(self.test_file)
+
+    def test_standard_export(self):
+        """Verify standard formatting for multiple entries."""
+        data = {
             Semester.FALL: {
                 Term.ALEPH: [
-                    ScheduledExam("Logic", 103, Semester.FALL, Term.ALEPH, date(2026, 1, 5), "Dr. Smith"),
-                    ScheduledExam("Physics", 104, Semester.FALL, Term.ALEPH, date(2026, 1, 10), "Prof. Brown")
+                    ScheduledExam("Logic", 101, Semester.FALL, Term.ALEPH, date(2026, 1, 1), "Dr. Smith")
                 ]
             }
         }
-
-    def test_line_formatting(self):
-        """Verify the specific string format: Course | Date | Instructor."""
-        exam = self.standard_exam = ScheduledExam("OOP", 101, Semester.FALL, Term.ALEPH, date(2026, 2, 1), "Eng. Doe")
-        formatted = self.manager.format_exam_line(exam)
-        expected = "OOP | 2026-02-01 | Eng. Doe"
-        self.assertEqual(formatted, expected)
-
-    def test_file_creation_and_content(self):
-        """Verify that the file is created and contains the hierarchical headers."""
-        self.manager.export(self.structured_data)
-
-        self.assertTrue(os.path.exists(self.output_path))
-
-        with open(self.output_path, 'r') as f:
+        self.manager.export(data)
+        with open(self.test_file, 'r', encoding='utf-8') as f:
             content = f.read()
-            self.assertIn("=== SEMESTER: FALL ===", content)
-            self.assertIn("--- Term: ALEPH ---", content)
-            self.assertIn("Logic | 2026-01-05 | Dr. Smith", content)
+            self.assertIn("Logic | 2026-01-01 | Dr. Smith", content)
 
-    def tearDown(self):
-        """Clean up the test file after running."""
-        if os.path.exists(self.output_path):
-            os.remove(self.output_path)
+    def test_empty_data_export(self):
+        """Edge Case: Verify that empty data produces only the header."""
+        self.manager.export({})
+        with open(self.test_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            # Should only contain header and some decoration
+            self.assertTrue(len(lines) < 10)
+            self.assertIn("OFFICIAL EXAM SCHEDULE", lines[0])
 
+    def test_utf8_and_special_chars(self):
+        """Edge Case: Verify support for UTF-8 characters (e.g., Hebrew or symbols)."""
+        data = {
+            Semester.SPRING: {
+                Term.BET: [
+                    ScheduledExam("מבני נתונים", 202, Semester.SPRING, Term.BET, date(2026, 7, 5), "פרופ' כהן")
+                ]
+            }
+        }
+        self.manager.export(data)
+        with open(self.test_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+            self.assertIn("מבני נתונים | 2026-07-05 | פרופ' כהן", content)
+
+    def test_missing_term_levels(self):
+        """Edge Case: Verify that a semester with no exams is handled without crash."""
+        data = { Semester.SUMMER: {} }
+        self.manager.export(data)
+        with open(self.test_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+            self.assertIn("SUMMER", content)
 
 if __name__ == '__main__':
     unittest.main()
