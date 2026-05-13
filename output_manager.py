@@ -1,16 +1,15 @@
 from typing import Dict, List, Optional
+from pathlib import Path
 from models import ScheduledExam, Semester, Term
 from base_output_manager import BaseOutputManager
-from pathlib import Path
 
 
 class TextOutputManager(BaseOutputManager):
     """
-    Concrete implementation for Plain Text (.txt) files.
+    Concrete implementation for Plain Text (.txt) files using JSON config.
     """
 
     def get_full_path(self) -> Path:
-        """Returns path with .txt extension."""
         return self.base_directory / f"{self.filename}.txt"
 
     def export(self, structured_data: Optional[Dict[Semester, Dict[Term, List[ScheduledExam]]]]) -> str:
@@ -32,10 +31,10 @@ class TextOutputManager(BaseOutputManager):
                         else:
                             for term, exams in terms.items():
                                 f.write(f"\n  [TERM: {term.value}]\n")
-                                f.write("  " + "-" * 35 + "\n")
+                                f.write("  " + "-" * 40 + "\n")
                                 for exam in exams:
                                     f.write(f"  {self.format_exam_line(exam)}\n")
-                        f.write("\n" + "*" * 65 + "\n\n")
+                        f.write("\n" + "*" * 70 + "\n\n")
 
             return str(full_path)
         except Exception as e:
