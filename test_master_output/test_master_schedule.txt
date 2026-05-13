@@ -1,10 +1,8 @@
 OFFICIAL UNIVERSITY MASTER EXAM SCHEDULE
-============================================================
+=================================================================
 
-=== SEMESTER: FALL ===
+=== SEMESTER: SUMMER ===
+  No exam terms defined for this semester
 
-  [TERM: ALEPH]
-  -----------------------------------
-  Advanced C++ & AI-Logic | 2026-01-01 | Dr. O'Neill
 *****************************************************************
 
