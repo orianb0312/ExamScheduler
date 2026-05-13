@@ -16,6 +16,31 @@ class Scheduler:
         self.rules = rules
         self.all_valid_schedules: List[Dict[Course, date]] = []
 
+    def filter_courses_by_programs(
+            self,
+            courses: List[Course],
+            selected_programs: List[str]
+    ) -> List[Course]:
+        """
+        Filters courses based on user-selected study programs.
+        Returns only courses that have at least one matching program affiliation.
+        """
+        if not selected_programs:
+            return []
+
+        selected_set = set(str(p) for p in selected_programs)
+        filtered = []
+
+        for course in courses:
+            if not course.affiliations:
+                continue
+
+            course_programs = {str(aff.program_id) for aff in course.affiliations}
+            if course_programs & selected_set:
+                filtered.append(course)
+
+        return filtered
+
     def run(self, courses: List[Course], period: ExamPeriod) -> List[Dict[Course, date]]:
         """
         מריץ את אלגוריתם החיפוש ומדפיס דוח ביצועים.
