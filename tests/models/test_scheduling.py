@@ -5,6 +5,7 @@ from src.models.scheduling import filter_exam_courses
 
 
 def _affiliation():
+    # Shared affiliation template for building courses in these tests.
     return ProgramAffiliation(
         program_id=83108,
         year=2,
@@ -14,6 +15,7 @@ def _affiliation():
 
 
 def test_filter_exam_courses_keeps_only_exam_courses():
+    # Mix of exam, project, and attendance — only the exam course stays.
     a = _affiliation()
     c_exam = Course(10001, "Exam Course", "Dr. A", Exam(), [a])
     c_proj = Course(10002, "Project Course", "Dr. B", Project(), [a])
@@ -25,6 +27,7 @@ def test_filter_exam_courses_keeps_only_exam_courses():
 
 
 def test_filter_exam_courses_returns_empty_when_no_exam_courses():
+    # Only project and attendance — nothing to put in an exam schedule.
     a = _affiliation()
     c_proj = Course(10004, "Project Course", "Dr. D", Project(), [a])
     c_att = Course(10005, "Attendance Course", "Dr. E", Attendance(), [a])
@@ -35,6 +38,7 @@ def test_filter_exam_courses_returns_empty_when_no_exam_courses():
 
 
 def test_filter_exam_courses_keeps_all_when_all_are_exam():
+    # Everything is an exam course — list comes through unchanged.
     a = _affiliation()
     c1 = Course(10006, "Exam 1", "Dr. F", Exam(), [a])
     c2 = Course(10007, "Exam 2", "Dr. G", Exam(), [a])
@@ -45,6 +49,7 @@ def test_filter_exam_courses_keeps_all_when_all_are_exam():
 
 
 def test_filter_exam_courses_preserves_original_order():
+    # Skip the middle project row; exam rows stay in their original order.
     a = _affiliation()
     c1 = Course(10008, "Exam A", "Dr. H", Exam(), [a])
     c2 = Course(10009, "Project", "Dr. I", Project(), [a])
@@ -55,9 +60,11 @@ def test_filter_exam_courses_preserves_original_order():
     assert result == [c1, c3]
 
 def test_filter_exam_courses_empty_input_returns_empty():
+    # Empty input should give an empty list back.
     assert filter_exam_courses([]) == []
 
 def test_filter_exam_courses_does_not_mutate_input_list():
+    # Don't touch the caller's list; return a new one.
     a = _affiliation()
     c1 = Course(20001, "Exam", "Dr. X", Exam(), [a])
     c2 = Course(20002, "Project", "Dr. Y", Project(), [a])
@@ -69,6 +76,7 @@ def test_filter_exam_courses_does_not_mutate_input_list():
     assert result == [c1]
 
 def test_filter_exam_courses_affiliations_not_required_for_filtering():
+    """No affiliations on the courses — filtering still goes off evaluation type only."""
     c_exam = Course(20003, "Exam no aff", "Dr. Z", Exam(), [])
     c_proj = Course(20004, "Proj no aff", "Dr. W", Project(), [])
 
