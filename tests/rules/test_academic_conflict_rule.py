@@ -2,7 +2,7 @@ import pytest
 from datetime import date
 from src.models.academic import Course, ProgramAffiliation, Exam
 from src.models.enums import Semester, RequirementType
-from src.rules.academic_conflict_rule import AcademicConflictRule
+from src.rules.academic_conflict_rule_m import AcademicConflictRule
 
 @pytest.fixture
 def conflict_rule():

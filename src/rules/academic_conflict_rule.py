@@ -1,62 +1,42 @@
 from datetime import date
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from src.interfaces import ISchedulingRule
 from src.models.academic import Course, ProgramAffiliation
 from src.models.enums import RequirementType
 
+
 class AcademicConflictRule(ISchedulingRule):
     """
-    Implements the core Version 1.0 academic conflict rule:
-    No two exams belonging to the same program AND same year may be
-    scheduled on the same date, UNLESS both courses are Elective in
-    that shared program/year combination.
+    מממש את חוק גרסה 1.0: אין לשבץ שתי בחינות מאותה שנה ובאותה תוכנית באותו יום,
+    אלא אם שתי הבחינות הן של קורסי בחירה[cite: 27].
     """
 
     def is_valid(self, attempt_state: Dict[Course, date]) -> bool:
-        """
-        Checks all scheduled course pairs for critical conflicts.
-        Returns False as soon as a conflict is found (fail-fast).
-        """
-        scheduled_courses = list(attempt_state.keys())
+        # בדיקה רק עבור הקורסים ששובצו באותו תאריך בדיוק
+        dates_to_courses = {}
+        for course, exam_date in attempt_state.items():
+            if exam_date not in dates_to_courses:
+                dates_to_courses[exam_date] = []
+            dates_to_courses[exam_date].append(course)
 
-        for i in range(len(scheduled_courses)):
-            for j in range(i + 1, len(scheduled_courses)):
-                course1 = scheduled_courses[i]
-                course2 = scheduled_courses[j]
+        for exam_date, courses in dates_to_courses.items():
+            if len(courses) < 2:
+                continue
 
-                if attempt_state[course1] == attempt_state[course2]:
-                    if self._courses_have_critical_conflict(course1, course2):
+            # בדיקת כל זוג קורסים שמשובצים באותו יום
+            for i in range(len(courses)):
+                for j in range(i + 1, len(courses)):
+                    if self._has_critical_conflict(courses[i], courses[j]):
                         return False
-
         return True
 
-    def _courses_have_critical_conflict(
-        self, course1: Course, course2: Course
-    ) -> bool:
-        """
-        Returns True if any shared (program, year) affiliation pair
-        constitutes a critical conflict.
-
-        A conflict is critical when at least one of the two courses
-        is Obligatory in the shared program/year — i.e., the only
-        allowed same-day case is when BOTH are Elective.
-        """
-        for affil1 in course1.affiliations:
-            for affil2 in course2.affiliations:
-                if self._share_program_and_year(affil1, affil2):
-                    if not self._both_elective(affil1, affil2):
-                        return True  # Critical conflict found
+    def _has_critical_conflict(self, c1: Course, c2: Course) -> bool:
+        for aff1 in c1.affiliations:
+            for aff2 in c2.affiliations:
+                # בדיקה אם הם באותה תוכנית ובאותה שנה [cite: 27, 59]
+                if aff1.program_id == aff2.program_id and aff1.year == aff2.year:
+                    # התנגשות קריטית קיימת אם לפחות אחד מהם הוא חובה [cite: 27]
+                    if (aff1.requirement_type == RequirementType.OBLIGATORY or
+                            aff2.requirement_type == RequirementType.OBLIGATORY):
+                        return True
         return False
-    
-    @staticmethod
-    def _share_program_and_year(affil1: ProgramAffiliation, affil2: ProgramAffiliation) -> bool:
-        """Returns True if both affiliations belong to the same program and year."""
-        return affil1.program_id == affil2.program_id and affil1.year == affil2.year
-
-    @staticmethod
-    def _both_elective(affil1: ProgramAffiliation, affil2: ProgramAffiliation) -> bool:
-        """Returns True only if both affiliations are Elective (the allowed exception)."""
-        return (
-            affil1.requirement_type == RequirementType.ELECTIVE
-            and affil2.requirement_type == RequirementType.ELECTIVE
-        )

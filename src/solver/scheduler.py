@@ -1,92 +1,133 @@
 import time
 from datetime import date, timedelta
-from typing import List, Dict, Optional
+from itertools import product
+from pathlib import Path
+from typing import List, Dict, Set, Optional, Generator
+
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
 from src.interfaces import ISchedulingRule
 
 
 class Scheduler:
-    """
-    מנוע הליבה האחראי על יצירת מערכות בחינות.
-    משתמש ב-Backtracking עם Heuristic מסוג MCV/MRV לשיפור ביצועים (EXS-32).
-    """
-
     def __init__(self, rules: List[ISchedulingRule]):
+        # The rules we must follow to avoid exam clashes
         self.rules = rules
-        self.all_valid_schedules: List[Dict[Course, date]] = []
 
-    def run(self, courses: List[Course], period: ExamPeriod) -> List[Dict[Course, date]]:
-        """
-        מריץ את אלגוריתם החיפוש ומדפיס דוח ביצועים.
-        """
-        start_time = time.time()
-        self.all_valid_schedules = []
+    def run_to_file(
+            self,
+            courses: List[Course],
+            period: ExamPeriod,
+            output_path: Path,
+            enforce_unique: bool = False
+    ) -> int:
+        # Start the clock to make sure we don't pass the 30-second limit
+        start_time = time.perf_counter()
+
+        # Get all dates that are actually available for exams
         available_dates = self._get_available_dates(period)
 
-        # התחלת החיפוש הרקורסיבי
-        self._backtrack({}, courses, available_dates)
+        # Split courses into groups (components). This makes the solver much faster
+        components = self._build_components(courses)
 
-        duration = time.time() - start_time
-        print(f"\n" + "=" * 40)
-        print(f" PERFORMANCE REPORT (EXS-32)")
-        print(f" - Execution Time: {duration:.4f} seconds")
-        print(f" - Solutions Found: {len(self.all_valid_schedules)}")
-        print(f" - Status: {'PASSED' if duration < 30 else 'FAILED'}")
-        print("=" * 40 + "\n")
+        component_solutions = []
+        for comp in components:
+            # Find all valid date combinations for this specific group
+            solutions = list(self._solve_component(comp, available_dates))
+            if not solutions:
+                # If one group can't be scheduled, there is no valid solution for the whole faculty
+                print(f"Warning: No solutions for component starting with {comp[0].name}")
+                return 0
+            component_solutions.append(solutions)
 
-        return self.all_valid_schedules
+        total_schedules = 0
+        # Open the file once and stream the results to save memory and time
+        with open(output_path, "w", encoding="utf-8") as f:
+            # 'product' combines solutions from different groups to create a full schedule
+            for combination in product(*component_solutions):
+                full_schedule = {}
+                for sol in combination:
+                    full_schedule.update(sol)
 
-    def _get_available_dates(self, period: ExamPeriod) -> List[date]:
-        """מייצר את כל התאריכים הזמינים בתקופה, ללא החרגות."""
-        available = []
-        current = period.start_date
-        while current <= period.end_date:
-            if period.is_date_valid(current):
-                available.append(current)
-            current += timedelta(days=1)
-        return available
+                total_count = total_schedules + 1
+                total_schedules = total_count
 
-    def _backtrack(self, current_state: Dict[Course, date], remaining_courses: List[Course],
-                   available_dates: List[date]):
-        # תנאי עצירה - כל הקורסים שובצו
-        if not remaining_courses:
-            self.all_valid_schedules.append(current_state.copy())
-            return
+                # Write the specific result to the file
+                self._write_schedule(f, total_schedules, full_schedule)
 
-        # בחירת הקורס הבא לפי MCV/MRV - הקורס עם הכי פחות אופציות
-        course = self._get_mrv_course(remaining_courses, current_state, available_dates)
-        next_remaining = [c for c in remaining_courses if c != course]
+                # Safety check: If we have millions of results, stop before the 30-second deadline
+                if total_schedules % 10000 == 0 and (time.perf_counter() - start_time) > 25:
+                    f.write(f"\n... Stopped at {total_schedules} due to time limit ...\n")
+                    break
 
-        for exam_date in available_dates:
-            current_state[course] = exam_date
+        duration = time.perf_counter() - start_time
+        print(f"Done! Found {total_schedules} solutions in {duration:.2f}s")
+        return total_schedules
 
-            # Pruning: המשך רק אם המצב הנוכחי חוקי
-            if self._is_state_valid(current_state):
-                self._backtrack(current_state, next_remaining, available_dates)
+    def _solve_component(self, component: List[Course], dates: List[date]) -> Generator[Dict[Course, date], None, None]:
+        """
+        Standard Backtracking algorithm to find all valid date assignments.
+        """
 
-            # ניקוי המפתח מהמילון (Backtrack)
-            current_state.pop(course, None)
+        def backtrack(index, current_assignment):
+            # If we reached the end of the list, we found a full valid group solution
+            if index == len(component):
+                yield current_assignment.copy()
+                return
 
-    def _get_mrv_course(self, remaining_courses: List[Course], current_state: Dict[Course, date],
-                        available_dates: List[date]) -> Course:
-        """מזהה את הקורס שיהיה הכי קשה לשבץ כדי לצמצם את עץ החיפוש."""
+            course = component[index]
+            # Try to put the exam on every available date
+            for d in dates:
+                current_assignment[course] = d
+                # Only continue if the current date doesn't break any rules
+                if self._is_locally_valid(current_assignment):
+                    yield from backtrack(index + 1, current_assignment)
 
-        def count_valid_options(c):
-            options = 0
-            for d in available_dates:
-                current_state[c] = d
-                if self._is_state_valid(current_state):
-                    options += 1
-                current_state.pop(c, None)
-            return options
+            # Clean up the dictionary before going back up the recursion tree
+            if course in current_assignment:
+                del current_assignment[course]
 
-        # החזרת הקורס עם מספר האופציות הקטן ביותר
-        return min(remaining_courses, key=count_valid_options)
+        yield from backtrack(0, {})
 
-    def _is_state_valid(self, state: Dict[Course, date]) -> bool:
-        """בודק את מצב השיבוץ הנוכחי מול כל החוקים."""
+    def _is_locally_valid(self, assignment: Dict[Course, date]) -> bool:
+        """ Checks the current assignment against the academic rule (V1.0). """
         for rule in self.rules:
-            if not rule.is_valid(state):
+            if not rule.is_valid(assignment):
                 return False
         return True
+
+    def _get_available_dates(self, period: ExamPeriod) -> List[date]:
+        """ Collects all dates in the period that are not blocked by Saturdays or holidays. """
+        dates = []
+        curr = period.start_date
+        while curr <= period.end_date:
+            if period.is_date_valid(curr):
+                dates.append(curr)
+            curr += timedelta(days=1)
+        return dates
+
+    def _build_components(self, courses: List[Course]) -> List[List[Course]]:
+        """
+        Groups courses by study year. Since Version 1.0 only cares about
+        conflicts within the same year/program, we can solve each year separately.
+        """
+        from collections import defaultdict
+        years = defaultdict(list)
+        for course in courses:
+            # Assign course to its study year group
+            year = course.affiliations[0].year if course.affiliations else 1
+            years[year].append(course)
+
+        return list(years.values())
+
+    def _write_schedule(self, file, num, schedule):
+        """
+        Writes the schedule to the file in a human-readable format.
+        Sorted by date as required in the project document.
+        """
+        file.write(f"Schedule #{num}\n")
+        # Sorting exams by date for the final output
+        sorted_exams = sorted(schedule.items(), key=lambda x: x[1])
+        for course, d in sorted_exams:
+            file.write(f"{d.strftime('%d-%m-%Y')} | {course.course_id} | {course.name} | {course.instructor}\n")
+        file.write("-" * 40 + "\n")

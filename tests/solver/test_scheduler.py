@@ -4,7 +4,7 @@ from src.models.enums import Semester, Term, RequirementType
 from src.models.academic import Course, ProgramAffiliation, Exam
 from src.models.scheduling import ExamPeriod, DateExclusion
 from src.solver.scheduler import Scheduler
-from src.rules.academic_conflict_rule import AcademicConflictRule
+from src.rules.academic_conflict_rule_m import AcademicConflictRule
 
 
 @pytest.fixture
