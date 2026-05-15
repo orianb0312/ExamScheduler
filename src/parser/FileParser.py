@@ -27,7 +27,7 @@ import json
 import re
 from datetime import datetime
 
-from IParser import (
+from src.parser.IParser import (
     IParser,
     VALID_YEARS,
     VALID_SEMESTERS,

@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from base_factory import BaseFactory
+from src.parser.base_factory import BaseFactory
 from scheduling import ExamPeriod, DateExclusion
 from enums import Semester, Term
 

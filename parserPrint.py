@@ -7,10 +7,10 @@ Loads parsed JSON data, builds domain objects, and prints them.
 import json
 import os
 
-from IParser import IParser
-from FileParser import FileParser
-from course_factory import build_courses_from_json
-from period_factory import build_periods_from_json
+from src.parser.IParser import IParser
+from src.parser.FileParser import FileParser
+from src.parser.course_factory import build_courses_from_json
+from src.parser.period_factory import build_periods_from_json
 from scheduling import ExamPeriod
 from academic import Course
 

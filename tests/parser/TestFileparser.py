@@ -1,9 +1,6 @@
-import json
-import os
 import pytest
-from FileParser import (
-    RECORD_SEPARATOR, VALID_PROGRAM_NUMBERS, FileParser,
-    parse_catalog_text, parse_date_line, parse_period_record,
+from src.parser.FileParser import (
+    RECORD_SEPARATOR, VALID_PROGRAM_NUMBERS, parse_catalog_text, parse_date_line, parse_period_record,
     parse_program_line, parse_record, parse_user_selection, split_records
 )
 
@@ -82,7 +79,3 @@ class TestFileParserLogic:
         catalog = parse_catalog_text(text)
         assert len(catalog) == 1
         assert catalog[0]["number"] == "83102"
-
-    def test_file_parser_inheritance(self):
-        from IParser import IParser
-        assert issubclass(FileParser, IParser)

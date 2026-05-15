@@ -1,4 +1,4 @@
-from base_factory import BaseFactory
+from src.parser.base_factory import BaseFactory
 from academic import (
     Course, ProgramAffiliation, Exam, Project, Attendance,
     Semester, RequirementType
