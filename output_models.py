@@ -3,20 +3,14 @@ from datetime import date
 from enum import Enum
 
 class Semester(Enum):
-    """
-    Represents the academic semesters in the Israeli university system.
-    """
     FALL = "FALL"
-    SPRING = "SPRING"
-    SUMMER = "SUMMER"
+    SPRING = "SPRI"  # Adjusted from SPRING to SPRI to match source enums
+    SUMMER = "SUMM"  # Adjusted from SUMMER to SUMM
 
 class Term(Enum):
-    """
-    Represents the specific exam period (Moed).
-    """
-    ALEPH = "ALEPH"
-    BET = "BET"
-    GIMEL = "GIMEL"
+    ALEPH = "Aleph"  # Adjusted from ALEPH to Aleph
+    BET = "Bet"      # Adjusted from BET to Bet
+    GIMEL = "Gimel"  # Adjusted from GIMEL to Gimel
 
 @dataclass
 class ScheduledExam:

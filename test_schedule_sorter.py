@@ -1,6 +1,6 @@
 import unittest
 from datetime import date
-from models import ScheduledExam, Semester, Term
+from output_models import ScheduledExam, Semester, Term
 from schedule_sorter import ScheduleSorter
 
 

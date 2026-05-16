@@ -1,8 +1,8 @@
 from src.parser.base_factory import BaseFactory
-from academic import (
-    Course, ProgramAffiliation, Exam, Project, Attendance,
-    Semester, RequirementType
+from src.models.academic import (
+    Course, ProgramAffiliation, Exam, Project, Attendance
 )
+from src.models.enums import Semester, RequirementType
 
 EVALUATION_MAP = {
     "Exam":       Exam(),

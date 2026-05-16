@@ -1,6 +1,6 @@
 from collections import defaultdict
 from typing import List, Dict, Optional
-from models import ScheduledExam, Semester, Term
+from output_models import ScheduledExam, Semester, Term
 
 class ScheduleSorter:
     """

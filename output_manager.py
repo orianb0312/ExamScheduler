@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
 from pathlib import Path
-from models import ScheduledExam, Semester, Term
+from output_models import ScheduledExam, Semester, Term
 from base_output_manager import BaseOutputManager
 
 

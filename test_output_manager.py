@@ -4,7 +4,7 @@ import json
 import shutil
 from pathlib import Path
 from datetime import date
-from models import ScheduledExam, Semester, Term
+from output_models import ScheduledExam, Semester, Term
 from output_manager import TextOutputManager
 
 

@@ -1,7 +1,7 @@
 from datetime import datetime, date
 from src.parser.base_factory import BaseFactory
-from scheduling import ExamPeriod, DateExclusion
-from enums import Semester, Term
+from src.models.scheduling import ExamPeriod, DateExclusion
+from src.models.enums import Semester, Term
 
 SEMESTER_MAP = {
     "FALL": Semester.FALL,
