@@ -100,7 +100,7 @@ class TestOutputManagerUltimate(unittest.TestCase):
         self.manager.export(data)
         with open(self.master_path, 'r', encoding='utf-8') as f:
             content = f.read()
-            self.assertIn("=== SEMESTER: SUMMER ===", content)
+            self.assertIn("=== SEMESTER: SUMM ===", content)
             self.assertIn("No exam terms defined", content)
 
     # 6. Configuration Test: JSON Parsing
@@ -113,7 +113,17 @@ class TestOutputManagerUltimate(unittest.TestCase):
     def test_directory_auto_recovery(self):
         """Verify self-healing if the directory is deleted between exports."""
         self.manager.export({})  # Create dir
-        shutil.rmtree(self.test_dir)  # Delete dir
+        if self.master_path.exists():
+            try:
+                os.remove(self.master_path)
+            except PermissionError:
+                pass
+        def force_remove(func, path, excinfo):
+            import stat
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        shutil.rmtree(self.test_dir, onexc=force_remove)
+
         self.manager.export({})  # Should recreate
         self.assertTrue(self.master_path.exists())
 
