@@ -1,5 +1,5 @@
 """
-FileParser.py
+file_parser.py
 -------------
 Concrete IParser that reads course, period, and user-selection data
 from plain-text files.
@@ -127,7 +127,24 @@ def parse_record(record_text: str) -> dict:
 
 def parse_catalog_text(text: str) -> list[dict]:
     """Parse full courses-file text into a list of course dicts."""
-    return [parse_record(r) for r in split_records(text)]
+    courses = [parse_record(r) for r in split_records(text)]
+    _validate_unique_course_numbers(courses)
+    return courses
+
+
+def _validate_unique_course_numbers(courses: list[dict]) -> None:
+    seen = set()
+    duplicates = []
+
+    for course in courses:
+        number = course["number"]
+        if number in seen:
+            duplicates.append(number)
+        seen.add(number)
+
+    if duplicates:
+        duplicate_list = ", ".join(sorted(set(duplicates)))
+        raise ValueError(f"Duplicate course number(s): {duplicate_list}")
 
 
 # ===========================================================================
@@ -254,6 +271,8 @@ def parse_user_selection(text: str) -> list[str]:
         raise ValueError("User selection file is empty – at least one program required.")
     if len(numbers) > 5:
         raise ValueError(f"Too many programs selected ({len(numbers)}); maximum is 5.")
+    if len(set(numbers)) != len(numbers):
+        raise ValueError("Duplicate program selections are not allowed.")
 
     for num in numbers:
         if not PROGRAM_NUMBER_PATTERN.match(num):

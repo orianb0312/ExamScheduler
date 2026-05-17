@@ -28,7 +28,7 @@ Dr. Gal Amram
 Exam
 $$$$
 Digital Systems
-83102
+83120
 Prof. Weiss
 83102,1,FALL,Obligatory
 Exam

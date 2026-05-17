@@ -1,14 +1,14 @@
 import time
 from datetime import date, timedelta
 from itertools import product
-from typing import List, Dict, Optional, Generator
+from typing import List, Dict, Generator
 
-from output_models import ScheduledExam, Semester, Term
+from output.output_models import ScheduledExam, Semester, Term
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
 from src.interfaces import ISchedulingRule
 from schedule_sorter import ScheduleSorter
-from output_manager import TextOutputManager
+from src.output.output_manager import TextOutputManager
 
 
 class Scheduler:

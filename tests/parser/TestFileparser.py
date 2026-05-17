@@ -1,5 +1,5 @@
 import pytest
-from src.parser.FileParser import (
+from src.parser.file_parser import (
     RECORD_SEPARATOR, VALID_PROGRAM_NUMBERS, parse_catalog_text, parse_date_line, parse_period_record,
     parse_program_line, parse_record, parse_user_selection, split_records
 )
@@ -68,6 +68,8 @@ def test_parse_user_selection():
     parse_user_selection("83101, 83102, 83103, 83104, 83105")
     with pytest.raises(ValueError):
         parse_user_selection("83101, 83102, 83103, 83104, 83105, 83107")
+    with pytest.raises(ValueError):
+        parse_user_selection("83101, 83101")
 
 # ===========================================================================
 # 4. High-Level Integration (FileParser)
@@ -79,3 +81,10 @@ class TestFileParserLogic:
         catalog = parse_catalog_text(text)
         assert len(catalog) == 1
         assert catalog[0]["number"] == "83102"
+
+    def test_parse_catalog_text_rejects_duplicate_course_numbers(self):
+        duplicate_record = "Digital Systems\n83102\nProf. Weiss\n83102,1,FALL,Obligatory\nExam"
+        text = f"{RECORD_SEPARATOR}\n{VALID_RECORD}\n{RECORD_SEPARATOR}\n{duplicate_record}"
+
+        with pytest.raises(ValueError):
+            parse_catalog_text(text)
