@@ -1,9 +1,9 @@
 {
   "source_type": "file",
   "file": {
-    "course_file": "Courses.txt",
-    "dates_file":  "Dates.txt",
-    "user_file":   "Programs.txt"
+    "course_file": "data/Courses.txt",
+    "dates_file":  "data/Dates.txt",
+    "user_file":   "data/Programs.txt"
   },
   "database": {
     "connection_string": "postgresql://user:pass@localhost/university",
