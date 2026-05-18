@@ -2,7 +2,9 @@ import unittest
 import os
 import json
 import shutil
+import tempfile
 from datetime import date
+from pathlib import Path
 from src.output.output_models import ScheduledExam, Semester, Term
 from src.output.output_manager import TextOutputManager
 
@@ -14,23 +16,25 @@ class TestOutputManagerUltimate(unittest.TestCase):
         1. Creates a temporary JSON config file.
         2. Initializes the manager with this config.
         """
-        self.test_dir = "test_master_output"
-        self.test_config_path = "../../test_config.json"
+        self._tempdir = tempfile.TemporaryDirectory()
+        self.test_dir = Path(self._tempdir.name) / "test_master_output"
+        self.test_config_path = Path(self._tempdir.name) / "test_config.json"
         self.master_filename = "test_master_schedule"
 
-        # Create a temporary config file for the manager to load
         config_data = {
             "output_settings": {
-                "base_directory": self.test_dir,
+                "base_directory": str(self.test_dir),
                 "master_filename": self.master_filename
             }
         }
         with open(self.test_config_path, 'w', encoding='utf-8') as f:
             json.dump(config_data, f)
 
-        self.manager = TextOutputManager(self.test_config_path)
+        self.manager = TextOutputManager(str(self.test_config_path))
         self.master_path = self.manager.get_full_path()
 
+    def tearDown(self):
+        self._tempdir.cleanup()
 
 
     # 1. Functional Test: Line Formatting (Inherited Logic)
@@ -106,7 +110,7 @@ class TestOutputManagerUltimate(unittest.TestCase):
     def test_config_loading_logic(self):
         """Verify the manager correctly loaded settings from the JSON file."""
         self.assertEqual(self.manager.filename, self.master_filename)
-        self.assertTrue(str(self.manager.base_directory).endswith(self.test_dir))
+        self.assertEqual(self.manager.base_directory, self.test_dir.resolve())
 
     # 7. Reliability Test: Directory Recovery
     def test_directory_auto_recovery(self):

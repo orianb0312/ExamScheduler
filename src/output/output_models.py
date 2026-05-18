@@ -1,16 +1,7 @@
 from dataclasses import dataclass
 from datetime import date
-from enum import Enum
+from src.models.enums import Semester, Term
 
-class Semester(Enum):
-    FALL = "FALL"
-    SPRING = "SPRI"  # Adjusted from SPRING to SPRI to match source enums
-    SUMMER = "SUMM"  # Adjusted from SUMMER to SUMM
-
-class Term(Enum):
-    ALEPH = "Aleph"  # Adjusted from ALEPH to Aleph
-    BET = "Bet"      # Adjusted from BET to Bet
-    GIMEL = "Gimel"  # Adjusted from GIMEL to Gimel
 
 @dataclass
 class ScheduledExam:
