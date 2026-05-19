@@ -9,6 +9,8 @@ project.
 - `diagrams.md` - Mermaid diagrams for workflow, use cases, classes, and sequences.
 - `diagram_exports/` - exported SVG, PNG, HTML, and PDF diagram files.
 - `testing_and_validation.md` - test status, validation strategy, and useful commands.
+- `test_specification.md` - formal Version 1.0 test specification and execution results.
+- `ExamScheduler_Test_Specification_v1_0.docx` - Word version of the formal test specification.
 - `organization_plan.md` - current structure notes and recommended cleanup steps.
 
 ## Current Main Entry Point

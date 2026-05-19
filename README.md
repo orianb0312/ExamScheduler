@@ -102,7 +102,7 @@ and study year, unless both courses are electives for that shared cohort.
 Run all tests:
 
 ```powershell
-python -m pytest -q -v -s -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 The test count may change as files are added or removed, so use the pytest
@@ -115,4 +115,6 @@ Detailed documentation is in `docs/`:
 - `docs/project_overview.md`
 - `docs/diagrams.md`
 - `docs/testing_and_validation.md`
+- `docs/test_specification.md`
+- `docs/ExamScheduler_Test_Specification_v1_0.docx`
 - `docs/organization_plan.md`

@@ -5,17 +5,29 @@
 Run from the project root:
 
 ```powershell
-python -m pytest -q -v -s -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 Use the pytest summary as the source of truth for the current number of tests
 and the current runtime.
+
+Current verified result: 62 tests passed in 22.31 seconds.
+
+`pytest.ini` keeps test discovery consistent, including capitalized files such
+as `tests/parser/TestFileparser.py`.
+`tests/conftest.py` gives pytest tests workspace-local temporary directories so
+test output does not depend on Windows user-temp permissions.
 
 ## Why Some Tests Are Slow
 
 The runtime depends on the active input files. If the selected programs and
 course catalog produce many valid schedules, integration tests that write
 period-level output can take several seconds.
+
+The complete-system result space can be much larger than what is practical to
+write to disk. For those cases, `complete-count` reports the exact full count
+and `auto` writes as many complete systems as fit inside the configured time
+budget while still reporting whether the output was truncated.
 
 Use this command to inspect the current scale before running heavier tests:
 
@@ -36,7 +48,7 @@ The tests cover these layers:
 - output manager behavior
 - independent schedule validation
 
-## Important Test Files
+## Important Test And Documentation Files
 
 ```text
 tests/test_workflow.py
@@ -52,6 +64,8 @@ tests/solver/final_test.py
 tests/solver/new_final_test.py
 tests/output/test_output_manager.py
 tests/output/test_schedule_sorter.py
+docs/test_specification.md
+docs/ExamScheduler_Test_Specification_v1_0.docx
 ```
 
 ## Correctness Checks
@@ -65,8 +79,9 @@ The current test suite checks that:
 5. Elective-elective exceptions are allowed.
 6. Duplicate course IDs are rejected by the parser.
 7. Period schedule counts multiply into the complete-system count.
-8. Auto mode reports truncation when not all complete systems are written.
-9. Output files are readable and follow the expected text format.
+8. Complete-system counts are exact, even when full output is too large to write.
+9. Auto mode reports truncation when not all complete systems are written.
+10. Output files are readable and follow the expected text format.
 
 ## Useful Manual Commands
 
@@ -91,5 +106,5 @@ python main.py --mode auto --time-limit 30
 Run only solver tests:
 
 ```powershell
-python -m pytest tests/solver -q -v -s -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests/solver -q
 ```
