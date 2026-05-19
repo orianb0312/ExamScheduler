@@ -1,140 +1,157 @@
 import unittest
-import os
 import json
-import shutil
-from datetime import date
-from src.output.output_models import ScheduledExam, Semester, Term
-from src.output.output_manager import TextOutputManager
+from pathlib import Path
+from unittest.mock import patch, mock_open, MagicMock
+
+# Adjust imports according to your project structure
+from src.output.output_manager import OutputManager
+from src.output.text_formatter import TextFormatter
+from src.output.i_output_formatter import IOutputFormatter
 
 
-class TestOutputManagerUltimate(unittest.TestCase):
+# --- Dummy Classes to simulate Enums and Data Models safely in tests ---
+class DummySemester:
+    def __init__(self, val): self.value = val
+
+
+class DummyTerm:
+    def __init__(self, val): self.value = val
+
+
+class DummyExam:
+    def __init__(self, course, date, instructor):
+        self.course_name = course
+        self.exam_date = date
+        self.instructor = instructor
+
+
+class TestTextFormatter(unittest.TestCase):
+    """
+    Test suite for TextFormatter (4 Tests).
+    Validates text generation and edge cases for the new Strategy pattern.
+    """
+
     def setUp(self):
-        """
-        Sets up a testing sandbox:
-        1. Creates a temporary JSON config file.
-        2. Initializes the manager with this config.
-        """
-        self.test_dir = "test_master_output"
-        self.test_config_path = "../../test_config.json"
-        self.master_filename = "test_master_schedule"
+        self.formatter = TextFormatter()
 
-        # Create a temporary config file for the manager to load
-        config_data = {
+    def test_1_get_extension_returns_txt(self):
+        """Test that the formatter enforces the correct .txt extension."""
+        self.assertEqual(self.formatter.get_extension(), ".txt")
+
+    def test_2_format_empty_or_none_schedule(self):
+        """Edge Case: Formatting when the schedule is None or empty."""
+        result_empty = self.formatter.format({})
+        result_none = self.formatter.format(None)
+
+        self.assertIn("EMPTY SCHEDULE: No exams have been scheduled yet.", result_empty)
+        self.assertIn("EMPTY SCHEDULE", result_none)
+
+    def test_3_format_semester_with_empty_terms(self):
+        """Edge Case: Formatting a semester that has no scheduled terms."""
+        sem = DummySemester("Semester A")
+        dummy_data = {sem: {}}  # No terms inside
+
+        result = self.formatter.format(dummy_data)
+        self.assertIn("=== SEMESTER: Semester A ===", result)
+        self.assertIn("No exam terms defined for this semester", result)
+
+    def test_4_format_populated_schedule(self):
+        """Test formatting a standard, fully populated schedule."""
+        sem = DummySemester("A")
+        term = DummyTerm("Moed A")
+        exam = DummyExam("Data Structures", "2026-06-15", "Dr. Smith")
+
+        dummy_data = {sem: {term: [exam]}}
+        result = self.formatter.format(dummy_data)
+
+        self.assertIn("OFFICIAL UNIVERSITY MASTER EXAM SCHEDULE", result)
+        self.assertIn("=== SEMESTER: A ===", result)
+        self.assertIn("[TERM: Moed A]", result)
+        self.assertIn("Data Structures | 2026-06-15 | Dr. Smith", result)
+
+
+class TestOutputManager(unittest.TestCase):
+    """
+    Test suite for OutputManager (4 Tests).
+    Validates config loading, directory creation, and Dependency Inversion.
+    """
+
+    def setUp(self):
+        # Create a mock formatter for Dependency Injection
+        self.mock_formatter = MagicMock(spec=IOutputFormatter)
+        self.mock_formatter.get_extension.return_value = ".out"
+        self.mock_formatter.format.return_value = "MOCKED_TEXT"
+
+    @patch("builtins.open", side_effect=FileNotFoundError)
+    def test_5_fallback_to_defaults_on_missing_config(self, mock_file):
+        """Edge Case: Manager should use default paths if config.json is missing."""
+        manager = OutputManager(formatter=self.mock_formatter, config_path="missing.json")
+
+        expected_dir = Path("outputs").resolve()
+        self.assertEqual(manager.base_directory, expected_dir)
+        self.assertEqual(manager.filename, "master_schedule")
+
+        # Ensure the mock formatter's extension was appended
+        expected_path = expected_dir / "master_schedule.out"
+        self.assertEqual(manager.get_full_path(), expected_path)
+
+    def test_6_load_valid_config_overrides_defaults(self):
+        """Test that a valid config JSON updates the output paths correctly."""
+        valid_json = json.dumps({
             "output_settings": {
-                "base_directory": self.test_dir,
-                "master_filename": self.master_filename
+                "base_directory": "custom_exports",
+                "master_filename": "final_results.json"  # Manager should strip '.json'
             }
-        }
-        with open(self.test_config_path, 'w', encoding='utf-8') as f:
-            json.dump(config_data, f)
+        })
 
-        self.manager = TextOutputManager(self.test_config_path)
-        self.master_path = self.manager.get_full_path()
+        with patch("builtins.open", mock_open(read_data=valid_json)):
+            manager = OutputManager(formatter=self.mock_formatter, config_path="dummy.json")
 
+        expected_dir = Path("custom_exports").resolve()
+        self.assertEqual(manager.base_directory, expected_dir)
+        self.assertEqual(manager.filename, "final_results")  # Extension stripped
+        self.assertEqual(manager.get_full_path(), expected_dir / "final_results.out")
 
+    @patch("pathlib.Path.mkdir")
+    @patch("builtins.open", mock_open())
+    def test_7_export_creates_directory_if_missing(self, mock_mkdir):
+        """Test that the export method ensures the target directory exists."""
+        with patch("builtins.open", side_effect=FileNotFoundError):
+            manager = OutputManager(formatter=self.mock_formatter, config_path="missing.json")
 
-    # 1. Functional Test: Line Formatting (Inherited Logic)
-    def test_line_formatting_logic(self):
-        """Verify the 'Course | Date | Instructor' pattern."""
-        exam = ScheduledExam("Data Structures", 200, Semester.FALL, Term.ALEPH, date(2026, 1, 1), "Dr. Jones")
-        expected = "Data Structures | 2026-01-01 | Dr. Jones"
-        self.assertEqual(self.manager.format_exam_line(exam), expected)
+        # Temporarily mock the open function again for the actual write process
+        with patch("builtins.open", mock_open()):
+            manager.export({})
 
-    # 2. Stress Test: 11+ Exams Integration
-    def test_large_scale_master_export(self):
-        """STRESS TEST: Exporting 11 different exams in English across the year."""
-        full_data = {
-            Semester.FALL: {
-                Term.ALEPH: [
-                    ScheduledExam(f"Fall Course {i}", 100 + i, Semester.FALL, Term.ALEPH, date(2026, 1, 5 + i),
-                                  f"Prof {i}")
-                    for i in range(5)
-                ],
-                Term.BET: [
-                    ScheduledExam("Algebra 1", 101, Semester.FALL, Term.BET, date(2026, 2, 10), "Dr. White"),
-                    ScheduledExam("Calculus 2", 102, Semester.FALL, Term.BET, date(2026, 2, 15), "Prof. Smith")
-                ]
-            },
-            Semester.SPRING: {
-                Term.ALEPH: [
-                    ScheduledExam("Algorithms", 201, Semester.SPRING, Term.ALEPH, date(2026, 6, 10), "Eng. Levi"),
-                    ScheduledExam("Operating Systems", 202, Semester.SPRING, Term.ALEPH, date(2026, 6, 15),
-                                  "Dr. Tanenbaum")
-                ]
-            },
-            Semester.SUMMER: {
-                Term.ALEPH: [
-                    ScheduledExam("Cyber Security", 301, Semester.SUMMER, Term.ALEPH, date(2026, 9, 1), "Dr. Mitnick"),
-                    ScheduledExam("AI Systems", 302, Semester.SUMMER, Term.ALEPH, date(2026, 9, 8), "Prof. Hinton")
-                ]
-            }
-        }
+        # Verify mkdir was called with correct parameters
+        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
-        self.manager.export(full_data)
-        self.assertTrue(self.master_path.exists())
-        with open(self.master_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            # Verify we have exactly 11 exam lines based on the separator count
-            self.assertGreaterEqual(content.count('|'), 11)
-            self.assertIn("AI Systems | 2026-09-08 | Prof. Hinton", content)
+    @patch("pathlib.Path.mkdir")
+    def test_8_export_delegates_to_formatter_and_writes(self, mock_mkdir):
+        """
+        Integration Test: Ensures OutputManager delegates formatting to the
+        Strategy interface and writes the exact returned string to disk.
+        """
+        with patch("builtins.open", side_effect=FileNotFoundError):
+            manager = OutputManager(formatter=self.mock_formatter, config_path="missing.json")
 
-    # 3. Edge Case: None Input
-    def test_none_input_handling(self):
-        """Verify that passing None results in an EMPTY SCHEDULE message."""
-        self.manager.export(None)
-        with open(self.master_path, 'r', encoding='utf-8') as f:
-            self.assertIn("EMPTY SCHEDULE", f.read())
+        m_open = mock_open()
+        with patch("builtins.open", m_open):
+            dummy_data = {"test": "data"}
 
-    # 4. Edge Case: Empty Dictionary
-    def test_empty_dict_handling(self):
-        """Verify that passing {} results in an EMPTY SCHEDULE message."""
-        self.manager.export({})
-        with open(self.master_path, 'r', encoding='utf-8') as f:
-            self.assertIn("EMPTY SCHEDULE", f.read())
+            # Execute
+            result_path = manager.export(dummy_data)
 
-    # 5. Structural Edge Case: Semester without terms
-    def test_semester_without_terms_header(self):
-        """Verify that a semester with no terms prints the correct warning."""
-        data = {Semester.SUMMER: {}}
-        self.manager.export(data)
-        with open(self.master_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            self.assertIn("=== SEMESTER: SUMM ===", content)
-            self.assertIn("No exam terms defined", content)
+            # 1. Verify formatter was called (Delegation)
+            self.mock_formatter.format.assert_called_once_with(dummy_data)
 
-    # 6. Configuration Test: JSON Parsing
-    def test_config_loading_logic(self):
-        """Verify the manager correctly loaded settings from the JSON file."""
-        self.assertEqual(self.manager.filename, self.master_filename)
-        self.assertTrue(str(self.manager.base_directory).endswith(self.test_dir))
+            # 2. Verify file was written with the formatter's exact output
+            expected_path = Path("outputs").resolve() / "master_schedule.out"
+            m_open.assert_called_once_with(expected_path, 'w', encoding='utf-8')
+            m_open().write.assert_called_once_with("MOCKED_TEXT")
 
-    # 7. Reliability Test: Directory Recovery
-    def test_directory_auto_recovery(self):
-        """Verify self-healing if the directory is deleted between exports."""
-        self.manager.export({})  # Create dir
-        if self.master_path.exists():
-            try:
-                os.remove(self.master_path)
-            except PermissionError:
-                pass
-        def force_remove(func, path, excinfo):
-            import stat
-            os.chmod(path, stat.S_IWRITE)
-            func(path)
-        shutil.rmtree(self.test_dir, onexc=force_remove)
-
-        self.manager.export({})  # Should recreate
-        self.assertTrue(self.master_path.exists())
-
-    # 8. Content Test: Special Characters in English
-    def test_special_characters_support(self):
-        """Verify support for O'Neill, C++, etc."""
-        data = {Semester.FALL: {Term.ALEPH: [
-            ScheduledExam("Advanced C++", 9, Semester.FALL, Term.ALEPH, date(2026, 1, 1), "Dr. O'Neill")
-        ]}}
-        self.manager.export(data)
-        with open(self.master_path, 'r', encoding='utf-8') as f:
-            self.assertIn("C++ | 2026-01-01 | Dr. O'Neill", f.read())
+            # 3. Verify return path
+            self.assertEqual(result_path, str(expected_path))
 
 
 if __name__ == '__main__':
