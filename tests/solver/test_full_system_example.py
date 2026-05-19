@@ -1,10 +1,10 @@
+import json
+import re
+import time
 from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import islice
 from pathlib import Path
-import json
-import re
-import time
 
 import pytest
 
@@ -16,7 +16,6 @@ from src.workflow import (
     run_complete_auto_workflow,
     run_complete_count_workflow,
 )
-
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
@@ -60,9 +59,16 @@ def example_system(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp("full_system_example")
     output_dir = tmp_path / "output"
     output_config = tmp_path / "output_config.json"
+
     output_config.write_text(
         json.dumps(
             {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(DEFAULT_COURSES_PATH),
+                    "dates_file": str(DEFAULT_EXAM_PERIODS_PATH),
+                    "user_file": str(DEFAULT_PROGRAMS_PATH),
+                },
                 "output_settings": {
                     "base_directory": str(output_dir),
                     "master_filename": "exam_schedules",
@@ -72,11 +78,13 @@ def example_system(tmp_path_factory):
         encoding="utf-8",
     )
 
-    courses, exam_periods, selected_programs = load_domain_data(
-        DEFAULT_COURSES_PATH,
-        DEFAULT_EXAM_PERIODS_PATH,
-        DEFAULT_PROGRAMS_PATH,
-    )
+    source_config = {
+        "course_file": str(DEFAULT_COURSES_PATH),
+        "dates_file": str(DEFAULT_EXAM_PERIODS_PATH),
+        "user_file": str(DEFAULT_PROGRAMS_PATH),
+    }
+
+    courses, exam_periods, selected_programs = load_domain_data(source_config)
 
     relevant_courses = []
     for period in exam_periods:
@@ -85,18 +93,19 @@ def example_system(tmp_path_factory):
                 relevant_courses.append(course)
 
     count_result = run_complete_count_workflow(
-        DEFAULT_COURSES_PATH,
-        DEFAULT_EXAM_PERIODS_PATH,
-        DEFAULT_PROGRAMS_PATH,
+        output_config=output_config,
+        course_file=DEFAULT_COURSES_PATH,
+        dates_file=DEFAULT_EXAM_PERIODS_PATH,
+        user_file=DEFAULT_PROGRAMS_PATH,
     )
 
     started_at = time.perf_counter()
     result = run_complete_auto_workflow(
-        DEFAULT_COURSES_PATH,
-        DEFAULT_EXAM_PERIODS_PATH,
-        DEFAULT_PROGRAMS_PATH,
-        output_config,
+        output_config=output_config,
         time_limit_seconds=AUTO_TEST_TIME_LIMIT_SECONDS,
+        course_file=DEFAULT_COURSES_PATH,
+        dates_file=DEFAULT_EXAM_PERIODS_PATH,
+        user_file=DEFAULT_PROGRAMS_PATH,
     )
     elapsed = time.perf_counter() - started_at
 
@@ -212,8 +221,8 @@ def test_full_system_counts_match_current_example_files(example_system):
     assert example_system.result.complete_system_count == example_system.count_result.complete_system_count
     assert 0 <= example_system.result.written_system_count <= example_system.result.complete_system_count
     assert example_system.result.truncated == (
-        example_system.result.written_system_count
-        < example_system.result.complete_system_count
+            example_system.result.written_system_count
+            < example_system.result.complete_system_count
     )
 
 
@@ -243,8 +252,8 @@ def test_full_system_output_format_is_readable_and_valid(example_system):
 
     assert output.count("Complete System #") == example_system.result.written_system_count
     assert len(exam_lines) == (
-        example_system.result.written_system_count
-        * sum(example_system.result.period_course_counts)
+            example_system.result.written_system_count
+            * sum(example_system.result.period_course_counts)
     )
 
     for line in exam_lines:
