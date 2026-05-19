@@ -1,4 +1,10 @@
 {
+  "source_type": "file",
+  "file": {
+    "course_file": "data/V1.0CourseDB.txt",
+    "dates_file": "data/V1.0 ExamDates.txt",
+    "user_file": "data/Programs.txt"
+  },
   "output_settings": {
     "base_directory": "outputs",
     "master_filename": "university_master_schedule"

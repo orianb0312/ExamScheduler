@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from src.workflow import run_v1_workflow
 
@@ -51,9 +52,17 @@ def test_run_v1_workflow_processes_all_exam_periods(tmp_path):
         encoding="utf-8",
     )
     user_file.write_text("83101", encoding="utf-8")
+
+    # Updated config file structure to include source files under the 'file' configuration block
     output_config.write_text(
         json.dumps(
             {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(course_file),
+                    "dates_file": str(dates_file),
+                    "user_file": str(user_file),
+                },
                 "output_settings": {
                     "base_directory": str(output_dir),
                     "master_filename": "workflow_schedule",
@@ -63,7 +72,13 @@ def test_run_v1_workflow_processes_all_exam_periods(tmp_path):
         encoding="utf-8",
     )
 
-    result = run_v1_workflow(course_file, dates_file, user_file, output_config)
+    # Call using explicit keyword argument structure to line up with the modern signature
+    result = run_v1_workflow(
+        output_config=output_config,
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+    )
 
     assert result.total_schedules == 2
     assert [(period.semester, period.term, period.course_count) for period in result.periods] == [
