@@ -7,12 +7,12 @@ from src.models.enums import RequirementType
 
 class AcademicConflictRule(ISchedulingRule):
     """
-    מממש את חוק גרסה 1.0: אין לשבץ שתי בחינות מאותה שנה ובאותה תוכנית באותו יום,
-    אלא אם שתי הבחינות הן של קורסי בחירה[cite: 27].
+    Implements the version 1.0 rule: Two exams from the same year and in the same program may
+    not be scheduled on the same day, unless both exams are for elective courses.
     """
 
     def is_valid(self, attempt_state: Dict[Course, date]) -> bool:
-        # בדיקה רק עבור הקורסים ששובצו באותו תאריך בדיוק
+        # Check only for courses assigned on the exact same date
         dates_to_courses = {}
         for course, exam_date in attempt_state.items():
             if exam_date not in dates_to_courses:
@@ -23,7 +23,7 @@ class AcademicConflictRule(ISchedulingRule):
             if len(courses) < 2:
                 continue
 
-            # בדיקת כל זוג קורסים שמשובצים באותו יום
+            # Checking each pair of courses that are scheduled on the same day
             for i in range(len(courses)):
                 for j in range(i + 1, len(courses)):
                     if self._has_critical_conflict(courses[i], courses[j]):
@@ -33,9 +33,9 @@ class AcademicConflictRule(ISchedulingRule):
     def _has_critical_conflict(self, c1: Course, c2: Course) -> bool:
         for aff1 in c1.affiliations:
             for aff2 in c2.affiliations:
-                # בדיקה אם הם באותה תוכנית ובאותה שנה [cite: 27, 59]
+                # Checking if they are in the same program in the same year
                 if aff1.program_id == aff2.program_id and aff1.year == aff2.year:
-                    # התנגשות קריטית קיימת אם לפחות אחד מהם הוא חובה [cite: 27]
+                    # A critical conflict exists if at least one of them is mandatory.
                     if (aff1.requirement_type == RequirementType.OBLIGATORY or
                             aff2.requirement_type == RequirementType.OBLIGATORY):
                         return True
