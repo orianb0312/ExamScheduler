@@ -8,6 +8,10 @@ __pycache__/
 
 # Distribution / packaging
 .Python
+.idea/
+/output/
+/outputs/
+/test_master_output/
 build/
 develop-eggs/
 dist/
@@ -49,6 +53,8 @@ coverage.xml
 *.py.cover
 .hypothesis/
 .pytest_cache/
+pytest_tmp/
+.pytest_work/
 cover/
 
 # Translations
@@ -70,6 +76,9 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/rendered_*/
+documentation/
+~$*.docx
 
 # PyBuilder
 .pybuilder/

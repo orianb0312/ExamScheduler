@@ -1,0 +1,34 @@
+$$$$
+Physics 1
+83102
+Prof. O. Some
+83101,1,FALL,Obligatory
+83102,1,FALL,Obligatory
+Exam
+$$$$
+Software Project
+83533
+Dr. Terry Bell
+83101,3,SPRI,Elective
+83108,2,SPRI,Obligatory
+Project
+$$$$
+Calculus 1
+83112
+Dr. Erez Scheiner
+83101,1,FALL,Obligatory
+83102,1,FALL,Obligatory
+Exam
+$$$$
+Data Structures
+83101
+Dr. Gal Amram
+83101,2,FALL,Obligatory
+83108,2,FALL,Obligatory
+Exam
+$$$$
+Digital Systems
+83120
+Prof. Weiss
+83102,1,FALL,Obligatory
+Exam
