@@ -108,3 +108,31 @@ class MainWindow(QMainWindow):
     def _load_stylesheet(self) -> None:
         stylesheet_path = Path(__file__).with_name("styles.qss")
         self.setStyleSheet(stylesheet_path.read_text(encoding="utf-8"))
+
+    def _load_selected_files(self, courses_path: str, exam_dates_path: str) -> None:
+        """
+        Coordinates the file loading process between the UI widget and the background service.
+        Updates the passive UI with success or granular error states.
+        """
+        try:
+            # Attempt to parse and load files using the existing service
+            loaded_data = self._file_loading_service.load_selected_files(
+                courses_path,
+                exam_dates_path,
+            )
+        except FileLoadingError as exc:
+            # Catch expected domain errors (missing files, bad format) and display them clearly
+            self.input_panel.set_data_load_error(str(exc))
+            return
+        except Exception as exc:
+            # Additional safeguard to catch unexpected system panics and prevent silent UI crashes
+            self.input_panel.set_data_load_error(f"Unexpected system error: {str(exc)}")
+            return
+
+        # If successful, inject the extracted counts back into the UI status label
+        self.input_panel.set_data_load_success(
+            loaded_data.course_count,
+            loaded_data.exam_period_count,
+            loaded_data.program_count,
+        )
+
