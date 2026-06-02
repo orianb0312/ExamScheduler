@@ -1,0 +1,83 @@
+"""Main window for the standalone desktop UI."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from PyQt6.QtWidgets import QMainWindow, QStackedWidget
+
+from src.ui.calendar_view import CalendarView
+from src.ui.input_panel import InputPanel
+from src.ui.process_runner import CliRunConfig, ProcessRunner
+from src.ui.stdout_parser import StdoutScheduleParser
+
+
+class MainWindow(QMainWindow):
+    """Coordinate input controls, QProcess execution, and streamed output."""
+
+    def __init__(self, project_root: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("ExamScheduler v2.0")
+        self.resize(1200, 760)
+
+        self._parser = StdoutScheduleParser()
+        self._runner = ProcessRunner(self)
+
+        self.input_panel = InputPanel(project_root=project_root)
+        self.calendar_view = CalendarView()
+        self._stack = QStackedWidget()
+
+        self._build_layout()
+        self._connect_signals()
+        self._load_stylesheet()
+
+    def _build_layout(self) -> None:
+        self._stack.addWidget(self.input_panel)
+        self._stack.addWidget(self.calendar_view)
+        self.setCentralWidget(self._stack)
+
+    def _connect_signals(self) -> None:
+        self.input_panel.run_requested.connect(self._start_cli_run)
+        self.input_panel.cancel_requested.connect(self._runner.cancel)
+        self.calendar_view.back_requested.connect(self._show_input_screen)
+        self._runner.process_started.connect(self._handle_started)
+        self._runner.stdout_received.connect(self._handle_stdout)
+        self._runner.stderr_received.connect(self._handle_stderr)
+        self._runner.process_finished.connect(self._handle_finished)
+        self._runner.process_error.connect(self._handle_error)
+
+    def _start_cli_run(self, config: CliRunConfig) -> None:
+        self._parser.reset()
+        self.calendar_view.clear()
+        self._show_output_screen()
+        self._runner.start(config)
+
+    def _handle_started(self) -> None:
+        self.input_panel.set_running(True)
+        self.calendar_view.set_running(True)
+
+    def _handle_stdout(self, text: str) -> None:
+        self.calendar_view.append_log(text)
+        self.calendar_view.add_systems(self._parser.feed(text))
+
+    def _handle_stderr(self, text: str) -> None:
+        self.calendar_view.append_log(text)
+
+    def _handle_finished(self, exit_code: int, status: str) -> None:
+        self.calendar_view.add_systems(self._parser.flush())
+        self.input_panel.set_running(False)
+        self.calendar_view.set_finished(exit_code, status)
+
+    def _handle_error(self, message: str) -> None:
+        self.input_panel.set_running(False)
+        self.calendar_view.set_error(message)
+
+    def _show_input_screen(self) -> None:
+        self._stack.setCurrentWidget(self.input_panel)
+
+    def _show_output_screen(self) -> None:
+        self._stack.setCurrentWidget(self.calendar_view)
+
+    def _load_stylesheet(self) -> None:
+        stylesheet_path = Path(__file__).with_name("styles.qss")
+        self.setStyleSheet(stylesheet_path.read_text(encoding="utf-8"))

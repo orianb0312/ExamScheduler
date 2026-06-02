@@ -23,6 +23,12 @@ python main.py --mode period
 python main.py --mode auto --time-limit 30
 ```
 
+Standalone PyQt6 desktop entry point:
+
+```powershell
+.\.venv\Scripts\python.exe gui_main.py
+```
+
 The current default input files are:
 
 ```text

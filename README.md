@@ -14,6 +14,12 @@ The project supports:
 
 Run commands from the project root.
 
+Launch the standalone PyQt6 desktop app:
+
+```powershell
+.\.venv\Scripts\python.exe gui_main.py
+```
+
 Count all complete systems without writing them:
 
 ```powershell
