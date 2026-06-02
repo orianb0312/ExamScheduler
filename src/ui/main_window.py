@@ -6,6 +6,11 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget
 
+from src.services.file_loading_service import (
+    FileLoadingError,
+    FileLoadingService,
+    LoadedSchedulerInput,
+)
 from src.ui.calendar_view import CalendarView
 from src.ui.input_panel import InputPanel
 from src.ui.process_runner import CliRunConfig, ProcessRunner
@@ -22,6 +27,7 @@ class MainWindow(QMainWindow):
 
         self._parser = StdoutScheduleParser()
         self._runner = ProcessRunner(self)
+        self._file_loading_service = FileLoadingService()
 
         self.input_panel = InputPanel(project_root=project_root)
         self.calendar_view = CalendarView()
@@ -37,6 +43,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._stack)
 
     def _connect_signals(self) -> None:
+        self.input_panel.data_load_requested.connect(self._load_selected_files)
         self.input_panel.run_requested.connect(self._start_cli_run)
         self.input_panel.cancel_requested.connect(self._runner.cancel)
         self.calendar_view.back_requested.connect(self._show_input_screen)
@@ -45,6 +52,26 @@ class MainWindow(QMainWindow):
         self._runner.stderr_received.connect(self._handle_stderr)
         self._runner.process_finished.connect(self._handle_finished)
         self._runner.process_error.connect(self._handle_error)
+
+    @property
+    def loaded_input_data(self) -> LoadedSchedulerInput | None:
+        return self._file_loading_service.loaded_data
+
+    def _load_selected_files(self, courses_path: str, exam_dates_path: str) -> None:
+        try:
+            loaded_data = self._file_loading_service.load_selected_files(
+                courses_path,
+                exam_dates_path,
+            )
+        except FileLoadingError as exc:
+            self.input_panel.set_data_load_error(str(exc))
+            return
+
+        self.input_panel.set_data_load_success(
+            loaded_data.course_count,
+            loaded_data.exam_period_count,
+            loaded_data.program_count,
+        )
 
     def _start_cli_run(self, config: CliRunConfig) -> None:
         self._parser.reset()

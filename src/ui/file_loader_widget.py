@@ -114,6 +114,18 @@ class FileLoaderWidget(QWidget):
         self.exams_input.setText(path)
         self._validate_inputs()
 
+    def show_load_success(self, course_count: int, period_count: int, program_count: int):
+        self.error_label.setText(
+            f"Loaded {course_count} courses, {period_count} exam periods, "
+            f"and {program_count} study programs."
+        )
+        self.error_label.setVisible(True)
+
+    def show_load_error(self, message: str):
+        self.error_label.setText(f"Error: {message}")
+        self.error_label.setVisible(True)
+        self.load_button.setEnabled(False)
+
     # =======================================================================
     # INTERNAL EVENT LOGIC & VALIDATION INTERCEPTORS
     # =======================================================================

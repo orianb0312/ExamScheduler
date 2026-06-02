@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SRC_DIR = ROOT_DIR / "src"
 UI_DIR = SRC_DIR / "ui"
+SERVICES_DIR = SRC_DIR / "services"
 
 FORBIDDEN_UI_IMPORT_PREFIXES = (
     "src.workflow",
@@ -68,5 +69,16 @@ def test_ui_uses_qprocess_without_threading_imports():
         for token in forbidden_tokens:
             if token in text:
                 violations.append(f"{path.relative_to(ROOT_DIR)} contains {token}")
+
+    assert violations == []
+
+
+def test_file_loading_service_does_not_depend_on_ui_or_pyqt6():
+    violations = []
+
+    for path in _python_files(SERVICES_DIR):
+        for module in _imports_for(path):
+            if module.startswith("src.ui") or module.startswith("PyQt6"):
+                violations.append(f"{path.relative_to(ROOT_DIR)} imports {module}")
 
     assert violations == []

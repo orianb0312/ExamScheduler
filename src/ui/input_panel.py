@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.process_runner import CliRunConfig
 
 
@@ -27,6 +28,7 @@ class InputPanel(QWidget):
 
     run_requested = pyqtSignal(CliRunConfig)
     cancel_requested = pyqtSignal()
+    data_load_requested = pyqtSignal(str, str)
 
     def __init__(self, project_root: Path, parent=None) -> None:
         super().__init__(parent)
@@ -39,6 +41,9 @@ class InputPanel(QWidget):
         self.course_file_edit = self._path_edit(project_root / "data" / "V1.0CourseDB.txt")
         self.dates_file_edit = self._path_edit(project_root / "data" / "V1.0 ExamDates.txt")
         self.user_file_edit = self._path_edit(project_root / "data" / "Programs.txt")
+        self.file_loader = FileLoaderWidget()
+        self.file_loader.set_courses_path(self.course_file_edit.text())
+        self.file_loader.set_exam_dates_path(self.dates_file_edit.text())
         self.period_indexes_edit = QLineEdit()
         self.period_indexes_edit.setPlaceholderText("Optional, e.g. 0,1")
 
@@ -69,6 +74,7 @@ class InputPanel(QWidget):
         title = QLabel("Input Screen")
         title.setObjectName("screenTitle")
         root_layout.addWidget(title)
+        root_layout.addWidget(self.file_loader)
 
         form = QGridLayout()
         form.setHorizontalSpacing(12)
@@ -76,12 +82,10 @@ class InputPanel(QWidget):
         form.setColumnStretch(1, 1)
         self._add_row(form, 0, "Mode", self.mode_combo)
         self._add_row(form, 1, "Config", self._with_browse(self.output_config_edit, "Select config file"))
-        self._add_row(form, 2, "Courses", self._with_browse(self.course_file_edit, "Select courses file"))
-        self._add_row(form, 3, "Exam dates", self._with_browse(self.dates_file_edit, "Select exam dates file"))
-        self._add_row(form, 4, "Programs", self._with_browse(self.user_file_edit, "Select programs file"))
-        self._add_row(form, 5, "Period indexes", self.period_indexes_edit)
-        self._add_row(form, 6, "Max systems", self.max_systems_edit)
-        self._add_row(form, 7, "Auto time limit", self.time_limit_edit)
+        self._add_row(form, 2, "Programs", self._with_browse(self.user_file_edit, "Select programs file"))
+        self._add_row(form, 3, "Period indexes", self.period_indexes_edit)
+        self._add_row(form, 4, "Max systems", self.max_systems_edit)
+        self._add_row(form, 5, "Auto time limit", self.time_limit_edit)
         root_layout.addLayout(form)
 
         actions = QHBoxLayout()
@@ -91,8 +95,25 @@ class InputPanel(QWidget):
         root_layout.addStretch()
 
     def _connect_signals(self) -> None:
+        self.file_loader.load_requested.connect(self._handle_data_load_requested)
         self.run_button.clicked.connect(self._emit_run_requested)
         self.cancel_button.clicked.connect(self.cancel_requested.emit)
+
+    def set_data_load_success(
+        self,
+        course_count: int,
+        period_count: int,
+        program_count: int,
+    ) -> None:
+        self.file_loader.show_load_success(course_count, period_count, program_count)
+
+    def set_data_load_error(self, message: str) -> None:
+        self.file_loader.show_load_error(message)
+
+    def _handle_data_load_requested(self, courses_path: str, exam_dates_path: str) -> None:
+        self.course_file_edit.setText(courses_path)
+        self.dates_file_edit.setText(exam_dates_path)
+        self.data_load_requested.emit(courses_path, exam_dates_path)
 
     def _emit_run_requested(self) -> None:
         try:
