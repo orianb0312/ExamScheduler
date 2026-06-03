@@ -57,20 +57,30 @@ class MainWindow(QMainWindow):
     def loaded_input_data(self) -> LoadedSchedulerInput | None:
         return self._file_loading_service.loaded_data
 
-    def _load_selected_files(self, courses_path: str, exam_dates_path: str) -> None:
+    def _load_selected_files(
+        self,
+        courses_path: str,
+        exam_dates_path: str,
+        course_mode: str,
+        exam_dates_mode: str,
+    ) -> None:
         try:
-            loaded_data = self._file_loading_service.load_selected_files(
+            result = self._file_loading_service.load_selected_files(
                 courses_path,
                 exam_dates_path,
+                course_mode,
+                exam_dates_mode,
             )
         except FileLoadingError as exc:
             self.input_panel.set_data_load_error(str(exc))
             return
 
+        loaded_data = result.loaded_data
         self.input_panel.set_data_load_success(
             loaded_data.course_count,
             loaded_data.exam_period_count,
             loaded_data.program_count,
+            result.message,
         )
 
     def _start_cli_run(self, config: CliRunConfig) -> None:

@@ -1,5 +1,14 @@
 import os
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel, QFileDialog
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 from PyQt6.QtCore import pyqtSignal, Qt
 
 class FileLoaderWidget(QWidget):
@@ -8,7 +17,7 @@ class FileLoaderWidget(QWidget):
     Dispatches targeted state modifications and verification events to support decoupled architecture.
     """
     # Signal emitted when the user triggers the data load sequence
-    load_requested = pyqtSignal(str, str)
+    load_requested = pyqtSignal(str, str, str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,9 +51,19 @@ class FileLoaderWidget(QWidget):
         self.courses_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.courses_btn.clicked.connect(self._browse_courses)
 
+        self.course_replace_button = self._create_mode_button("Replace")
+        self.course_update_button = self._create_mode_button("Update")
+        self.course_mode_group = QButtonGroup(self)
+        self.course_mode_group.setExclusive(True)
+        self.course_mode_group.addButton(self.course_replace_button)
+        self.course_mode_group.addButton(self.course_update_button)
+        self.course_replace_button.setChecked(True)
+
         courses_layout.addWidget(courses_lbl)
         courses_layout.addWidget(self.courses_input)
         courses_layout.addWidget(self.courses_btn)
+        courses_layout.addWidget(self.course_replace_button)
+        courses_layout.addWidget(self.course_update_button)
         main_layout.addLayout(courses_layout)
 
         # -------------------------------------------------------------------
@@ -65,9 +84,19 @@ class FileLoaderWidget(QWidget):
         self.exams_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.exams_btn.clicked.connect(self._browse_exam_dates)
 
+        self.exam_dates_replace_button = self._create_mode_button("Replace")
+        self.exam_dates_update_button = self._create_mode_button("Update")
+        self.exam_dates_mode_group = QButtonGroup(self)
+        self.exam_dates_mode_group.setExclusive(True)
+        self.exam_dates_mode_group.addButton(self.exam_dates_replace_button)
+        self.exam_dates_mode_group.addButton(self.exam_dates_update_button)
+        self.exam_dates_replace_button.setChecked(True)
+
         exams_layout.addWidget(exams_lbl)
         exams_layout.addWidget(self.exams_input)
         exams_layout.addWidget(self.exams_btn)
+        exams_layout.addWidget(self.exam_dates_replace_button)
+        exams_layout.addWidget(self.exam_dates_update_button)
         main_layout.addLayout(exams_layout)
 
         # -------------------------------------------------------------------
@@ -114,9 +143,34 @@ class FileLoaderWidget(QWidget):
         self.exams_input.setText(path)
         self._validate_inputs()
 
-    def show_load_success(self, course_count: int, period_count: int, program_count: int):
+    def get_course_load_mode(self) -> str:
+        return "replace" if self.course_replace_button.isChecked() else "update"
+
+    def set_course_load_mode(self, mode: str):
+        if mode == "replace":
+            self.course_replace_button.setChecked(True)
+        elif mode == "update":
+            self.course_update_button.setChecked(True)
+
+    def get_exam_dates_load_mode(self) -> str:
+        return "replace" if self.exam_dates_replace_button.isChecked() else "update"
+
+    def set_exam_dates_load_mode(self, mode: str):
+        if mode == "replace":
+            self.exam_dates_replace_button.setChecked(True)
+        elif mode == "update":
+            self.exam_dates_update_button.setChecked(True)
+
+    def show_load_success(
+        self,
+        course_count: int,
+        period_count: int,
+        program_count: int,
+        message: str | None = None,
+    ):
         self.error_label.setText(
-            f"Loaded {course_count} courses, {period_count} exam periods, "
+            message
+            or f"Loaded {course_count} courses, {period_count} exam periods, "
             f"and {program_count} study programs."
         )
         self.error_label.setVisible(True)
@@ -141,6 +195,16 @@ class FileLoaderWidget(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Exam Dates File", "", "All Files (*)")
         if file_path:
             self.set_exam_dates_path(file_path)
+
+    @staticmethod
+    def _create_mode_button(label: str) -> QPushButton:
+        button = QPushButton(label)
+        button.setObjectName("modeButton")
+        button.setCheckable(True)
+        button.setFixedWidth(86)
+        button.setMinimumHeight(30)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        return button
 
     def _validate_inputs(self):
         """
@@ -176,4 +240,9 @@ class FileLoaderWidget(QWidget):
 
     def _handle_load_clicked(self):
         """Propagates verified path strings to active listeners upon user dispatch request."""
-        self.load_requested.emit(self.get_courses_path(), self.get_exam_dates_path())
+        self.load_requested.emit(
+            self.get_courses_path(),
+            self.get_exam_dates_path(),
+            self.get_course_load_mode(),
+            self.get_exam_dates_load_mode(),
+        )

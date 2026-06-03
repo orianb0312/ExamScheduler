@@ -46,8 +46,36 @@ QPushButton {
     padding: 6px 10px;
 }
 
+QPushButton:hover {
+    background: #eef2f7;
+}
+
 QPushButton#primaryButton {
     font-weight: 600;
+}
+
+QPushButton#modeButton {
+    background: #f7f9fc;
+    color: #202124;
+    border: 1px solid #aeb4bb;
+    border-radius: 4px;
+    font-weight: 500;
+    padding: 6px 10px;
+}
+
+QPushButton#modeButton:hover {
+    background: #e4e9f2;
+}
+
+QPushButton#modeButton:checked {
+    background: #2f6fed;
+    color: #ffffff;
+    border-color: #2f6fed;
+}
+
+QPushButton#modeButton:checked:hover {
+    background: #2563d8;
+    border-color: #2563d8;
 }
 
 QPushButton:disabled,

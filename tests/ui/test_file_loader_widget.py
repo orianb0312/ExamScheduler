@@ -1,6 +1,9 @@
 import pytest
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QLabel
+
 from src.ui.file_loader_widget import FileLoaderWidget
+from src.ui.input_panel import InputPanel
 
 
 @pytest.fixture
@@ -15,6 +18,10 @@ def test_initial_state(widget):
     """Verify that initially the load button is disabled and file paths are empty."""
     assert widget.get_courses_path() == ""
     assert widget.get_exam_dates_path() == ""
+    assert widget.get_course_load_mode() == "replace"
+    assert widget.get_exam_dates_load_mode() == "replace"
+    assert widget.course_replace_button.isChecked()
+    assert widget.exam_dates_replace_button.isChecked()
     assert not widget.load_button.isEnabled()
 
     # UX Check: Ensure placeholder texts are visible to guide the user
@@ -23,6 +30,32 @@ def test_initial_state(widget):
 
     # Check that the error label is hidden at setup (isHidden should be True)
     assert widget.error_label.isHidden()
+
+
+def test_mode_buttons_are_inline_and_styled(widget):
+    labels = [label.text() for label in widget.findChildren(QLabel)]
+
+    assert "Courses Mode:" not in labels
+    assert "Exam Dates Mode:" not in labels
+    assert widget.course_replace_button.objectName() == "modeButton"
+    assert widget.course_update_button.objectName() == "modeButton"
+    assert widget.exam_dates_replace_button.objectName() == "modeButton"
+    assert widget.exam_dates_update_button.objectName() == "modeButton"
+
+
+def test_input_panel_shows_output_action_without_cli_controls(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+
+    assert panel.mode_combo.parent() is None
+    assert panel.output_config_edit.parent() is None
+    assert panel.user_file_edit.parent() is None
+    assert panel.period_indexes_edit.parent() is None
+    assert panel.max_systems_edit.parent() is None
+    assert panel.time_limit_edit.parent() is None
+    assert panel.run_button.parent() is panel
+    assert panel.run_button.text() == "Generate Schedules"
+    assert panel.cancel_button.parent() is None
 
 
 def test_valid_files_enable_load_button(widget, tmp_path):
@@ -95,10 +128,12 @@ def test_load_action_emits_mvp_signal(widget, tmp_path, qtbot):
 
     widget.set_courses_path(courses_file)
     widget.set_exam_dates_path(exams_file)
+    widget.set_course_load_mode("replace")
+    widget.set_exam_dates_load_mode("update")
 
     # Catch the Qt Signal emission natively using qtbot context manager
     with qtbot.waitSignal(widget.load_requested, timeout=1000) as blocker:
         qtbot.mouseClick(widget.load_button, Qt.MouseButton.LeftButton)
 
     # Assert that the signal was emitted with the exact expected file path payloads
-    assert blocker.args == [courses_file, exams_file]
+    assert blocker.args == [courses_file, exams_file, "replace", "update"]

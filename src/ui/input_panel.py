@@ -28,7 +28,7 @@ class InputPanel(QWidget):
 
     run_requested = pyqtSignal(CliRunConfig)
     cancel_requested = pyqtSignal()
-    data_load_requested = pyqtSignal(str, str)
+    data_load_requested = pyqtSignal(str, str, str, str)
 
     def __init__(self, project_root: Path, parent=None) -> None:
         super().__init__(parent)
@@ -55,7 +55,7 @@ class InputPanel(QWidget):
         self.time_limit_edit.setValidator(QIntValidator(1, 3600, self))
         self.time_limit_edit.setToolTip("Auto mode time limit in seconds.")
 
-        self.run_button = QPushButton("Run")
+        self.run_button = QPushButton("Generate Schedules")
         self.run_button.setObjectName("primaryButton")
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
@@ -71,27 +71,11 @@ class InputPanel(QWidget):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(18, 18, 18, 18)
         root_layout.setSpacing(12)
-        title = QLabel("Input Screen")
+        title = QLabel("Exam Scheduler")
         title.setObjectName("screenTitle")
         root_layout.addWidget(title)
         root_layout.addWidget(self.file_loader)
-
-        form = QGridLayout()
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(10)
-        form.setColumnStretch(1, 1)
-        self._add_row(form, 0, "Mode", self.mode_combo)
-        self._add_row(form, 1, "Config", self._with_browse(self.output_config_edit, "Select config file"))
-        self._add_row(form, 2, "Programs", self._with_browse(self.user_file_edit, "Select programs file"))
-        self._add_row(form, 3, "Period indexes", self.period_indexes_edit)
-        self._add_row(form, 4, "Max systems", self.max_systems_edit)
-        self._add_row(form, 5, "Auto time limit", self.time_limit_edit)
-        root_layout.addLayout(form)
-
-        actions = QHBoxLayout()
-        actions.addWidget(self.run_button)
-        actions.addWidget(self.cancel_button)
-        root_layout.addLayout(actions)
+        root_layout.addWidget(self.run_button)
         root_layout.addStretch()
 
     def _connect_signals(self) -> None:
@@ -104,16 +88,28 @@ class InputPanel(QWidget):
         course_count: int,
         period_count: int,
         program_count: int,
+        message: str | None = None,
     ) -> None:
-        self.file_loader.show_load_success(course_count, period_count, program_count)
+        self.file_loader.show_load_success(course_count, period_count, program_count, message)
 
     def set_data_load_error(self, message: str) -> None:
         self.file_loader.show_load_error(message)
 
-    def _handle_data_load_requested(self, courses_path: str, exam_dates_path: str) -> None:
+    def _handle_data_load_requested(
+        self,
+        courses_path: str,
+        exam_dates_path: str,
+        course_mode: str,
+        exam_dates_mode: str,
+    ) -> None:
         self.course_file_edit.setText(courses_path)
         self.dates_file_edit.setText(exam_dates_path)
-        self.data_load_requested.emit(courses_path, exam_dates_path)
+        self.data_load_requested.emit(
+            courses_path,
+            exam_dates_path,
+            course_mode,
+            exam_dates_mode,
+        )
 
     def _emit_run_requested(self) -> None:
         try:
