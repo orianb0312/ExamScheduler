@@ -85,10 +85,20 @@ class FileLoaderWidget(QWidget):
         # -------------------------------------------------------------------
         self.load_button = QPushButton("Load Files Into Scheduler")
         self.load_button.setObjectName("load_button")
-        self.load_button.setEnabled(False)
+        #self.load_button.setEnabled(False)
         self.load_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.load_button.clicked.connect(self._handle_load_clicked)
         main_layout.addWidget(self.load_button)
+
+        # self.setLayout(main_layout)
+
+        # -------------------------------------------------------------------
+        # Load attempt result (success or failure after clicking Load)
+        # -------------------------------------------------------------------
+        self.status_label = QLabel("⏳ Waiting for files...")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("color: #808080; font-weight: bold; font-size: 13px;")
+        main_layout.addWidget(self.status_label)
 
         self.setLayout(main_layout)
 
@@ -114,17 +124,29 @@ class FileLoaderWidget(QWidget):
         self.exams_input.setText(path)
         self._validate_inputs()
 
+    def show_load_pending(self):
+        """Resets the UI to the default pending state."""
+        # Using hasattr as a guard clause to prevent initialization sequence crashes
+        self.status_label.setText("⏳ Waiting for files...")
+        self.status_label.setStyleSheet("color: #808080; font-weight: bold; font-size: 13px;")
+        self.status_label.setProperty("status", "pending")
+
+
     def show_load_success(self, course_count: int, period_count: int, program_count: int):
-        self.error_label.setText(
-            f"Loaded {course_count} courses, {period_count} exam periods, "
-            f"and {program_count} study programs."
-        )
+        #self.error_label.setText()
+        self.status_label.setText("✓ SUCCESS: Files loaded successfully. "+f"Loaded {course_count} courses, {period_count} exam periods, "
+            f"and {program_count} study programs.")
+        self.status_label.setStyleSheet("color: #28a745; font-weight: bold; font-size: 14px;")
         self.error_label.setVisible(True)
+        self.status_label.setProperty("status", "success")
 
     def show_load_error(self, message: str):
-        self.error_label.setText(f"Error: {message}")
-        self.error_label.setVisible(True)
-        self.load_button.setEnabled(False)
+        #    self.error_label.setText()
+        # self.error_label.setVisible()
+        # self.load_button.setEnabled(False)
+        self.status_label.setText(f"❌ ERROR: "+f"Error: {message}")
+        self.status_label.setStyleSheet("color: #dc3545; font-weight: bold; font-size: 14px;")
+        self.status_label.setProperty("status", "error")
 
     # =======================================================================
     # INTERNAL EVENT LOGIC & VALIDATION INTERCEPTORS
@@ -147,6 +169,9 @@ class FileLoaderWidget(QWidget):
         Evaluates current input parameters defensively.
         Updates user-facing warning fields without modifying backend system memory state.
         """
+        # Reset the status label to its default pending state when an input is touched
+        self.show_load_pending()
+
         courses_path = self.get_courses_path()
         exams_path = self.get_exam_dates_path()
 
@@ -162,17 +187,18 @@ class FileLoaderWidget(QWidget):
                 errors.append("Exam Dates file path is invalid or does not exist.")
 
             self.error_label.setText(" Error: " + " | ".join(errors))
-            self.error_label.setVisible(True)
-            self.load_button.setEnabled(False)
+            self.show_load_error("Error: " + " | ".join(errors))
+           # self.error_label.setVisible(True)
+           # self.load_button.setEnabled(False)
         else:
             # Clear warnings if states are currently valid or empty
             self.error_label.setVisible(False)
             self.error_label.setText("")
 
             # Unlock operational transition buttons only if fully loaded and verified
-            courses_exists = os.path.isfile(courses_path)
-            exams_exists = os.path.isfile(exams_path)
-            self.load_button.setEnabled(courses_exists and exams_exists)
+            #courses_exists = os.path.isfile(courses_path)
+            #exams_exists = os.path.isfile(exams_path)
+            # self.load_button.setEnabled(courses_exists and exams_exists)
 
     def _handle_load_clicked(self):
         """Propagates verified path strings to active listeners upon user dispatch request."""
