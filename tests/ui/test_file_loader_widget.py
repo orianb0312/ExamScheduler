@@ -184,3 +184,17 @@ def test_load_action_emits_mvp_signal(widget, tmp_path, qtbot):
 
     # Assert that the signal was emitted with the exact expected file path payloads
     assert blocker.args == [courses_file, exams_file, "replace", "update"]
+
+@pytest.mark.skip(reason="Pending code review - implementation for blocking UNC paths is not merged yet.")
+def test_network_drive_paths_are_rejected(widget):
+    """
+    Architecture Rule: Prevent loading files directly from network drives (UNC paths).
+    This enforces the Standalone/Offline architecture requirement.
+    """
+    # Simulate an attempt to load from a network shared folder
+    widget.set_courses_path(r"\\CorporateServer\SharedFiles\courses.csv")
+
+    status_text = widget.status_label.text()
+    assert "❌ ERROR" in status_text
+    # We expect the UI to specifically reject network paths
+    assert "Network paths (\\\\) are not allowed" in status_text
