@@ -12,79 +12,69 @@ def widget(qtbot):
 
 
 def test_initial_state(widget):
-    """Verify that initially the load button is disabled and file paths are empty."""
+    """Verify that initially the load button is ALWAYS enabled per new UX rules."""
     assert widget.get_courses_path() == ""
     assert widget.get_exam_dates_path() == ""
-    assert not widget.load_button.isEnabled()
+
+    # UX Check: The button must be fully clickable at all times
+    assert widget.load_button.isEnabled()
 
     # UX Check: Ensure placeholder texts are visible to guide the user
     assert widget.courses_input.placeholderText() == "Select catalog data file from local system..."
     assert widget.exams_input.placeholderText() == "Select calendar/period layout configuration..."
 
-    assert widget.error_label.isHidden()
-    assert widget.status_label.isHidden()
+    # Ensure the status label is the sole indicator and defaults to pending
+    assert not widget.status_label.isHidden()
+    assert "⏳ Waiting for files..." in widget.status_label.text()
 
 
-def test_valid_files_enable_load_button(widget, tmp_path):
-    """Verify that the load button is enabled only when both required files exist on disk."""
+def test_valid_files_keep_button_enabled(widget, tmp_path):
+    """Verify that valid paths keep the button enabled and status pending."""
     courses_file = tmp_path / "courses_data"
     exams_file = tmp_path / "exams_data"
     courses_file.touch()
     exams_file.touch()
 
-    # Simulate programmatic file path selection
     widget.set_courses_path(str(courses_file))
     widget.set_exam_dates_path(str(exams_file))
 
-    # The load button should now be enabled as paths are validated successfully
     assert widget.load_button.isEnabled()
-
-    # Verify that the error label remains hidden when inputs are valid
-    assert widget.error_label.isHidden()
+    assert "⏳ Waiting for files..." in widget.status_label.text()
 
 
-def test_missing_or_invalid_file_keeps_button_disabled(widget, tmp_path):
-    """Verify that if one or both files do not exist on disk, the load button stays disabled."""
+def test_missing_or_invalid_file_updates_status_label(widget, tmp_path):
+    """Verify that bad paths update the main Status Label to ERROR, without locking the button."""
     valid_file = tmp_path / "existing_mock_file"
     valid_file.touch()
 
     # Case 1: Courses file exists, but Exam Dates file path is invalid/missing
     widget.set_courses_path(str(valid_file))
     widget.set_exam_dates_path("C:/invalid/path/missing_exams_file")
-    assert not widget.load_button.isEnabled()
 
-    # Using isHidden() instead of isVisible() resolves the offscreen CI/CD headless execution issue
-    assert not widget.error_label.isHidden()
-    assert "Exam Dates file path is invalid" in widget.error_label.text()
+    assert widget.load_button.isEnabled()
+    assert "❌ ERROR" in widget.status_label.text()
+    assert "Exam Dates file path is invalid" in widget.status_label.text()
 
     # Case 2: Exam Dates file exists, but Courses file path is invalid/missing
     widget.set_courses_path("C:/invalid/path/missing_courses_file")
     widget.set_exam_dates_path(str(valid_file))
-    assert not widget.load_button.isEnabled()
-    assert not widget.error_label.isHidden()
-    assert "Courses file path is invalid" in widget.error_label.text()
+
+    assert widget.load_button.isEnabled()
+    assert "❌ ERROR" in widget.status_label.text()
+    assert "Courses file path is invalid" in widget.status_label.text()
 
 
 def test_invalid_path_handling_behavior(widget):
-    """
-    Verify that providing an invalid path explicitly changes the UI state
-    to reveal a clear, descriptive error message and blocks execution.
-    """
-    # Simulate an invalid course path inject
+    """Verify explicit invalid paths trigger an error state on the main label."""
     widget.set_courses_path("C:/invalid/path/courses_file.csv")
 
-    # 1. Ensure the error label is NO LONGER hidden (meaning it was instructed to reveal itself)
-    assert not widget.error_label.isHidden()
-
-    # 2. Verify that the correct descriptive string is injected for user clarity
-    assert "Courses file path is invalid or does not exist." in widget.error_label.text()
-
-    # 3. Ensure the widget clearly flags this as invalid by keeping the execution path disabled
-    assert not widget.load_button.isEnabled()
+    assert widget.load_button.isEnabled()
+    assert "❌ ERROR" in widget.status_label.text()
+    assert "Courses file path is invalid" in widget.status_label.text()
 
 
 def test_load_action_emits_mvp_signal(widget, tmp_path, qtbot):
-    """Verify that clicking the load button correctly emits the load_requested signal with proper paths."""
+    """Verify that clicking the load button correctly emits the signal."""
     courses_path_obj = tmp_path / "courses_data"
     exams_path_obj = tmp_path / "exams_data"
     courses_path_obj.touch()
@@ -96,11 +86,9 @@ def test_load_action_emits_mvp_signal(widget, tmp_path, qtbot):
     widget.set_courses_path(courses_file)
     widget.set_exam_dates_path(exams_file)
 
-    # Catch the Qt Signal emission natively using qtbot context manager
     with qtbot.waitSignal(widget.load_requested, timeout=1000) as blocker:
         qtbot.mouseClick(widget.load_button, Qt.MouseButton.LeftButton)
 
-    # Assert that the signal was emitted with the exact expected file path payloads
     assert blocker.args == [courses_file, exams_file]
 
 
@@ -109,9 +97,8 @@ def test_show_load_success_displays_status_message(widget):
 
     assert not widget.status_label.isHidden()
     assert widget.status_label.property("status") == "success"
-    assert "Successfully loaded 3 courses, 2 exam periods, and 1 study programs." in (
-        widget.status_label.text()
-    )
+    assert "✓ SUCCESS" in widget.status_label.text()
+    assert "Loaded 3 courses, 2 exam periods, and 1 study programs" in widget.status_label.text()
 
 
 def test_show_load_error_displays_status_message(widget):
@@ -119,24 +106,8 @@ def test_show_load_error_displays_status_message(widget):
 
     assert not widget.status_label.isHidden()
     assert widget.status_label.property("status") == "error"
-    assert "Failed to load files:" in widget.status_label.text()
+    assert "❌ ERROR" in widget.status_label.text()
     assert "Could not parse courses file" in widget.status_label.text()
-
-
-def test_path_validation_does_not_clear_load_status_message(widget, tmp_path):
-    courses_file = tmp_path / "courses_data"
-    exams_file = tmp_path / "exams_data"
-    courses_file.touch()
-    exams_file.touch()
-
-    widget.set_courses_path(str(courses_file))
-    widget.set_exam_dates_path(str(exams_file))
-    widget.show_load_success(1, 1, 1)
-
-    widget.set_courses_path(str(courses_file))
-
-    assert "Successfully loaded" in widget.status_label.text()
-    assert not widget.status_label.isHidden()
 
 
 def test_load_click_shows_pending_status_before_signal(widget, tmp_path, qtbot):
@@ -152,13 +123,10 @@ def test_load_click_shows_pending_status_before_signal(widget, tmp_path, qtbot):
         qtbot.mouseClick(widget.load_button, Qt.MouseButton.LeftButton)
 
     assert widget.status_label.property("status") == "pending"
-    assert "Loading files" in widget.status_label.text()
+    assert "⏳ Waiting for files..." in widget.status_label.text()
+
 
 def test_load_error_keeps_button_enabled_if_paths_valid(widget, tmp_path):
-    """
-    Agile Requirement: Verify that a parsing/loading error does not disable
-    the load button, allowing the user to fix the file externally and retry.
-    """
     courses_file = tmp_path / "courses_data"
     exams_file = tmp_path / "exams_data"
     courses_file.touch()
@@ -167,45 +135,73 @@ def test_load_error_keeps_button_enabled_if_paths_valid(widget, tmp_path):
     widget.set_courses_path(str(courses_file))
     widget.set_exam_dates_path(str(exams_file))
 
-    # Button is initially enabled because paths are valid
     assert widget.load_button.isEnabled()
 
-    # Simulate a parsing error returned from the backend service
     widget.show_load_error("Parse error: Invalid JSON format in courses file")
 
-    # The status label should show the error
     assert not widget.status_label.isHidden()
     assert widget.status_label.property("status") == "error"
-
-    # CRITICAL: The load button MUST remain enabled so the user can click it again
     assert widget.load_button.isEnabled()
 
 
-def test_independent_error_and_status_labels_coexist(widget, tmp_path):
+# =======================================================================
+# TESTS FOR 3-STATE STATUS LABEL (PENDING, SUCCESS, ERROR)
+# =======================================================================
+
+def test_status_label_initial_state_and_styling(widget):
+    assert "⏳ Waiting for files..." in widget.status_label.text()
+    assert "#808080" in widget.status_label.styleSheet()
+    assert widget.status_label.alignment() == Qt.AlignmentFlag.AlignCenter
+
+
+def test_show_load_success_updates_status_label_ui(widget):
+    widget.show_load_success(4, 2, 1)
+
+    status_text = widget.status_label.text()
+    assert "✓ SUCCESS" in status_text
+    assert "4 courses, 2 exam periods, and 1 study programs" in status_text
+    assert "#28a745" in widget.status_label.styleSheet()
+
+
+def test_show_load_error_updates_status_label_ui(widget):
+    detailed_error = "File format is not recognized"
+    widget.show_load_error(detailed_error)
+
+    status_text = widget.status_label.text()
+    assert "❌ ERROR" in status_text
+    assert detailed_error in status_text
+    assert "#dc3545" in widget.status_label.styleSheet()
+
+
+def test_input_modification_updates_status_dynamically(widget, tmp_path):
     """
-    Agile Requirement: Verify that path validation (error_label) and
-    load results (status_label) are fully decoupled and can coexist.
+    Verify that typing into the input fields updates the status label dynamically
+    based on whether the path being typed exists or not.
     """
-    courses_file = tmp_path / "courses_data"
-    exams_file = tmp_path / "exams_data"
-    courses_file.touch()
-    exams_file.touch()
+    # 1. Force the UI into a Success state
+    widget.show_load_success(1, 1, 1)
 
-    # 1. Valid initial state -> User clicks Load -> Successful load
-    widget.set_courses_path(str(courses_file))
-    widget.set_exam_dates_path(str(exams_file))
-    widget.show_load_success(5, 2, 1)
+    # 2. Simulate typing an invalid path (evaluates instantly to Error per your logic)
+    widget.courses_input.setText("C:/user/bad_path.txt")
+    assert "❌ ERROR" in widget.status_label.text()
 
-    # 2. User later modifies one of the paths to an invalid file
-    widget.set_courses_path("invalid_path_now.json")
+    # 3. Simulate resolving the path (evaluates back to Pending)
+    valid_file = tmp_path / "valid.txt"
+    valid_file.touch()
 
-    # 3. Path validation error should appear
-    assert not widget.error_label.isHidden()
-    assert "Courses file path is invalid" in widget.error_label.text()
+    # Needs both to be valid to go back to pure pending
+    valid_exams = tmp_path / "valid_exams.txt"
+    valid_exams.touch()
+    widget.exams_input.setText(str(valid_exams))
 
-    # 4. Previous load status MUST NOT be wiped out
-    assert not widget.status_label.isHidden()
-    assert widget.status_label.property("status") == "success"
+    widget.courses_input.setText(str(valid_file))
+    assert "⏳ Waiting for files..." in widget.status_label.text()
 
-    # 5. Button disables ONLY because the path is currently bad
-    assert not widget.load_button.isEnabled()
+
+def test_invalid_path_triggers_error_status_label(widget):
+    widget.set_courses_path("C:/fake/path/that/does/not/exist.txt")
+
+    status_text = widget.status_label.text()
+    assert "❌ ERROR" in status_text
+    assert "Courses file path is invalid" in status_text
+    assert "#dc3545" in widget.status_label.styleSheet()
