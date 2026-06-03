@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.process_runner import CliRunConfig
+from src.ui.program_selection_widget import ProgramSelectionWidget
 
 
 class InputPanel(QWidget):
@@ -60,6 +61,8 @@ class InputPanel(QWidget):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
 
+        self.program_selector = ProgramSelectionWidget()
+
         self._build_layout()
         self._connect_signals()
 
@@ -75,6 +78,7 @@ class InputPanel(QWidget):
         title.setObjectName("screenTitle")
         root_layout.addWidget(title)
         root_layout.addWidget(self.file_loader)
+        root_layout.addWidget(self.program_selector)
         root_layout.addWidget(self.run_button)
         root_layout.addStretch()
 
@@ -94,6 +98,10 @@ class InputPanel(QWidget):
 
     def set_data_load_error(self, message: str) -> None:
         self.file_loader.show_load_error(message)
+
+    def update_program_list(self, program_ids: list[str]) -> None:
+        """Forwards the resolved program ID list to the selection widget."""
+        self.program_selector.add_programs(program_ids)
 
     def _handle_data_load_requested(
         self,

@@ -37,6 +37,9 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._load_stylesheet()
 
+        # Populate the selection view with default baseline program IDs upon application startup
+        self._set_default_baseline_programs()
+
     def _build_layout(self) -> None:
         self._stack.addWidget(self.input_panel)
         self._stack.addWidget(self.calendar_view)
@@ -57,6 +60,14 @@ class MainWindow(QMainWindow):
     def loaded_input_data(self) -> LoadedSchedulerInput | None:
         return self._file_loading_service.loaded_data
 
+    def _set_default_baseline_programs(self) -> None:
+        """Populates the input panel selection view with the standard initial programs."""
+        default_baseline = [
+            "83101", "83102", "83104", "83107", "83108",
+            "83109", "83105", "83182", "83103", "83115"
+        ]
+        self.input_panel.update_program_list(default_baseline)
+
     def _load_selected_files(
         self,
         courses_path: str,
@@ -76,12 +87,23 @@ class MainWindow(QMainWindow):
             return
 
         loaded_data = result.loaded_data
+
+        # 1. Update the input panel with structural feedback counters and the generated service message.
         self.input_panel.set_data_load_success(
             loaded_data.course_count,
             loaded_data.exam_period_count,
             loaded_data.program_count,
             result.message,
         )
+
+        # 2. Extract the current snapshot of program IDs.
+        # If course_mode is 'update', loaded_data ALREADY contains the merged historical courses
+        # from self._loaded_data in FileLoadingService.
+        # If course_mode is 'replace', it contains only the freshly parsed file courses.
+        resolved_ids = loaded_data.program_ids_as_strings or []
+
+        # 3. Dispatch the completely resolved programmatic collection directly into the selection view.
+        self.input_panel.update_program_list(resolved_ids)
 
     def _start_cli_run(self, config: CliRunConfig) -> None:
         self._parser.reset()

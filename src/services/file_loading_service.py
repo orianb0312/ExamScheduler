@@ -67,6 +67,13 @@ class LoadedSchedulerInput:
     def program_count(self) -> int:
         return len(self.programs)
 
+    @property
+    def program_ids_as_strings(self) -> list[str]:
+        """
+        Extracts all loaded program IDs formatted as a list of strings.
+        """
+        return [str(program.program_id) for program in self.programs]
+
 
 @dataclass(frozen=True)
 class DataLoadResult:
