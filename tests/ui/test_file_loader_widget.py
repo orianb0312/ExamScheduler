@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import QLabel
 
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.input_panel import InputPanel
+from src.ui.process_runner import build_cli_arguments
+from src.ui.program_selection_widget import LIMIT_MESSAGE, MAX_SELECTED_PROGRAMS
 
 
 @pytest.fixture
@@ -56,6 +58,51 @@ def test_input_panel_shows_output_action_without_cli_controls(tmp_path, qtbot):
     assert panel.run_button.parent() is panel
     assert panel.run_button.text() == "Generate Schedules"
     assert panel.cancel_button.parent() is None
+
+
+def test_input_panel_shows_program_selection_limit_message(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+    panel.replace_program_list(["83101", "83102", "83103", "83104", "83105", "83106"])
+
+    assert panel.program_selection_count.text() == f"0/{MAX_SELECTED_PROGRAMS}"
+
+    panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+    assert panel.program_selection_count.text() == f"1/{MAX_SELECTED_PROGRAMS}"
+
+    panel.program_selector.item(1).setCheckState(Qt.CheckState.Checked)
+    assert panel.program_selection_count.text() == f"2/{MAX_SELECTED_PROGRAMS}"
+
+    for index in range(MAX_SELECTED_PROGRAMS):
+        panel.program_selector.item(index).setCheckState(Qt.CheckState.Checked)
+
+    assert panel.program_selection_count.text() == f"5/{MAX_SELECTED_PROGRAMS}"
+    assert panel.program_selection_message.text() == LIMIT_MESSAGE
+    assert not panel.program_selection_message.isHidden()
+
+    panel.program_selector.item(0).setCheckState(Qt.CheckState.Unchecked)
+
+    assert panel.program_selection_count.text() == f"4/{MAX_SELECTED_PROGRAMS}"
+    assert panel.program_selection_message.isHidden()
+
+
+def test_input_panel_passes_selected_programs_to_scheduler_config(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+    panel.replace_program_list(["83101", "83102", "83108"])
+    panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+    panel.program_selector.item(2).setCheckState(Qt.CheckState.Checked)
+
+    with qtbot.waitSignal(panel.run_requested, timeout=1000) as blocker:
+        qtbot.mouseClick(panel.run_button, Qt.MouseButton.LeftButton)
+
+    config = blocker.args[0]
+    _program, args = build_cli_arguments(config)
+    user_file_index = args.index("--user-file") + 1
+
+    assert config.user_file is not None
+    assert args[user_file_index] == str(config.user_file)
+    assert config.user_file.read_text(encoding="utf-8") == "83101, 83108"
 
 
 def test_valid_files_enable_load_button(widget, tmp_path):

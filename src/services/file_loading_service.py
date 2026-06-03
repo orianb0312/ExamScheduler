@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Protocol
@@ -245,7 +245,9 @@ def _mode_result_text(
         return f"{label}: replaced with {_count_phrase(total_count, item_name)}."
 
     duplicate_text = ""
-    if duplicate_count:
+    if duplicate_count and item_name == "course":
+        duplicate_text = f" Merged {_count_phrase(duplicate_count, 'existing course')}."
+    elif duplicate_count:
         duplicate_text = f" Ignored {_count_phrase(duplicate_count, 'duplicate record')}."
     return f"{label}: added {_count_phrase(added_count, 'new ' + item_name)}.{duplicate_text}"
 
@@ -280,22 +282,41 @@ def _apply_courses(
             duplicate_count=0,
         )
 
-    merged_courses = list(existing_courses)
-    course_ids = {course.course_id for course in existing_courses}
+    merged_courses_by_id = {course.course_id: course for course in existing_courses}
+    course_order = [course.course_id for course in existing_courses]
     duplicate_count = 0
 
     for course in incoming_courses:
-        if course.course_id in course_ids:
+        existing_course = merged_courses_by_id.get(course.course_id)
+        if existing_course is not None:
             duplicate_count += 1
+            merged_courses_by_id[course.course_id] = _merge_course_affiliations(
+                existing_course,
+                course,
+            )
             continue
 
-        course_ids.add(course.course_id)
-        merged_courses.append(course)
+        course_order.append(course.course_id)
+        merged_courses_by_id[course.course_id] = course
 
+    merged_courses = [merged_courses_by_id[course_id] for course_id in course_order]
     return tuple(merged_courses), _ApplyStats(
         added_count=len(merged_courses) - len(existing_courses),
         duplicate_count=duplicate_count,
     )
+
+
+def _merge_course_affiliations(existing_course: Course, incoming_course: Course) -> Course:
+    affiliations = list(existing_course.affiliations)
+    seen_program_ids = {affiliation.program_id for affiliation in affiliations}
+
+    for affiliation in incoming_course.affiliations:
+        if affiliation.program_id in seen_program_ids:
+            continue
+        seen_program_ids.add(affiliation.program_id)
+        affiliations.append(affiliation)
+
+    return replace(existing_course, affiliations=affiliations)
 
 
 def _apply_exam_periods(

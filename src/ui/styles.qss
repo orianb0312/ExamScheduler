@@ -8,16 +8,36 @@ QWidget {
 }
 
 QLabel#screenTitle {
-    font-size: 18px;
+    font-size: 22px;
     font-weight: 600;
     color: #202124;
+}
+
+QLabel#sectionTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: #3c4043;
 }
 
 QLabel {
     color: #202124;
 }
 
+QLabel#error_label,
+QLabel#programSelectionMessage {
+    color: #174ea6;
+    background: #eef4ff;
+    border: 1px solid #c6dafc;
+    border-radius: 4px;
+    padding: 8px 10px;
+}
+
 QLabel#paneTitle {
+    font-weight: 600;
+    color: #3c4043;
+}
+
+QLabel#programSelectionCount {
     font-weight: 600;
     color: #3c4043;
 }
@@ -27,9 +47,37 @@ QComboBox {
     background: #ffffff;
     color: #202124;
     border: 1px solid #aeb4bb;
-    padding: 4px 6px;
+    border-radius: 3px;
+    padding: 5px 8px;
     selection-background-color: #2f6fed;
     selection-color: #ffffff;
+}
+
+QLineEdit:focus,
+QComboBox:focus {
+    border-color: #2f6fed;
+}
+
+QListWidget#programSelector {
+    background: #ffffff;
+    color: #202124;
+    border: 1px solid #c8cdd3;
+    border-radius: 4px;
+    padding: 8px;
+}
+
+QListWidget#programSelector::item {
+    color: #202124;
+    padding: 7px 8px;
+}
+
+QListWidget#programSelector::item:hover {
+    background: #f3f6fb;
+}
+
+QListWidget#programSelector::indicator {
+    width: 16px;
+    height: 16px;
 }
 
 QPlainTextEdit {
@@ -43,6 +91,7 @@ QPushButton {
     background: #ffffff;
     color: #202124;
     border: 1px solid #aeb4bb;
+    border-radius: 4px;
     padding: 6px 10px;
 }
 
@@ -52,6 +101,29 @@ QPushButton:hover {
 
 QPushButton#primaryButton {
     font-weight: 600;
+    background: #2f6fed;
+    color: #ffffff;
+    border-color: #2f6fed;
+}
+
+QPushButton#primaryButton:hover {
+    background: #2563d8;
+    border-color: #2563d8;
+}
+
+QPushButton#load_button,
+QPushButton#browseButton {
+    font-weight: 500;
+}
+
+QPushButton#load_button {
+    background: #ffffff;
+    color: #174ea6;
+    border-color: #9bbcf9;
+}
+
+QPushButton#load_button:hover {
+    background: #eef4ff;
 }
 
 QPushButton#modeButton {

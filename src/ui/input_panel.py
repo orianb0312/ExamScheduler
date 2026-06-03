@@ -19,9 +19,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.services.scheduler_input_state import SchedulerInputState
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.process_runner import CliRunConfig
-from src.ui.program_selection_widget import ProgramSelectionWidget
+from src.ui.program_selection_widget import MAX_SELECTED_PROGRAMS, ProgramSelectionWidget
 
 
 class InputPanel(QWidget):
@@ -34,6 +35,9 @@ class InputPanel(QWidget):
     def __init__(self, project_root: Path, parent=None) -> None:
         super().__init__(parent)
         self._project_root = project_root
+        self._scheduler_input_state = SchedulerInputState(
+            project_root / "outputs" / "ui_runtime"
+        )
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["complete-count", "period", "complete-write", "auto"])
@@ -62,6 +66,11 @@ class InputPanel(QWidget):
         self.cancel_button.setEnabled(False)
 
         self.program_selector = ProgramSelectionWidget()
+        self.program_selection_count = QLabel(f"0/{MAX_SELECTED_PROGRAMS}")
+        self.program_selection_count.setObjectName("programSelectionCount")
+        self.program_selection_message = QLabel("")
+        self.program_selection_message.setObjectName("programSelectionMessage")
+        self.program_selection_message.setVisible(False)
 
         self._build_layout()
         self._connect_signals()
@@ -72,18 +81,30 @@ class InputPanel(QWidget):
 
     def _build_layout(self) -> None:
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(18, 18, 18, 18)
-        root_layout.setSpacing(12)
+        root_layout.setContentsMargins(28, 24, 28, 24)
+        root_layout.setSpacing(18)
         title = QLabel("Exam Scheduler")
         title.setObjectName("screenTitle")
         root_layout.addWidget(title)
         root_layout.addWidget(self.file_loader)
+        root_layout.addWidget(self.program_selection_count)
         root_layout.addWidget(self.program_selector)
-        root_layout.addWidget(self.run_button)
+        root_layout.addWidget(self.program_selection_message)
+        self.run_button.setFixedWidth(220)
+        self.run_button.setMinimumHeight(36)
+
+        run_action_layout = QHBoxLayout()
+        run_action_layout.setContentsMargins(0, 0, 0, 0)
+        run_action_layout.addStretch(1)
+        run_action_layout.addWidget(self.run_button)
+        root_layout.addLayout(run_action_layout)
         root_layout.addStretch()
 
     def _connect_signals(self) -> None:
         self.file_loader.load_requested.connect(self._handle_data_load_requested)
+        self.program_selector.programSelectionChanged.connect(self._store_selected_programs)
+        self.program_selector.selectionCountChanged.connect(self._set_program_selection_count)
+        self.program_selector.limitMessageChanged.connect(self._set_program_selection_message)
         self.run_button.clicked.connect(self._emit_run_requested)
         self.cancel_button.clicked.connect(self.cancel_requested.emit)
 
@@ -102,6 +123,20 @@ class InputPanel(QWidget):
     def update_program_list(self, program_ids: list[str]) -> None:
         """Forwards the resolved program ID list to the selection widget."""
         self.program_selector.add_programs(program_ids)
+
+    def replace_program_list(self, program_ids: list[str]) -> None:
+        """Replaces the visible program ID list in the selection widget."""
+        self.program_selector.set_programs(program_ids)
+
+    def _set_program_selection_message(self, message: str) -> None:
+        self.program_selection_message.setText(message)
+        self.program_selection_message.setVisible(bool(message))
+
+    def _set_program_selection_count(self, selected_count: int, max_selected: int) -> None:
+        self.program_selection_count.setText(f"{selected_count}/{max_selected}")
+
+    def _store_selected_programs(self, program_ids: list[str]) -> None:
+        self._scheduler_input_state.set_selected_programs(program_ids)
 
     def _handle_data_load_requested(
         self,
@@ -144,6 +179,7 @@ class InputPanel(QWidget):
                 maximum=3600,
             )
         )
+        selected_programs_file = self._scheduler_input_state.write_selected_programs_file()
 
         return CliRunConfig(
             project_root=self._project_root,
@@ -154,7 +190,7 @@ class InputPanel(QWidget):
             time_limit_seconds=time_limit,
             course_file=self._path_or_none(self.course_file_edit.text()),
             dates_file=self._path_or_none(self.dates_file_edit.text()),
-            user_file=self._path_or_none(self.user_file_edit.text()),
+            user_file=selected_programs_file,
         )
 
     @staticmethod

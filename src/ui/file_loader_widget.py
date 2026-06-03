@@ -26,11 +26,12 @@ class FileLoaderWidget(QWidget):
     def init_ui(self):
         # Top-level layout orchestration
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(40, 40, 40, 40)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(14)
 
         # Header Section
         header_label = QLabel("Data Source Configuration")
+        header_label.setObjectName("sectionTitle")
         main_layout.addWidget(header_label)
 
         # -------------------------------------------------------------------
@@ -44,10 +45,13 @@ class FileLoaderWidget(QWidget):
 
         self.courses_input = QLineEdit()
         self.courses_input.setReadOnly(False)
+        self.courses_input.setMinimumHeight(32)
         self.courses_input.setPlaceholderText("Select catalog data file from local system...")
         self.courses_input.textChanged.connect(self._validate_inputs)
 
         self.courses_btn = QPushButton("Browse...")
+        self.courses_btn.setObjectName("browseButton")
+        self.courses_btn.setFixedWidth(104)
         self.courses_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.courses_btn.clicked.connect(self._browse_courses)
 
@@ -77,10 +81,13 @@ class FileLoaderWidget(QWidget):
 
         self.exams_input = QLineEdit()
         self.exams_input.setReadOnly(False)
+        self.exams_input.setMinimumHeight(32)
         self.exams_input.setPlaceholderText("Select calendar/period layout configuration...")
         self.exams_input.textChanged.connect(self._validate_inputs)
 
         self.exams_btn = QPushButton("Browse...")
+        self.exams_btn.setObjectName("browseButton")
+        self.exams_btn.setFixedWidth(104)
         self.exams_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.exams_btn.clicked.connect(self._browse_exam_dates)
 
@@ -104,20 +111,26 @@ class FileLoaderWidget(QWidget):
         # -------------------------------------------------------------------
         self.error_label = QLabel("")
         self.error_label.setObjectName("error_label")
+        self.error_label.setWordWrap(True)
         self.error_label.setVisible(False)  # Muted initially until invalid state occurs
         main_layout.addWidget(self.error_label)
-
-        main_layout.addStretch(1)
 
         # -------------------------------------------------------------------
         # Bottom Execution Control
         # -------------------------------------------------------------------
         self.load_button = QPushButton("Load Files Into Scheduler")
         self.load_button.setObjectName("load_button")
+        self.load_button.setFixedWidth(220)
+        self.load_button.setMinimumHeight(34)
         self.load_button.setEnabled(False)
         self.load_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.load_button.clicked.connect(self._handle_load_clicked)
-        main_layout.addWidget(self.load_button)
+
+        load_action_layout = QHBoxLayout()
+        load_action_layout.setContentsMargins(0, 0, 0, 0)
+        load_action_layout.addStretch(1)
+        load_action_layout.addWidget(self.load_button)
+        main_layout.addLayout(load_action_layout)
 
         self.setLayout(main_layout)
 
@@ -201,8 +214,8 @@ class FileLoaderWidget(QWidget):
         button = QPushButton(label)
         button.setObjectName("modeButton")
         button.setCheckable(True)
-        button.setFixedWidth(86)
-        button.setMinimumHeight(30)
+        button.setFixedWidth(82)
+        button.setMinimumHeight(32)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         return button
 

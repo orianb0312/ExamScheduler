@@ -159,6 +159,18 @@ def test_update_mode_adds_supplementary_courses_and_exam_dates(tmp_path):
         "Software Project",
         "Operating Systems",
     ]
+    assert [program.program_id for program in loaded_data.programs] == [
+        83101,
+        83102,
+        83108,
+        83109,
+    ]
+    calculus = next(course for course in loaded_data.courses if course.course_id == 10001)
+    assert [affiliation.program_id for affiliation in calculus.affiliations] == [
+        83101,
+        83102,
+        83109,
+    ]
     assert [(period.semester.value, period.term.value) for period in loaded_data.exam_periods] == [
         ("FALL", "Aleph"),
         ("SPRI", "Bet"),
@@ -169,8 +181,9 @@ def test_update_mode_adds_supplementary_courses_and_exam_dates(tmp_path):
     assert result.duplicate_course_count == 1
     assert result.duplicate_exam_period_count == 1
     assert "Courses: added 1 new course" in result.message
+    assert "Merged 1 existing course" in result.message
     assert "Exam dates: added 1 new exam period" in result.message
-    assert result.message.count("Ignored 1 duplicate record") == 2
+    assert result.message.count("Ignored 1 duplicate record") == 1
 
 
 def test_courses_and_exam_dates_can_use_different_load_modes(tmp_path):
@@ -229,3 +242,41 @@ def test_main_window_loads_file_loader_selection_into_memory(tmp_path, qtbot):
     assert window.loaded_input_data is not None
     assert window.loaded_input_data.course_count == 2
     assert "Replaced loaded data with 2 courses" in window.input_panel.file_loader.error_label.text()
+
+
+def test_main_window_update_keeps_existing_program_choices(tmp_path, qtbot):
+    courses_text = """$$$$
+Manual New Program Course
+77777
+Dr. UI Tester
+99999,1,FALL,Elective
+Exam
+"""
+    courses_file, exam_dates_file = _write_input_files(
+        tmp_path,
+        courses_text,
+        SUPPLEMENTAL_EXAM_DATES_TEXT,
+    )
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    initial_programs = [
+        window.input_panel.program_selector.item(index).text()
+        for index in range(window.input_panel.program_selector.count())
+    ]
+
+    window.input_panel.file_loader.set_courses_path(str(courses_file))
+    window.input_panel.file_loader.set_exam_dates_path(str(exam_dates_file))
+    window.input_panel.file_loader.set_course_load_mode("update")
+    window.input_panel.file_loader.set_exam_dates_load_mode("update")
+    qtbot.mouseClick(
+        window.input_panel.file_loader.load_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    updated_programs = [
+        window.input_panel.program_selector.item(index).text()
+        for index in range(window.input_panel.program_selector.count())
+    ]
+
+    assert set(initial_programs) <= set(updated_programs)
+    assert "99999" in updated_programs

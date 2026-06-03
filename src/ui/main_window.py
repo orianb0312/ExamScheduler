@@ -88,7 +88,6 @@ class MainWindow(QMainWindow):
 
         loaded_data = result.loaded_data
 
-        # 1. Update the input panel with structural feedback counters and the generated service message.
         self.input_panel.set_data_load_success(
             loaded_data.course_count,
             loaded_data.exam_period_count,
@@ -96,14 +95,12 @@ class MainWindow(QMainWindow):
             result.message,
         )
 
-        # 2. Extract the current snapshot of program IDs.
-        # If course_mode is 'update', loaded_data ALREADY contains the merged historical courses
-        # from self._loaded_data in FileLoadingService.
-        # If course_mode is 'replace', it contains only the freshly parsed file courses.
         resolved_ids = loaded_data.program_ids_as_strings or []
 
-        # 3. Dispatch the completely resolved programmatic collection directly into the selection view.
-        self.input_panel.update_program_list(resolved_ids)
+        if course_mode == "update":
+            self.input_panel.update_program_list(resolved_ids)
+        else:
+            self.input_panel.replace_program_list(resolved_ids)
 
     def _start_cli_run(self, config: CliRunConfig) -> None:
         self._parser.reset()
