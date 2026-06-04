@@ -2,9 +2,12 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel
 
+from src.services.cli_run_service import build_cli_arguments
+from src.services.program_selection_policy import (
+    DEFAULT_PROGRAM_SELECTION_POLICY,
+)
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.input_panel import InputPanel
-from src.ui.process_runner import build_cli_arguments
 from src.ui.program_selection_widget import LIMIT_MESSAGE, MAX_SELECTED_PROGRAMS
 
 
@@ -65,6 +68,7 @@ def test_input_panel_shows_program_selection_limit_message(tmp_path, qtbot):
     qtbot.addWidget(panel)
     panel.replace_program_list(["83101", "83102", "83103", "83104", "83105", "83106"])
 
+    assert MAX_SELECTED_PROGRAMS == DEFAULT_PROGRAM_SELECTION_POLICY.max_selected
     assert panel.program_selection_count.text() == f"0/{MAX_SELECTED_PROGRAMS}"
 
     panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)

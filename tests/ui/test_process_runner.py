@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from src.ui.process_runner import CliRunConfig, build_cli_arguments
+from src.services.cli_run_service import CliRunConfig, build_cli_arguments
 
 
 def test_build_cli_arguments_constructs_unbuffered_main_command():

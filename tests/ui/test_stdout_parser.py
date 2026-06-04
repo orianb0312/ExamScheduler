@@ -1,4 +1,4 @@
-from src.ui.stdout_parser import StdoutScheduleParser
+from src.services.schedule_output_service import StdoutScheduleParser
 
 
 def test_parser_emits_complete_system_blocks_when_next_marker_arrives():

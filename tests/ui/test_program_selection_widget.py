@@ -1,8 +1,10 @@
 import pytest
 from PyQt6.QtCore import Qt
+from src.services.program_selection_policy import DEFAULT_PROGRAM_SELECTION_POLICY
 from src.ui.program_selection_widget import (
     LIMIT_MESSAGE,
     MAX_SELECTED_PROGRAMS,
+    PROGRAM_ID_ROLE,
     ProgramSelectionWidget,
 )
 
@@ -18,7 +20,7 @@ def _item_is_enabled(item) -> bool:
     return bool(item.flags() & Qt.ItemFlag.ItemIsEnabled)
 
 
-def test_load_data_displays_all_identifiers(combo_box):
+def test_load_data_displays_all_program_names_and_identifiers(combo_box):
     # Full Version 1 data (all 10 identifiers)
     version_1_data = ["83101", "83102", "83104", "83107", "83108", "83109", "83105", "83182", "83103", "83115"]
 
@@ -27,9 +29,11 @@ def test_load_data_displays_all_identifiers(combo_box):
     # Verify all items are loaded using QListWidget's count()
     assert combo_box.count() == len(version_1_data)
 
-    # Verify that each item text matches the expected identifier exactly
     for i, expected_id in enumerate(version_1_data):
-        assert combo_box.item(i).text() == expected_id
+        item = combo_box.item(i)
+        assert item.data(PROGRAM_ID_ROLE) == expected_id
+        assert f"Program {expected_id}" in item.text()
+        assert expected_id in item.text()
 
 
 def test_add_programs_preserves_existing_identifiers(combo_box):
@@ -37,7 +41,7 @@ def test_add_programs_preserves_existing_identifiers(combo_box):
 
     combo_box.add_programs(["83102", "83109"])
 
-    assert [combo_box.item(index).text() for index in range(combo_box.count())] == [
+    assert [combo_box.item(index).data(PROGRAM_ID_ROLE) for index in range(combo_box.count())] == [
         "83101",
         "83102",
         "83109",
@@ -50,7 +54,8 @@ def test_set_programs_replaces_existing_identifiers(combo_box):
     combo_box.set_programs(["83115"])
 
     assert combo_box.count() == 1
-    assert combo_box.item(0).text() == "83115"
+    assert combo_box.item(0).data(PROGRAM_ID_ROLE) == "83115"
+    assert combo_box.item(0).text() == "Program 83115 (83115)"
 
 
 def test_selecting_one_program_records_only_that_program(combo_box):
@@ -84,6 +89,8 @@ def test_selecting_five_programs_disables_additional_choices(combo_box):
     messages = []
     combo_box.limitMessageChanged.connect(messages.append)
     combo_box.add_programs(["83101", "83102", "83103", "83104", "83105", "83106"])
+
+    assert MAX_SELECTED_PROGRAMS == DEFAULT_PROGRAM_SELECTION_POLICY.max_selected
 
     for index in range(MAX_SELECTED_PROGRAMS):
         combo_box.item(index).setCheckState(Qt.CheckState.Checked)

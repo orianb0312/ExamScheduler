@@ -1,10 +1,15 @@
-import sys
-from PyQt6.QtWidgets import QListWidget, QAbstractItemView, QApplication, QWidget, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
+
+from src.services.program_selection_policy import (
+    DEFAULT_PROGRAM_SELECTION_POLICY,
+    ProgramSelectionPolicy,
+)
 
 
-MAX_SELECTED_PROGRAMS = 5
-LIMIT_MESSAGE = "You have reached the limit, you can select up to 5 study programs."
+MAX_SELECTED_PROGRAMS = DEFAULT_PROGRAM_SELECTION_POLICY.max_selected
+LIMIT_MESSAGE = DEFAULT_PROGRAM_SELECTION_POLICY.limit_message
+PROGRAM_ID_ROLE = Qt.ItemDataRole.UserRole
 
 
 class ProgramSelectionWidget(QListWidget):
@@ -12,8 +17,13 @@ class ProgramSelectionWidget(QListWidget):
     limitMessageChanged = pyqtSignal(str)
     selectionCountChanged = pyqtSignal(int, int)
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent=None,
+        policy: ProgramSelectionPolicy | None = None,
+    ):
         super().__init__(parent)
+        self._policy = policy or DEFAULT_PROGRAM_SELECTION_POLICY
         self._updating_item_state = False
         self.setObjectName("programSelector")
         self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -25,16 +35,17 @@ class ProgramSelectionWidget(QListWidget):
         """Adds missing program identifiers as checkboxes."""
         self.blockSignals(True)
         existing_programs = {
-            self.item(index).text()
+            self._program_id_for_item(self.item(index))
             for index in range(self.count())
         }
 
         for program in programs:
-            if program in existing_programs:
+            program_id = str(program)
+            if program_id in existing_programs:
                 continue
-            item = self._create_item(program)
+            item = self._create_item(program_id)
             self.addItem(item)
-            existing_programs.add(program)
+            existing_programs.add(program_id)
 
         self.blockSignals(False)
         self._sync_limit_state()
@@ -49,8 +60,8 @@ class ProgramSelectionWidget(QListWidget):
         self.add_programs(programs)
 
     def _create_item(self, text: str):
-        from PyQt6.QtWidgets import QListWidgetItem
-        item = QListWidgetItem(text)
+        item = QListWidgetItem(f"Program {text} ({text})")
+        item.setData(PROGRAM_ID_ROLE, text)
         item.setFlags(
             Qt.ItemFlag.ItemIsEnabled |
             Qt.ItemFlag.ItemIsUserCheckable
@@ -61,7 +72,7 @@ class ProgramSelectionWidget(QListWidget):
     def get_selected_items(self) -> list[str]:
         """Returns a list of all currently checked program identifiers."""
         return [
-            self.item(i).text()
+            self._program_id_for_item(self.item(i))
             for i in range(self.count())
             if self.item(i).checkState() == Qt.CheckState.Checked
         ]
@@ -71,9 +82,11 @@ class ProgramSelectionWidget(QListWidget):
         if self._updating_item_state:
             return
 
-        if item.checkState() == Qt.CheckState.Checked and len(self.get_selected_items()) > MAX_SELECTED_PROGRAMS:
-            # A disabled item should not be selectable by hand, but this also
-            # protects us from programmatic changes and future UI tweaks.
+        selected_count = len(self.get_selected_items())
+        if (
+            item.checkState() == Qt.CheckState.Checked
+            and not self._policy.is_selection_count_allowed(selected_count)
+        ):
             self._set_item_checked(item, False)
 
         self._sync_limit_state()
@@ -81,7 +94,7 @@ class ProgramSelectionWidget(QListWidget):
 
     def _sync_limit_state(self):
         selected_count = len(self.get_selected_items())
-        limit_reached = selected_count >= MAX_SELECTED_PROGRAMS
+        limit_reached = self._policy.is_limit_reached(selected_count)
 
         self._updating_item_state = True
         try:
@@ -92,8 +105,8 @@ class ProgramSelectionWidget(QListWidget):
         finally:
             self._updating_item_state = False
 
-        self.limitMessageChanged.emit(LIMIT_MESSAGE if limit_reached else "")
-        self.selectionCountChanged.emit(selected_count, MAX_SELECTED_PROGRAMS)
+        self.limitMessageChanged.emit(self._policy.message_for_count(selected_count))
+        self.selectionCountChanged.emit(selected_count, self._policy.max_selected)
 
     def _set_item_checked(self, item, checked: bool):
         self._updating_item_state = True
@@ -108,30 +121,7 @@ class ProgramSelectionWidget(QListWidget):
         else:
             item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
 
-
-# --- Execution Block for Visual Verification (MVP) ---
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-
-    window = QWidget()
-    window.setWindowTitle("MVP - Program Selection Area")
-    layout = QVBoxLayout(window)
-
-    program_selector = ProgramSelectionWidget()
-
-    version_1_data = [
-        "83101", "83102", "83104", "83107", "83108",
-        "83109", "83105", "83182", "83103", "83115"
-    ]
-
-    program_selector.add_programs(version_1_data)
-
-    program_selector.programSelectionChanged.connect(
-        lambda ids: print(f"Selected: {ids}")
-    )
-
-    layout.addWidget(program_selector)
-    window.resize(300, 250)
-    window.show()
-
-    sys.exit(app.exec())
+    @staticmethod
+    def _program_id_for_item(item) -> str:
+        value = item.data(PROGRAM_ID_ROLE)
+        return str(value) if value is not None else item.text()

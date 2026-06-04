@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import sys
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Sequence
+from src.services.cli_run_service import (
+    CliCommandBuilder,
+    CliRunConfig,
+    V1CliRunAdapter,
+    build_cli_arguments,
+)
 
 try:
     from PyQt6.QtCore import QObject, QProcess, pyqtSignal
@@ -29,66 +31,6 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only without PyQt6 i
         return _UnavailableSignal()
 
 
-VALID_CLI_MODES = {"period", "complete-count", "complete-write", "auto"}
-
-
-@dataclass(frozen=True)
-class CliRunConfig:
-    """UI-local description of a CLI run request."""
-
-    project_root: Path
-    mode: str = "complete-count"
-    python_executable: str = field(default_factory=lambda: sys.executable)
-    output_config: Path | None = None
-    source_type: str | None = None
-    period_indexes: Sequence[int] = ()
-    max_systems: int | None = None
-    time_limit_seconds: float | None = None
-    course_file: Path | None = None
-    dates_file: Path | None = None
-    user_file: Path | None = None
-
-
-def build_cli_arguments(config: CliRunConfig) -> tuple[str, list[str]]:
-    """Build the external command used by QProcess."""
-    if config.mode not in VALID_CLI_MODES:
-        raise ValueError(f"Unsupported CLI mode: {config.mode}")
-
-    main_script = config.project_root / "main.py"
-    output_config = config.output_config or config.project_root / "config.json"
-    program = config.python_executable or sys.executable
-
-    args = [
-        "-u",
-        str(main_script),
-        "--mode",
-        config.mode,
-        "--output-config",
-        str(output_config),
-    ]
-
-    if config.source_type:
-        args.extend(["--source-type", config.source_type])
-
-    for period_index in config.period_indexes:
-        args.extend(["--period-index", str(period_index)])
-
-    if config.mode == "complete-write" and config.max_systems is not None:
-        args.extend(["--max-systems", str(config.max_systems)])
-
-    if config.mode == "auto" and config.time_limit_seconds is not None:
-        args.extend(["--time-limit", str(config.time_limit_seconds)])
-
-    if config.course_file is not None:
-        args.extend(["--course-file", str(config.course_file)])
-    if config.dates_file is not None:
-        args.extend(["--dates-file", str(config.dates_file)])
-    if config.user_file is not None:
-        args.extend(["--user-file", str(config.user_file)])
-
-    return program, args
-
-
 class ProcessRunner(QObject):
     """Run main.py externally and expose stdout/stderr through Qt signals."""
 
@@ -98,11 +40,16 @@ class ProcessRunner(QObject):
     process_finished = pyqtSignal(int, str)
     process_error = pyqtSignal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(
+        self,
+        parent=None,
+        command_builder: CliCommandBuilder | None = None,
+    ) -> None:
         if not PYQT_AVAILABLE:
             raise RuntimeError("PyQt6 is required to run ProcessRunner")
 
         super().__init__(parent)
+        self._command_builder = command_builder or V1CliRunAdapter()
         self._process = QProcess(self)
         self._process.readyReadStandardOutput.connect(self._read_stdout)
         self._process.readyReadStandardError.connect(self._read_stderr)
@@ -115,7 +62,7 @@ class ProcessRunner(QObject):
             self.process_error.emit("A CLI process is already running.")
             return
 
-        program, args = build_cli_arguments(config)
+        program, args = self._command_builder.build_command(config)
         self._process.setWorkingDirectory(str(config.project_root))
         self._process.start(program, args)
 

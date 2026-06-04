@@ -2,6 +2,7 @@ import unittest
 import os
 import json
 import shutil
+import tempfile
 from datetime import date
 from src.output.output_models import ScheduledExam, Semester, Term
 from src.output.output_manager import TextOutputManager
@@ -14,8 +15,11 @@ class TestOutputManagerUltimate(unittest.TestCase):
         1. Creates a temporary JSON config file.
         2. Initializes the manager with this config.
         """
-        self.test_dir = "test_master_output"
-        self.test_config_path = "../../test_config.json"
+        self._sandbox = tempfile.TemporaryDirectory()
+        self.addCleanup(self._sandbox.cleanup)
+
+        self.test_dir = os.path.join(self._sandbox.name, "test_master_output")
+        self.test_config_path = os.path.join(self._sandbox.name, "test_config.json")
         self.master_filename = "test_master_schedule"
 
         # Create a temporary config file for the manager to load

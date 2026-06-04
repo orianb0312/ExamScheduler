@@ -6,15 +6,16 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget
 
+from src.services.cli_run_service import CliRunConfig
 from src.services.file_loading_service import (
     FileLoadingError,
     FileLoadingService,
     LoadedSchedulerInput,
 )
+from src.services.schedule_output_service import StdoutScheduleParser
 from src.ui.calendar_view import CalendarView
 from src.ui.input_panel import InputPanel
-from src.ui.process_runner import CliRunConfig, ProcessRunner
-from src.ui.stdout_parser import StdoutScheduleParser
+from src.ui.process_runner import ProcessRunner
 
 
 class MainWindow(QMainWindow):

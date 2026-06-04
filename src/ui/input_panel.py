@@ -8,8 +8,6 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QComboBox,
-    QFileDialog,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -19,9 +17,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.services.cli_run_service import (
+    CliRunConfig,
+    SchedulerRunConfigBuilder,
+    SchedulerRunForm,
+)
 from src.services.scheduler_input_state import SchedulerInputState
 from src.ui.file_loader_widget import FileLoaderWidget
-from src.ui.process_runner import CliRunConfig
 from src.ui.program_selection_widget import MAX_SELECTED_PROGRAMS, ProgramSelectionWidget
 
 
@@ -38,6 +40,7 @@ class InputPanel(QWidget):
         self._scheduler_input_state = SchedulerInputState(
             project_root / "outputs" / "ui_runtime"
         )
+        self._run_config_builder = SchedulerRunConfigBuilder(self._scheduler_input_state)
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["complete-count", "period", "complete-write", "auto"])
@@ -164,33 +167,17 @@ class InputPanel(QWidget):
         self.run_requested.emit(config)
 
     def _build_config(self) -> CliRunConfig:
-        period_indexes = self._parse_period_indexes(self.period_indexes_edit.text())
-        max_systems = self._parse_optional_int(
-            self.max_systems_edit.text(),
-            "Max systems",
-            minimum=1,
-            maximum=10_000_000,
-        )
-        time_limit = float(
-            self._parse_required_int(
-                self.time_limit_edit.text(),
-                "Auto time limit",
-                minimum=1,
-                maximum=3600,
+        return self._run_config_builder.build(
+            SchedulerRunForm(
+                project_root=self._project_root,
+                mode=self.mode_combo.currentText(),
+                output_config_text=self.output_config_edit.text(),
+                period_indexes_text=self.period_indexes_edit.text(),
+                max_systems_text=self.max_systems_edit.text(),
+                time_limit_text=self.time_limit_edit.text(),
+                course_file_text=self.course_file_edit.text(),
+                dates_file_text=self.dates_file_edit.text(),
             )
-        )
-        selected_programs_file = self._scheduler_input_state.write_selected_programs_file()
-
-        return CliRunConfig(
-            project_root=self._project_root,
-            mode=self.mode_combo.currentText(),
-            output_config=self._path_or_none(self.output_config_edit.text()),
-            period_indexes=period_indexes,
-            max_systems=max_systems,
-            time_limit_seconds=time_limit,
-            course_file=self._path_or_none(self.course_file_edit.text()),
-            dates_file=self._path_or_none(self.dates_file_edit.text()),
-            user_file=selected_programs_file,
         )
 
     @staticmethod
@@ -200,89 +187,3 @@ class InputPanel(QWidget):
         edit.setToolTip(str(path))
         edit.setCursorPosition(0)
         return edit
-
-    @staticmethod
-    def _add_row(layout: QGridLayout, row: int, label_text: str, widget: QWidget) -> None:
-        label = QLabel(label_text)
-        label.setMinimumWidth(110)
-        layout.addWidget(label, row, 0)
-        layout.addWidget(widget, row, 1)
-
-    def _with_browse(self, edit: QLineEdit, title: str) -> QWidget:
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.addWidget(edit)
-        button = QPushButton("Browse")
-        button.setFixedWidth(92)
-        button.clicked.connect(lambda: self._browse_file(edit, title))
-        layout.addWidget(button)
-        return container
-
-    def _browse_file(self, edit: QLineEdit, title: str) -> None:
-        path, _selected_filter = QFileDialog.getOpenFileName(
-            self,
-            title,
-            str(self._project_root),
-        )
-        if path:
-            edit.setText(path)
-            edit.setToolTip(path)
-            edit.setCursorPosition(0)
-
-    @staticmethod
-    def _path_or_none(text: str) -> Path | None:
-        stripped = text.strip()
-        return Path(stripped) if stripped else None
-
-    @staticmethod
-    def _parse_period_indexes(text: str) -> tuple[int, ...]:
-        stripped = text.strip()
-        if not stripped:
-            return ()
-
-        indexes: list[int] = []
-        for token in stripped.split(","):
-            value = token.strip()
-            if not value:
-                continue
-            try:
-                index = int(value)
-            except ValueError as exc:
-                raise ValueError("Period indexes must be comma-separated integers.") from exc
-            if index < 0:
-                raise ValueError("Period indexes must be zero or greater.")
-            indexes.append(index)
-
-        return tuple(indexes)
-
-    @staticmethod
-    def _parse_optional_int(
-        text: str,
-        field_name: str,
-        minimum: int,
-        maximum: int,
-    ) -> int | None:
-        stripped = text.strip()
-        if not stripped:
-            return None
-        return InputPanel._parse_required_int(stripped, field_name, minimum, maximum)
-
-    @staticmethod
-    def _parse_required_int(
-        text: str,
-        field_name: str,
-        minimum: int,
-        maximum: int,
-    ) -> int:
-        stripped = text.strip()
-        try:
-            value = int(stripped)
-        except ValueError as exc:
-            raise ValueError(f"{field_name} must be a whole number.") from exc
-
-        if value < minimum or value > maximum:
-            raise ValueError(f"{field_name} must be between {minimum} and {maximum}.")
-
-        return value
