@@ -1,5 +1,4 @@
-"""Input controls for configuring an external CLI run."""
-
+# src/ui/input_panel.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -25,6 +24,8 @@ from src.services.cli_run_service import (
 from src.services.scheduler_input_state import SchedulerInputState
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.program_selection_widget import MAX_SELECTED_PROGRAMS, ProgramSelectionWidget
+from src.ui.selected_programs_panel import SelectedProgramsPanel
+from src.services.selected_programs_service import SelectedProgramsViewModel
 
 
 class InputPanel(QWidget):
@@ -41,6 +42,9 @@ class InputPanel(QWidget):
             project_root / "outputs" / "ui_runtime"
         )
         self._run_config_builder = SchedulerRunConfigBuilder(self._scheduler_input_state)
+
+        # Initialize the state management ViewModel for selected programs
+        self.selected_programs_vm = SelectedProgramsViewModel()
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["complete-count", "period", "complete-write", "auto"])
@@ -75,6 +79,9 @@ class InputPanel(QWidget):
         self.program_selection_message.setObjectName("programSelectionMessage")
         self.program_selection_message.setVisible(False)
 
+        # Initialize the read-only details UI sub-panel
+        self.selected_programs_panel = SelectedProgramsPanel()
+
         self._build_layout()
         self._connect_signals()
 
@@ -92,6 +99,10 @@ class InputPanel(QWidget):
         root_layout.addWidget(self.file_loader)
         root_layout.addWidget(self.program_selection_count)
         root_layout.addWidget(self.program_selector)
+        
+        # Inject the read-only details panel beneath the selection widget
+        root_layout.addWidget(self.selected_programs_panel)
+        
         root_layout.addWidget(self.program_selection_message)
         self.run_button.setFixedWidth(220)
         self.run_button.setMinimumHeight(36)
@@ -139,7 +150,13 @@ class InputPanel(QWidget):
         self.program_selection_count.setText(f"{selected_count}/{max_selected}")
 
     def _store_selected_programs(self, program_ids: list[str]) -> None:
+        """Saves current selection to state and triggers a pipeline view refresh."""
         self._scheduler_input_state.set_selected_programs(program_ids)
+        
+        # Synchronize UI selection with business logic layer and refresh read-only display
+        self.selected_programs_vm.set_selected_program_ids(program_ids)
+        details = self.selected_programs_vm.get_selected_program_details()
+        self.selected_programs_panel.update_display(details)
 
     def _handle_data_load_requested(
         self,

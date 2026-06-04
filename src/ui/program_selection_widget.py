@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
@@ -6,13 +8,16 @@ from src.services.program_selection_policy import (
     ProgramSelectionPolicy,
 )
 
-
 MAX_SELECTED_PROGRAMS = DEFAULT_PROGRAM_SELECTION_POLICY.max_selected
 LIMIT_MESSAGE = DEFAULT_PROGRAM_SELECTION_POLICY.limit_message
 PROGRAM_ID_ROLE = Qt.ItemDataRole.UserRole
 
 
 class ProgramSelectionWidget(QListWidget):
+    """
+    A custom list widget with checkable items representing study programs.
+    Enforces selection limits defined by the program selection policy.
+    """
     programSelectionChanged = pyqtSignal(list)
     limitMessageChanged = pyqtSignal(str)
     selectionCountChanged = pyqtSignal(int, int)
@@ -52,15 +57,17 @@ class ProgramSelectionWidget(QListWidget):
         self.programSelectionChanged.emit(self.get_selected_items())
 
     def set_programs(self, programs: list[str]):
-        """Replaces the visible program identifiers."""
+        """Replaces the visible program identifiers completely."""
         self.blockSignals(True)
         self.clear()
         self.blockSignals(False)
         self.limitMessageChanged.emit("")
         self.add_programs(programs)
 
-    def _create_item(self, text: str):
-        item = QListWidgetItem(f"Program {text} ({text})")
+    def _create_item(self, text: str) -> QListWidgetItem:
+        """Creates a checkable list item showing only the raw 5-digit code."""
+        # Modified to pass only the raw text identifier, removing 'Program X (X)' string wrapper
+        item = QListWidgetItem(text)
         item.setData(PROGRAM_ID_ROLE, text)
         item.setFlags(
             Qt.ItemFlag.ItemIsEnabled |
@@ -77,8 +84,8 @@ class ProgramSelectionWidget(QListWidget):
             if self.item(i).checkState() == Qt.CheckState.Checked
         ]
 
-    def _on_item_changed(self, item):
-        """Keeps the program selection inside the allowed Phase 2 limit."""
+    def _on_item_changed(self, item: QListWidgetItem):
+        """Keeps the program selection inside the allowed policy boundaries."""
         if self._updating_item_state:
             return
 
@@ -93,6 +100,7 @@ class ProgramSelectionWidget(QListWidget):
         self.programSelectionChanged.emit(self.get_selected_items())
 
     def _sync_limit_state(self):
+        """Disables unselected items if the maximum allowed limit is reached."""
         selected_count = len(self.get_selected_items())
         limit_reached = self._policy.is_limit_reached(selected_count)
 
@@ -108,13 +116,15 @@ class ProgramSelectionWidget(QListWidget):
         self.limitMessageChanged.emit(self._policy.message_for_count(selected_count))
         self.selectionCountChanged.emit(selected_count, self._policy.max_selected)
 
-    def _set_item_checked(self, item, checked: bool):
+    def _set_item_checked(self, item: QListWidgetItem, checked: bool):
+        """Safely alters an item's check state without re-triggering signal evaluation loops."""
         self._updating_item_state = True
         item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         self._updating_item_state = False
 
     @staticmethod
-    def _set_item_enabled(item, enabled: bool):
+    def _set_item_enabled(item: QListWidgetItem, enabled: bool):
+        """Toggles the enabled flag state of a specific list item."""
         flags = item.flags()
         if enabled:
             item.setFlags(flags | Qt.ItemFlag.ItemIsEnabled)
@@ -122,6 +132,7 @@ class ProgramSelectionWidget(QListWidget):
             item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
 
     @staticmethod
-    def _program_id_for_item(item) -> str:
+    def _program_id_for_item(item: QListWidgetItem) -> str:
+        """Extracts the unique program identifier stored inside the custom user data role."""
         value = item.data(PROGRAM_ID_ROLE)
         return str(value) if value is not None else item.text()
