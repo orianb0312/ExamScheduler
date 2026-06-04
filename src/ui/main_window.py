@@ -38,7 +38,6 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._load_stylesheet()
 
-        # Populate the selection view with default baseline program IDs upon application startup
         self._set_default_baseline_programs()
 
     def _build_layout(self) -> None:
@@ -70,11 +69,11 @@ class MainWindow(QMainWindow):
         self.input_panel.update_program_list(default_baseline)
 
     def _load_selected_files(
-        self,
-        courses_path: str,
-        exam_dates_path: str,
-        course_mode: str,
-        exam_dates_mode: str,
+            self,
+            courses_path: str,
+            exam_dates_path: str,
+            course_mode: str,
+            exam_dates_mode: str,
     ) -> None:
         try:
             result = self._file_loading_service.load_selected_files(
@@ -102,6 +101,8 @@ class MainWindow(QMainWindow):
             self.input_panel.update_program_list(resolved_ids)
         else:
             self.input_panel.replace_program_list(resolved_ids)
+
+        self.input_panel.notify_data_loaded(loaded_data)
 
     def _start_cli_run(self, config: CliRunConfig) -> None:
         self._parser.reset()

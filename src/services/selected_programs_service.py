@@ -1,8 +1,10 @@
-# src/services/selected_programs_service.py
 from __future__ import annotations
-from src.services.file_loading_service import ProgramSummary, LoadedSchedulerInput
 
-# Static mapping for standard academic programs when raw data files aren't loaded yet
+from dataclasses import dataclass
+
+from src.models.academic import Course
+from src.services.file_loading_service import LoadedSchedulerInput, ProgramSummary
+
 BASELINE_PROGRAM_NAMES: dict[str, str] = {
     "83101": "Computer Engineering",
     "83102": "Electrical Engineering",
@@ -17,57 +19,75 @@ BASELINE_PROGRAM_NAMES: dict[str, str] = {
 }
 
 
+@dataclass(frozen=True)
+class CourseRow:
+    course_id: str
+    name: str
+    year: int
+    semester: str
+    requirement: str
+    assessment: str
+
+
 class SelectedProgramsViewModel:
-    """
-    Manages the business logic and state for selected study programs.
-    Keeps the internal data structures completely decoupled from PyQt.
-    """
 
     def __init__(self) -> None:
         self._all_available_programs: dict[str, ProgramSummary] = {}
+        self._all_courses: tuple[Course, ...] = ()
         self._selected_ids: list[str] = []
 
     def update_available_programs(self, loaded_data: LoadedSchedulerInput | None) -> None:
-        """
-        Updates the internal registry of available programs discovered from the loaded file.
-        Clears the registry if no data is provided.
-        """
         if not loaded_data or not loaded_data.programs:
             self._all_available_programs = {}
+            self._all_courses = ()
             return
 
-        # Explicitly map string representations of IDs to their summary models
         self._all_available_programs = {
             str(p.program_id): p for p in loaded_data.programs
         }
+        self._all_courses = loaded_data.courses
 
     def set_selected_program_ids(self, program_ids: list[str]) -> None:
-        """
-        Updates the list of selected program identifiers chosen by the user.
-        Preserves the original selection order.
-        """
-        # Create a shallow copy to prevent side-effects from external UI mutations
         self._selected_ids = list(program_ids)
 
     def get_selected_program_details(self) -> list[dict[str, str]]:
-        """
-        Returns a primitive, read-only data structure tailored for UI consumption.
-        Each dictionary element contains the program ID and its formatted display name.
-        """
         details = []
         for pid in self._selected_ids:
-            # If the program exists in the dynamically loaded dataset, extract its dynamic display name
-            if pid in self._all_available_programs:
-                prog = self._all_available_programs[pid]
-                details.append({
-                    "program_id": pid,
-                    "display_name": prog.display_name
-                })
-            else:
-                # Fallback mechanism translating known baseline codes into official English titles
-                resolved_name = BASELINE_PROGRAM_NAMES.get(pid, f"Program {pid}")
-                details.append({
-                    "program_id": pid,
-                    "display_name": resolved_name
-                })
+
+            resolved_name = BASELINE_PROGRAM_NAMES.get(pid, f"Program {pid}")
+            details.append({"program_id": pid, "display_name": resolved_name})
         return details
+
+    def get_courses_for_program(self, program_id: str) -> list[CourseRow]:
+        clean_pid = str(program_id).strip()
+        pid_int = _try_parse_int(clean_pid)
+        if pid_int is None:
+            return []
+
+        rows: list[CourseRow] = []
+        for course in self._all_courses:
+            for affiliation in course.affiliations:
+                if affiliation.program_id != pid_int:
+                    continue
+                rows.append(CourseRow(
+                    course_id=str(course.course_id),
+                    name=course.name,
+                    year=affiliation.year,
+                    semester="",
+                    requirement="",
+                    assessment="",
+                ))
+
+        rows.sort(key=lambda r: r.course_id)
+        return rows
+
+    def get_program_display_name(self, program_id: str) -> str:
+        clean_pid = str(program_id).strip()
+        return BASELINE_PROGRAM_NAMES.get(clean_pid, f"Program {clean_pid}")
+
+
+def _try_parse_int(value: str) -> int | None:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None

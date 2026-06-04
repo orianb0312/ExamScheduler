@@ -66,7 +66,6 @@ class ProgramSelectionWidget(QListWidget):
 
     def _create_item(self, text: str) -> QListWidgetItem:
         """Creates a checkable list item showing only the raw 5-digit code."""
-        # Modified to pass only the raw text identifier, removing 'Program X (X)' string wrapper
         item = QListWidgetItem(text)
         item.setData(PROGRAM_ID_ROLE, text)
         item.setFlags(
@@ -83,6 +82,10 @@ class ProgramSelectionWidget(QListWidget):
             for i in range(self.count())
             if self.item(i).checkState() == Qt.CheckState.Checked
         ]
+
+    def get_selected_program_ids(self) -> list[str]:
+        """Alias for get_selected_items used by InputPanel.notify_data_loaded."""
+        return self.get_selected_items()
 
     def _on_item_changed(self, item: QListWidgetItem):
         """Keeps the program selection inside the allowed policy boundaries."""
