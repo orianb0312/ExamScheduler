@@ -30,6 +30,7 @@ class InputPanel(QWidget):
     run_requested = pyqtSignal(CliRunConfig)
     cancel_requested = pyqtSignal()
     data_load_requested = pyqtSignal(str, str, str, str)
+    view_calendar_requested = pyqtSignal()
 
     def __init__(self, project_root: Path, parent=None) -> None:
         super().__init__(parent)
@@ -61,6 +62,11 @@ class InputPanel(QWidget):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
 
+        # Calendar button — always visible, enabled only after a successful file load
+        self.view_calendar_button = QPushButton("View Exam Calendar")
+        self.view_calendar_button.setObjectName("calendarButton")
+        self.view_calendar_button.setEnabled(False)
+
         self.program_selector = ProgramSelectionWidget()
 
         self._build_layout()
@@ -79,13 +85,21 @@ class InputPanel(QWidget):
         root_layout.addWidget(title)
         root_layout.addWidget(self.file_loader)
         root_layout.addWidget(self.program_selector)
-        root_layout.addWidget(self.run_button)
+
+        # Action row: "Generate Schedules" left, "View Exam Calendar" right
+        action_row = QHBoxLayout()
+        action_row.addWidget(self.run_button)
+        action_row.addStretch()
+        action_row.addWidget(self.view_calendar_button)
+        root_layout.addLayout(action_row)
+
         root_layout.addStretch()
 
     def _connect_signals(self) -> None:
         self.file_loader.load_requested.connect(self._handle_data_load_requested)
         self.run_button.clicked.connect(self._emit_run_requested)
         self.cancel_button.clicked.connect(self.cancel_requested.emit)
+        self.view_calendar_button.clicked.connect(self.view_calendar_requested.emit)
 
     def set_data_load_success(
         self,
@@ -95,6 +109,8 @@ class InputPanel(QWidget):
         message: str | None = None,
     ) -> None:
         self.file_loader.show_load_success(course_count, period_count, program_count, message)
+        # Reveal the calendar button now that exam periods are available
+        self.view_calendar_button.setEnabled(True)
 
     def set_data_load_error(self, message: str) -> None:
         self.file_loader.show_load_error(message)

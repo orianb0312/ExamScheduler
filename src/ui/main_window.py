@@ -11,10 +11,12 @@ from src.services.file_loading_service import (
     FileLoadingService,
     LoadedSchedulerInput,
 )
-from src.ui.calendar_view import CalendarView
+from src.ui.calendar_view_panel import CalendarView
 from src.ui.input_panel import InputPanel
+from src.ui.calendar_view import OutputView
 from src.ui.process_runner import CliRunConfig, ProcessRunner
 from src.ui.stdout_parser import StdoutScheduleParser
+from src.ui.view_models import ExamPeriodViewModel, ExclusionViewModel
 
 
 class MainWindow(QMainWindow):
@@ -31,6 +33,7 @@ class MainWindow(QMainWindow):
 
         self.input_panel = InputPanel(project_root=project_root)
         self.calendar_view = CalendarView()
+        self.output_view = OutputView()
         self._stack = QStackedWidget()
 
         self._build_layout()
@@ -43,13 +46,16 @@ class MainWindow(QMainWindow):
     def _build_layout(self) -> None:
         self._stack.addWidget(self.input_panel)
         self._stack.addWidget(self.calendar_view)
+        self._stack.addWidget(self.output_view)
         self.setCentralWidget(self._stack)
 
     def _connect_signals(self) -> None:
         self.input_panel.data_load_requested.connect(self._load_selected_files)
         self.input_panel.run_requested.connect(self._start_cli_run)
         self.input_panel.cancel_requested.connect(self._runner.cancel)
+        self.input_panel.view_calendar_requested.connect(self._show_calendar_screen)
         self.calendar_view.back_requested.connect(self._show_input_screen)
+        self.output_view.back_requested.connect(self._show_input_screen)
         self._runner.process_started.connect(self._handle_started)
         self._runner.stdout_received.connect(self._handle_stdout)
         self._runner.stderr_received.connect(self._handle_stderr)
@@ -97,45 +103,64 @@ class MainWindow(QMainWindow):
         )
 
         # 2. Extract the current snapshot of program IDs.
-        # If course_mode is 'update', loaded_data ALREADY contains the merged historical courses
-        # from self._loaded_data in FileLoadingService.
-        # If course_mode is 'replace', it contains only the freshly parsed file courses.
         resolved_ids = loaded_data.program_ids_as_strings or []
 
         # 3. Dispatch the completely resolved programmatic collection directly into the selection view.
         self.input_panel.update_program_list(resolved_ids)
 
+        # 4. Convert domain objects to view models and populate the calendar.
+        period_view_models = [
+            ExamPeriodViewModel(
+                semester_label=period.semester.value,
+                term_label=period.term.value,
+                start_date=period.start_date,
+                end_date=period.end_date,
+                exclusions=tuple(
+                    ExclusionViewModel(
+                        start_date=exclusion.start_date,
+                        end_date=exclusion.end_date,
+                    )
+                    for exclusion in period.exclusions
+                ),
+            )
+            for period in loaded_data.exam_periods
+        ]
+        self.calendar_view.load_exam_periods(period_view_models)
+
     def _start_cli_run(self, config: CliRunConfig) -> None:
         self._parser.reset()
-        self.calendar_view.clear()
+        self.output_view.clear()
         self._show_output_screen()
         self._runner.start(config)
 
     def _handle_started(self) -> None:
         self.input_panel.set_running(True)
-        self.calendar_view.set_running(True)
+        self.output_view.set_running(True)
 
     def _handle_stdout(self, text: str) -> None:
-        self.calendar_view.append_log(text)
-        self.calendar_view.add_systems(self._parser.feed(text))
+        self.output_view.append_log(text)
+        self.output_view.add_systems(self._parser.feed(text))
 
     def _handle_stderr(self, text: str) -> None:
-        self.calendar_view.append_log(text)
+        self.output_view.append_log(text)
 
     def _handle_finished(self, exit_code: int, status: str) -> None:
-        self.calendar_view.add_systems(self._parser.flush())
+        self.output_view.add_systems(self._parser.flush())
         self.input_panel.set_running(False)
-        self.calendar_view.set_finished(exit_code, status)
+        self.output_view.set_finished(exit_code, status)
 
     def _handle_error(self, message: str) -> None:
         self.input_panel.set_running(False)
-        self.calendar_view.set_error(message)
+        self.output_view.set_error(message)
 
     def _show_input_screen(self) -> None:
         self._stack.setCurrentWidget(self.input_panel)
 
-    def _show_output_screen(self) -> None:
+    def _show_calendar_screen(self) -> None:
         self._stack.setCurrentWidget(self.calendar_view)
+
+    def _show_output_screen(self) -> None:
+        self._stack.setCurrentWidget(self.output_view)
 
     def _load_stylesheet(self) -> None:
         stylesheet_path = Path(__file__).with_name("styles.qss")

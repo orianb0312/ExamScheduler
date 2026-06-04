@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QTextCursor
-from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -19,7 +18,7 @@ from src.ui.pagination_bar import PaginationBar
 from src.ui.ui_cache import DEFAULT_BATCH_SIZE, ScheduleCache, ScheduleSystem
 
 
-class CalendarView(QWidget):
+class OutputView(QWidget):
     """Display live CLI logs and cached schedule pages."""
 
     back_requested = pyqtSignal()
