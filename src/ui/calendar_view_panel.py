@@ -58,7 +58,7 @@ class _MonthGrid(QWidget):
     Days are coloured according to their status within the given ExamPeriodViewModel.
     """
 
-    _DAY_HEADERS = ("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
+    _DAY_HEADERS = ("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa")
 
     def __init__(self, year: int, month: int, period: ExamPeriodViewModel, parent=None) -> None:
         super().__init__(parent)
@@ -97,7 +97,8 @@ class _MonthGrid(QWidget):
             grid.addWidget(lbl, 0, col)
 
         first_weekday, days_in_month = calendar.monthrange(self._year, self._month)
-        row, col = 1, first_weekday
+
+        row, col = 1, (first_weekday + 1) % 7
 
         for day in range(1, days_in_month + 1):
             d = date(self._year, self._month, day)
@@ -132,12 +133,14 @@ class _PeriodCalendar(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
+
         layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         for year, month in self._months_in_range():
             grid = _MonthGrid(year, month, self._period)
             grid.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             layout.addWidget(grid)
+
 
         layout.addStretch()
 
@@ -216,9 +219,6 @@ class CalendarView(QWidget):
     """
     Calendar-style screen that displays all loaded exam periods.
 
-    Receives only ExamPeriodViewModel objects — no dependency on the domain model.
-    MainWindow is responsible for the conversion before calling load_exam_periods.
-
     Signals
     -------
     back_requested
@@ -264,7 +264,7 @@ class CalendarView(QWidget):
         header = QHBoxLayout()
         title = QLabel("Exam Period Calendar")
         title.setObjectName("screenTitle")
-        self._back_button = QPushButton("Back to Scheduler")
+        self._back_button = QPushButton("Back to Input")
         self._back_button.clicked.connect(self.back_requested.emit)
         header.addWidget(title)
         header.addStretch()
