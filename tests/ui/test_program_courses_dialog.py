@@ -109,3 +109,11 @@ def test_dialog_handles_missing_attributes_gracefully(qtbot):
     # Verify fallback logic kicks in
     assert table.item(0, 2).text() == "N/A"
     assert table.item(0, 3).text() == "N/A"
+
+def test_visual_inspection_pause(courses_dialog):
+    """
+    TEMPORARY TEST: Opens the dialog on the screen so you can visually
+    inspect the column widths, alignment, and spacing.
+    Close the dialog window manually to finish the test.
+    """
+    courses_dialog.exec()
