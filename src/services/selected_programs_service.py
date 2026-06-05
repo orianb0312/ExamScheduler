@@ -69,13 +69,17 @@ class SelectedProgramsViewModel:
             for affiliation in course.affiliations:
                 if affiliation.program_id != pid_int:
                     continue
+                # Safely extract string values from Enums and class type
+                semester_val = affiliation.semester.value if affiliation.semester else ""
+                req_val = affiliation.requirement_type.value if affiliation.requirement_type else ""
+                assessment_val = course.evaluation.__class__.__name__ if course.evaluation else ""
                 rows.append(CourseRow(
                     course_id=str(course.course_id),
                     name=course.name,
                     year=affiliation.year,
-                    semester="",
-                    requirement="",
-                    assessment="",
+                    semester=semester_val,
+                    requirement=req_val,
+                    assessment=assessment_val,
                 ))
 
         rows.sort(key=lambda r: r.course_id)

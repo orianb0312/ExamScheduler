@@ -107,8 +107,12 @@ class ProgramCoursesDialog(QDialog):
         for row, course in enumerate(unique_courses):
             id_item = QTableWidgetItem(course.course_id)
             name_item = QTableWidgetItem(course.name)
-            status_val = getattr(course, 'status', 'N/A')
+            status_val = getattr(course, 'requirement', 'N/A')
+            if not status_val:
+                status_val = 'N/A'
             assessment_val = getattr(course, 'assessment', 'N/A')
+            if not assessment_val:
+                assessment_val = 'N/A'
             status_item = QTableWidgetItem(str(status_val))
             assessment_item = QTableWidgetItem(str(assessment_val))
 
