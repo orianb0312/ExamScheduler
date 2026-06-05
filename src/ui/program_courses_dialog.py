@@ -59,13 +59,17 @@ class ProgramCoursesDialog(QDialog):
 
         self.table_widget = QTableWidget()
         self.table_widget.setObjectName("programCoursesTable")
-        self.table_widget.setColumnCount(2)
-        self.table_widget.setHorizontalHeaderLabels(["Course ID", "Course Name"])
+        #self.table_widget.setColumnCount(2)
+        #self.table_widget.setHorizontalHeaderLabels(["Course ID", "Course Name"])
+        self.table_widget.setColumnCount(4)
+        self.table_widget.setHorizontalHeaderLabels(["Course ID", "Course Name", "Status", "Assessment Method"])
 
-
+        #self.table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        #self.table_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-
+        self.table_widget.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_widget.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
         self.table_widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -103,13 +107,20 @@ class ProgramCoursesDialog(QDialog):
         for row, course in enumerate(unique_courses):
             id_item = QTableWidgetItem(course.course_id)
             name_item = QTableWidgetItem(course.name)
-
+            status_val = getattr(course, 'status', 'N/A')
+            assessment_val = getattr(course, 'assessment', 'N/A')
+            status_item = QTableWidgetItem(str(status_val))
+            assessment_item = QTableWidgetItem(str(assessment_val))
 
             id_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
+            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            assessment_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             self.table_widget.setItem(row, 0, id_item)
             self.table_widget.setItem(row, 1, name_item)
+            self.table_widget.setItem(row, 2, status_item)
+            self.table_widget.setItem(row, 3, assessment_item)
 
         count = len(unique_courses)
         self._summary_label.setText(
