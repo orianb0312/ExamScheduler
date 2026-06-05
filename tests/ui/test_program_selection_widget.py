@@ -32,8 +32,7 @@ def test_load_data_displays_all_program_names_and_identifiers(combo_box):
     for i, expected_id in enumerate(version_1_data):
         item = combo_box.item(i)
         assert item.data(PROGRAM_ID_ROLE) == expected_id
-        assert f"Program {expected_id}" in item.text()
-        assert expected_id in item.text()
+        assert item.text() == expected_id
 
 
 def test_add_programs_preserves_existing_identifiers(combo_box):
@@ -55,7 +54,7 @@ def test_set_programs_replaces_existing_identifiers(combo_box):
 
     assert combo_box.count() == 1
     assert combo_box.item(0).data(PROGRAM_ID_ROLE) == "83115"
-    assert combo_box.item(0).text() == "Program 83115 (83115)"
+    assert combo_box.item(0).text() == "83115"
 
 
 def test_selecting_one_program_records_only_that_program(combo_box):
@@ -129,4 +128,3 @@ def test_deselecting_one_program_reenables_remaining_choices(combo_box):
     assert combo_box.get_selected_items() == ["83102", "83103", "83104", "83105"]
     assert _item_is_enabled(combo_box.item(5))
     assert messages[-1] == ""
-
