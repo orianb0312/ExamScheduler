@@ -7,11 +7,11 @@ from src.ui.program_courses_dialog import ProgramCoursesDialog
 class MockCourseRow:
     """
     A mock data class mimicking 'CourseRow' from selected_programs_service.py.
-    Includes the newly required fields: status and assessment.
+    Updated to use the correct fields based on code review: requirement and assessment.
     """
     course_id: str
     name: str
-    status: str
+    requirement: str
     assessment: str
 
 
@@ -24,13 +24,13 @@ def courses_dialog(qtbot):
         MockCourseRow(
             course_id="83101",
             name="Calculus 1",
-            status="Obligatory",
+            requirement="Obligatory",
             assessment="Exam"
         ),
         MockCourseRow(
             course_id="83102",
             name="Advanced Programming",
-            status="Elective",
+            requirement="Elective",
             assessment="Project"
         )
     ]
@@ -61,7 +61,7 @@ def test_dialog_table_has_four_columns(courses_dialog):
 def test_dialog_displays_status_and_assessment(courses_dialog):
     """
     Acceptance Criteria: Verify that the displayed values come from the loaded course data.
-    Checks if the status and assessment method are correctly extracted and displayed.
+    Checks if the requirement (status) and assessment method are correctly extracted and displayed.
     """
     table = courses_dialog.table_widget
 
@@ -82,7 +82,7 @@ def test_dialog_displays_status_and_assessment(courses_dialog):
 
 def test_dialog_handles_missing_attributes_gracefully(qtbot):
     """
-    Edge Case: The provided CourseRow objects are missing the new attributes.
+    Edge Case: The provided CourseRow objects are missing the new attributes entirely.
     Verifies that the UI falls back to 'N/A' without crashing.
     """
 
@@ -90,7 +90,7 @@ def test_dialog_handles_missing_attributes_gracefully(qtbot):
     class IncompleteCourseRow:
         course_id: str
         name: str
-        # Intentionally omitting 'status' and 'assessment'
+        # Intentionally omitting 'requirement' and 'assessment'
 
     incomplete_courses = [IncompleteCourseRow(course_id="99999", name="Legacy Course")]
 
@@ -103,17 +103,64 @@ def test_dialog_handles_missing_attributes_gracefully(qtbot):
 
     table = dialog.table_widget
 
-    # Ensure it didn't crash and populated the row
     assert table.rowCount() == 1
-
-    # Verify fallback logic kicks in
     assert table.item(0, 2).text() == "N/A"
     assert table.item(0, 3).text() == "N/A"
 
-def test_visual_inspection_pause(courses_dialog):
+
+def test_dialog_handles_empty_string_attributes(qtbot):
     """
-    TEMPORARY TEST: Opens the dialog on the screen so you can visually
-    inspect the column widths, alignment, and spacing.
-    Close the dialog window manually to finish the test.
+    Edge Case: The service provides empty strings instead of valid data.
+    Matches the specific finding in the PR review where CourseRow(requirement='', assessment='').
+    Verifies that the UI overrides empty strings with 'N/A'.
     """
-    courses_dialog.exec()
+    empty_string_courses = [
+        MockCourseRow(
+            course_id="83103",
+            name="Empty Data Course",
+            requirement="",
+            assessment=""
+        )
+    ]
+
+    dialog = ProgramCoursesDialog(
+        program_id="00000",
+        display_name="Empty Program",
+        courses=empty_string_courses
+    )
+    qtbot.addWidget(dialog)
+
+    table = dialog.table_widget
+
+    assert table.rowCount() == 1
+    assert table.item(0, 2).text() == "N/A"
+    assert table.item(0, 3).text() == "N/A"
+
+def test_dialog_handles_none_attributes(qtbot):
+    """
+    Edge Case: The parsed file contains empty fields, resulting in None values.
+    Verifies that the UI safely converts None to 'N/A' instead of crashing
+    or displaying the literal string 'None'.
+    """
+    none_value_courses = [
+        MockCourseRow(
+            course_id="83104",
+            name="Missing Data Course",
+            requirement=None,
+            assessment=None
+        )
+    ]
+
+    dialog = ProgramCoursesDialog(
+        program_id="00000",
+        display_name="None Values Program",
+        courses=none_value_courses
+    )
+    qtbot.addWidget(dialog)
+
+    table = dialog.table_widget
+
+    assert table.rowCount() == 1
+    # Both None values should be caught by the fallback logic and displayed as 'N/A'
+    assert table.item(0, 2).text() == "N/A"
+    assert table.item(0, 3).text() == "N/A"
