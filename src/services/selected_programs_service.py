@@ -25,8 +25,12 @@ class CourseRow:
     name: str
     year: int
     semester: str
-    requirement: str
+    status: str
     assessment: str
+
+    @property
+    def requirement(self) -> str:
+        return self.status
 
 
 class SelectedProgramsViewModel:
@@ -69,20 +73,16 @@ class SelectedProgramsViewModel:
             for affiliation in course.affiliations:
                 if affiliation.program_id != pid_int:
                     continue
-                # Safely extract string values from Enums and class type
-                semester_val = affiliation.semester.value if affiliation.semester else ""
-                req_val = affiliation.requirement_type.value if affiliation.requirement_type else ""
-                assessment_val = course.evaluation.__class__.__name__ if course.evaluation else ""
                 rows.append(CourseRow(
                     course_id=str(course.course_id),
                     name=course.name,
                     year=affiliation.year,
-                    semester=semester_val,
-                    requirement=req_val,
-                    assessment=assessment_val,
+                    semester=_enum_display_value(affiliation.semester),
+                    status=_enum_display_value(affiliation.requirement_type),
+                    assessment=_evaluation_display_value(course.evaluation),
                 ))
 
-        rows.sort(key=lambda r: r.course_id)
+        rows.sort(key=lambda r: (r.year, _semester_sort_key(r.semester), r.course_id))
         return rows
 
     def get_program_display_name(self, program_id: str) -> str:
@@ -95,3 +95,21 @@ def _try_parse_int(value: str) -> int | None:
         return int(value)
     except (ValueError, TypeError):
         return None
+
+
+def _semester_sort_key(semester: str) -> int:
+    order = {"FALL": 0, "SPRI": 1, "SUMM": 2}
+    return order.get(semester, 99)
+
+
+def _enum_display_value(value) -> str:
+    raw_value = getattr(value, "value", value)
+    if raw_value is None:
+        return ""
+    return str(raw_value)
+
+
+def _evaluation_display_value(value) -> str:
+    if value is None:
+        return ""
+    return value.__class__.__name__

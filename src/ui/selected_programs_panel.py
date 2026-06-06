@@ -10,7 +10,11 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QAbstractItemView,
     QHeaderView,
+    QSizePolicy,
 )
+
+
+SELECTED_PROGRAMS_TABLE_MIN_HEIGHT = 190
 
 
 class SelectedProgramsPanel(QWidget):
@@ -39,6 +43,11 @@ class SelectedProgramsPanel(QWidget):
         layout.addWidget(hint)
 
         self.table = QTableWidget()
+        self.table.setMinimumHeight(SELECTED_PROGRAMS_TABLE_MIN_HEIGHT)
+        self.table.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["Program Number", "Program Name"])
 
@@ -62,7 +71,7 @@ class SelectedProgramsPanel(QWidget):
 
         self.table.cellClicked.connect(self._on_cell_clicked)
 
-        layout.addWidget(self.table)
+        layout.addWidget(self.table, 1)
 
     def update_display(self, programs_details: list[dict[str, str]]) -> None:
         self.table.setRowCount(len(programs_details))

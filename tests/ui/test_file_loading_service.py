@@ -351,4 +351,4 @@ def test_main_window_displays_program_name_and_identifier_after_load(tmp_path, q
     first_item = window.input_panel.program_selector.item(0)
 
     assert first_item.data(PROGRAM_ID_ROLE) == "83101"
-    assert first_item.text() == "Program 83101 (83101)"
+    assert first_item.text() == "83101"

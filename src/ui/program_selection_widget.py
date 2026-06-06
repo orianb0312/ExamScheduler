@@ -65,9 +65,10 @@ class ProgramSelectionWidget(QListWidget):
         self.add_programs(programs)
 
     def _create_item(self, text: str) -> QListWidgetItem:
-        """Creates a checkable list item showing only the raw 5-digit code."""
-        item = QListWidgetItem(text)
-        item.setData(PROGRAM_ID_ROLE, text)
+        """Creates a checkable list item showing the raw 5-digit code."""
+        program_id = str(text).strip()
+        item = QListWidgetItem(program_id)
+        item.setData(PROGRAM_ID_ROLE, program_id)
         item.setFlags(
             Qt.ItemFlag.ItemIsEnabled |
             Qt.ItemFlag.ItemIsUserCheckable

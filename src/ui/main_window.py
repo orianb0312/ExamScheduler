@@ -39,6 +39,7 @@ class MainWindow(QMainWindow):
         self._load_stylesheet()
 
         self._set_default_baseline_programs()
+        self._load_default_files_if_available()
 
     def _build_layout(self) -> None:
         self._stack.addWidget(self.input_panel)
@@ -67,6 +68,33 @@ class MainWindow(QMainWindow):
             "83109", "83105", "83182", "83103", "83115"
         ]
         self.input_panel.update_program_list(default_baseline)
+
+    def _load_default_files_if_available(self) -> None:
+        courses_path = Path(self.input_panel.file_loader.get_courses_path())
+        exam_dates_path = Path(self.input_panel.file_loader.get_exam_dates_path())
+
+        if not courses_path.is_file() or not exam_dates_path.is_file():
+            return
+
+        try:
+            result = self._file_loading_service.load_selected_files(
+                courses_path,
+                exam_dates_path,
+                "replace",
+                "replace",
+            )
+        except FileLoadingError as exc:
+            self.input_panel.set_data_load_error(str(exc))
+            return
+
+        loaded_data = result.loaded_data
+        self.input_panel.set_data_load_success(
+            loaded_data.course_count,
+            loaded_data.exam_period_count,
+            loaded_data.program_count,
+            result.message,
+        )
+        self.input_panel.notify_data_loaded(loaded_data)
 
     def _load_selected_files(
             self,
