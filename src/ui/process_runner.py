@@ -66,10 +66,20 @@ class ProcessRunner(QObject):
         self._process.setWorkingDirectory(str(config.project_root))
         self._process.start(program, args)
 
+    def is_running(self) -> bool:
+        return self._process.state() != QProcess.ProcessState.NotRunning
+
     def cancel(self) -> None:
         if self._process.state() == QProcess.ProcessState.NotRunning:
             return
         self._process.terminate()
+
+    def send_input_line(self, line: str) -> None:
+        if self._process.state() == QProcess.ProcessState.NotRunning:
+            self.process_error.emit("No CLI process is running.")
+            return
+
+        self._process.write(f"{line}\n".encode("utf-8"))
 
     def _read_stdout(self) -> None:
         text = bytes(self._process.readAllStandardOutput()).decode(

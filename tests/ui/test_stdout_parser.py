@@ -1,4 +1,4 @@
-from src.services.schedule_output_service import StdoutScheduleParser
+from src.services.schedule_output_service import BATCH_END_MARKER, StdoutScheduleParser
 
 
 def test_parser_emits_complete_system_blocks_when_next_marker_arrives():
@@ -50,3 +50,18 @@ def test_parser_supports_period_schedule_markers_too():
 
     assert [system.number for system in systems] == [8]
     assert parser.flush()[0].number == 9
+
+
+def test_parser_flushes_last_system_when_batch_marker_arrives():
+    parser = StdoutScheduleParser()
+
+    systems = parser.feed(
+        "Complete System #1\n"
+        "Course A\n"
+        f"{BATCH_END_MARKER}\n"
+    )
+
+    assert len(systems) == 1
+    assert systems[0].number == 1
+    assert "Course A" in systems[0].text
+    assert parser.flush() == []

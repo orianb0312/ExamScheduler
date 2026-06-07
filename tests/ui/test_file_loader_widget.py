@@ -60,6 +60,7 @@ def test_input_panel_shows_output_action_without_cli_controls(tmp_path, qtbot):
     qtbot.addWidget(panel)
 
     assert panel.mode_combo.parent() is None
+    assert panel.mode_combo.currentText() == "auto"
     assert panel.output_config_edit.parent() is None
     assert panel.user_file_edit.parent() is None
     assert panel.period_indexes_edit.parent() is None
@@ -139,6 +140,9 @@ def test_input_panel_passes_selected_programs_to_scheduler_config(tmp_path, qtbo
     _program, args = build_cli_arguments(config)
     user_file_index = args.index("--user-file") + 1
 
+    assert config.stream_schedules is True
+    assert config.lazy_schedules is True
+    assert "--lazy-schedules" in args
     assert config.user_file is not None
     assert args[user_file_index] == str(config.user_file)
     assert config.user_file.read_text(encoding="utf-8") == "83101, 83108"

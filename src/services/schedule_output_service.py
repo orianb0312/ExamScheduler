@@ -8,6 +8,9 @@ from dataclasses import dataclass
 
 _MARKER_PATTERN = re.compile(r"(?m)^(Complete System|Schedule) #(?P<number>\d+)\s*$")
 _MAX_PREFIX_BUFFER = 64
+BATCH_END_MARKER = "__EXAM_SCHEDULER_BATCH_END__"
+LAZY_NEXT_COMMAND = "NEXT"
+LAZY_STOP_COMMAND = "STOP"
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,10 @@ class StdoutScheduleParser:
             return []
 
         self._buffer += text
+
+        if BATCH_END_MARKER in self._buffer:
+            return self._extract_blocks_until_batch_markers()
+
         self._drop_text_before_first_marker()
         return self._extract_complete_blocks(keep_last=True)
 
@@ -72,6 +79,20 @@ class StdoutScheduleParser:
         else:
             self._buffer = ""
 
+        return systems
+
+    def _extract_blocks_until_batch_markers(self) -> list[ScheduleSystem]:
+        systems: list[ScheduleSystem] = []
+
+        while BATCH_END_MARKER in self._buffer:
+            before_marker, after_marker = self._buffer.split(BATCH_END_MARKER, 1)
+            self._buffer = before_marker
+            self._drop_text_before_first_marker()
+            systems.extend(self._extract_complete_blocks(keep_last=False))
+            self._buffer = after_marker.lstrip("\r\n")
+
+        self._drop_text_before_first_marker()
+        systems.extend(self._extract_complete_blocks(keep_last=True))
         return systems
 
     @staticmethod

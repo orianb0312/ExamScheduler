@@ -12,7 +12,11 @@ from src.services.file_loading_service import (
     FileLoadingService,
     LoadedSchedulerInput,
 )
-from src.services.schedule_output_service import StdoutScheduleParser
+from src.services.schedule_output_service import (
+    LAZY_NEXT_COMMAND,
+    LAZY_STOP_COMMAND,
+    StdoutScheduleParser,
+)
 from src.ui.calendar_view import OutputView
 from src.ui.calendar_view_panel import CalendarView as ExamCalendarView
 from src.ui.input_panel import InputPanel
@@ -32,6 +36,7 @@ class MainWindow(QMainWindow):
         self._runner = ProcessRunner(self)
         self._file_loading_service = FileLoadingService()
         self._active_run_config: CliRunConfig | None = None
+        self._stream_schedule_output_started = False
 
         self.input_panel = InputPanel(project_root=project_root)
         self.calendar_view = ExamCalendarView()
@@ -61,6 +66,7 @@ class MainWindow(QMainWindow):
         self.calendar_view.restore_day_requested.connect(self._restore_calendar_day)
         self.calendar_view.period_dates_changed.connect(self._update_period_dates)
         self.output_view.back_requested.connect(self._show_input_screen)
+        self.output_view.more_requested.connect(self._request_next_schedule_batch)
         self._runner.process_started.connect(self._handle_started)
         self._runner.stdout_received.connect(self._handle_stdout)
         self._runner.stderr_received.connect(self._handle_stderr)
@@ -206,8 +212,10 @@ class MainWindow(QMainWindow):
 
     def _start_cli_run(self, config: CliRunConfig) -> None:
         self._active_run_config = config
+        self._stream_schedule_output_started = False
         self._parser.reset()
         self.output_view.clear()
+        self.output_view.set_more_available(False)
         self._show_output_screen()
         self._runner.start(config)
 
@@ -216,8 +224,20 @@ class MainWindow(QMainWindow):
         self.output_view.set_running(True)
 
     def _handle_stdout(self, text: str) -> None:
+        systems = self._parser.feed(text)
+        self.output_view.add_systems(systems)
+
+        if self._active_run_config is not None and self._active_run_config.stream_schedules:
+            if "Complete System #" in text or "Schedule #" in text:
+                self._stream_schedule_output_started = True
+            if systems:
+                self.output_view.set_stream_progress(self.output_view.cache.system_count)
+                self.output_view.set_more_available(self._active_run_config.lazy_schedules)
+            if not self._stream_schedule_output_started:
+                self.output_view.append_log(text)
+            return
+
         self.output_view.append_log(text)
-        self.output_view.add_systems(self._parser.feed(text))
 
     def _handle_stderr(self, text: str) -> None:
         self.output_view.append_log(text)
@@ -225,17 +245,25 @@ class MainWindow(QMainWindow):
     def _handle_finished(self, exit_code: int, status: str) -> None:
         self.output_view.add_systems(self._parser.flush())
         self.input_panel.set_running(False)
+        self.output_view.set_more_available(False)
         self.output_view.set_finished(exit_code, status)
         if exit_code == 0:
             self._load_generated_output_file()
 
     def _handle_error(self, message: str) -> None:
         self.input_panel.set_running(False)
+        self.output_view.set_more_available(False)
         self.output_view.set_error(message)
+
+    def _request_next_schedule_batch(self) -> None:
+        if self._active_run_config is None or not self._active_run_config.lazy_schedules:
+            return
+
+        self._runner.send_input_line(LAZY_NEXT_COMMAND)
 
     def _load_generated_output_file(self) -> None:
         config = self._active_run_config
-        if config is None or config.mode == "complete-count":
+        if config is None or config.mode == "complete-count" or config.stream_schedules:
             return
         if self.output_view.cache.system_count:
             return
@@ -257,6 +285,12 @@ class MainWindow(QMainWindow):
         self.output_view.add_systems(parser.flush())
 
     def _show_input_screen(self) -> None:
+        if (
+            self._active_run_config is not None
+            and self._active_run_config.lazy_schedules
+            and self._runner.is_running()
+        ):
+            self._runner.send_input_line(LAZY_STOP_COMMAND)
         self._stack.setCurrentWidget(self.input_panel)
 
     def _show_calendar_screen(self) -> None:

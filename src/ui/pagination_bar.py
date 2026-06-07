@@ -10,11 +10,13 @@ class PaginationBar(QWidget):
     """Navigate between cached schedule pages."""
 
     page_changed = pyqtSignal(int)
+    more_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._current_page = 0
         self._page_count = 0
+        self._can_request_more = False
 
         self.previous_button = QPushButton("Previous")
         self.next_button = QPushButton("Next")
@@ -54,9 +56,22 @@ class PaginationBar(QWidget):
             self._current_page = min(self._current_page, self._page_count)
         self._refresh()
 
+    def set_can_request_more(self, can_request_more: bool) -> None:
+        self._can_request_more = can_request_more
+        self._refresh()
+
+    def set_current_page(self, page_number: int) -> None:
+        if page_number < 1 or page_number > self._page_count:
+            return
+
+        self._current_page = page_number
+        self._refresh()
+        self.page_changed.emit(self._current_page)
+
     def reset(self) -> None:
         self._current_page = 0
         self._page_count = 0
+        self._can_request_more = False
         self._refresh()
 
     def _go_previous(self) -> None:
@@ -68,6 +83,8 @@ class PaginationBar(QWidget):
 
     def _go_next(self) -> None:
         if self._current_page >= self._page_count:
+            if self._can_request_more and self._page_count > 0:
+                self.more_requested.emit()
             return
         self._current_page += 1
         self._refresh()
@@ -77,5 +94,6 @@ class PaginationBar(QWidget):
         self.page_label.setText(f"Page {self._current_page} of {self._page_count}")
         self.previous_button.setEnabled(self._current_page > 1)
         self.next_button.setEnabled(
-            self._page_count > 0 and self._current_page < self._page_count
+            self._page_count > 0
+            and (self._current_page < self._page_count or self._can_request_more)
         )

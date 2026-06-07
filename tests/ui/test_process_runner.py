@@ -57,6 +57,36 @@ def test_build_cli_arguments_adds_auto_time_limit_only_for_auto_mode():
     assert "45.0" in args
 
 
+def test_build_cli_arguments_adds_stream_flag_for_streaming_runs():
+    root = Path("C:/repo/ExamScheduler")
+    config = CliRunConfig(
+        project_root=root,
+        python_executable="python",
+        mode="auto",
+        stream_schedules=True,
+    )
+
+    _program, args = build_cli_arguments(config)
+
+    assert "--stream-schedules" in args
+
+
+def test_build_cli_arguments_prefers_lazy_flag_for_lazy_runs():
+    root = Path("C:/repo/ExamScheduler")
+    config = CliRunConfig(
+        project_root=root,
+        python_executable="python",
+        mode="auto",
+        stream_schedules=True,
+        lazy_schedules=True,
+    )
+
+    _program, args = build_cli_arguments(config)
+
+    assert "--lazy-schedules" in args
+    assert "--stream-schedules" not in args
+
+
 def test_build_cli_arguments_rejects_unknown_modes():
     with pytest.raises(ValueError):
         build_cli_arguments(CliRunConfig(project_root=Path("."), mode="server"))

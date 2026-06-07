@@ -19,7 +19,9 @@ class CliRunConfig:
     """Application-level description of a scheduler CLI run."""
 
     project_root: Path
-    mode: str = "complete-count"
+    mode: str = "auto"
+    stream_schedules: bool = False
+    lazy_schedules: bool = False
     python_executable: str = field(default_factory=lambda: sys.executable)
     output_config: Path | None = None
     source_type: str | None = None
@@ -73,6 +75,8 @@ class SchedulerRunConfigBuilder:
         return CliRunConfig(
             project_root=form.project_root,
             mode=form.mode,
+            stream_schedules=form.mode in {"auto", "complete-write"},
+            lazy_schedules=form.mode in {"auto", "complete-write"},
             output_config=_path_or_none(form.output_config_text),
             period_indexes=period_indexes,
             max_systems=max_systems,
@@ -144,6 +148,13 @@ def build_cli_arguments(config: CliRunConfig) -> tuple[str, list[str]]:
 
     if config.mode == "auto" and config.time_limit_seconds is not None:
         args.extend(["--time-limit", str(config.time_limit_seconds)])
+
+    if config.lazy_schedules and config.mode in {"auto", "complete-write"}:
+        # Lazy mode keeps the generator alive and waits for the UI before each next page.
+        args.append("--lazy-schedules")
+    elif config.stream_schedules and config.mode in {"auto", "complete-write"}:
+        # Streaming mode is kept for callers that want continuous stdout output.
+        args.append("--stream-schedules")
 
     if config.course_file is not None:
         args.extend(["--course-file", str(config.course_file)])

@@ -22,10 +22,12 @@ class OutputView(QWidget):
     """Display live CLI logs and cached schedule pages."""
 
     back_requested = pyqtSignal()
+    more_requested = pyqtSignal()
 
     def __init__(self, batch_size: int = DEFAULT_BATCH_SIZE, parent=None) -> None:
         super().__init__(parent)
         self.cache = ScheduleCache(batch_size=batch_size)
+        self._pending_more_page: int | None = None
 
         self.title_label = QLabel("Output Screen")
         self.title_label.setObjectName("screenTitle")
@@ -57,6 +59,12 @@ class OutputView(QWidget):
     def set_finished(self, exit_code: int, status: str) -> None:
         self.status_label.setText(f"Finished: exit {exit_code}, {status}")
 
+    def set_stream_progress(self, system_count: int) -> None:
+        self.status_label.setText(f"Running... cached {system_count:,} schedule systems")
+
+    def set_more_available(self, available: bool) -> None:
+        self.pagination_bar.set_can_request_more(available)
+
     def set_error(self, message: str) -> None:
         self.status_label.setText(f"Error: {message}")
 
@@ -71,6 +79,12 @@ class OutputView(QWidget):
 
         self.cache.extend(systems)
         self.pagination_bar.set_page_count(self.cache.batch_count)
+        if (
+            self._pending_more_page is not None
+            and self.cache.batch_count >= self._pending_more_page
+        ):
+            self.pagination_bar.set_current_page(self._pending_more_page)
+            self._pending_more_page = None
         self._refresh_page()
 
     def _build_layout(self) -> None:
@@ -98,7 +112,14 @@ class OutputView(QWidget):
 
     def _connect_signals(self) -> None:
         self.pagination_bar.page_changed.connect(lambda _page: self._refresh_page())
+        self.pagination_bar.more_requested.connect(self._request_more_systems)
         self.back_button.clicked.connect(self.back_requested.emit)
+
+    def _request_more_systems(self) -> None:
+        self._pending_more_page = self.pagination_bar.current_page + 1
+        self.set_more_available(False)
+        self.status_label.setText("Generating next 1,000 schedule systems...")
+        self.more_requested.emit()
 
     def _refresh_page(self) -> None:
         if self.cache.batch_count == 0:

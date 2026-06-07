@@ -50,6 +50,7 @@ class InputPanel(QWidget):
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["complete-count", "period", "complete-write", "auto"])
+        self.mode_combo.setCurrentText("auto")
 
         self.output_config_edit = self._path_edit(project_root / "config.json")
         self.course_file_edit = self._path_edit(project_root / "data" / "V1.0CourseDB.txt")
