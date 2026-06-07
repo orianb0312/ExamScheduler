@@ -298,6 +298,21 @@ def test_main_window_loads_file_loader_selection_into_memory(tmp_path, qtbot):
     assert "Replaced loaded data with 2 courses" in window.input_panel.file_loader.error_label.text()
 
 
+def test_main_window_default_startup_load_does_not_show_success_message(tmp_path, qtbot):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "V1.0CourseDB.txt").write_text(COURSES_TEXT, encoding="utf-8")
+    (data_dir / "V1.0 ExamDates.txt").write_text(EXAM_DATES_TEXT, encoding="utf-8")
+
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    assert window.loaded_input_data is not None
+    assert window.loaded_input_data.course_count == 2
+    assert window.input_panel.file_loader.error_label.isHidden()
+    assert window.input_panel.file_loader.error_label.text() == ""
+
+
 def test_main_window_update_keeps_existing_program_choices(tmp_path, qtbot):
     courses_text = """$$$$
 Manual New Program Course

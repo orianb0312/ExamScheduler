@@ -67,6 +67,7 @@ class SchedulerRunConfigBuilder:
             )
         )
         selected_programs_file = self._input_state.write_selected_programs_file()
+        runtime_dates_file = self._input_state.write_exam_dates_file()
 
         return CliRunConfig(
             project_root=form.project_root,
@@ -76,7 +77,7 @@ class SchedulerRunConfigBuilder:
             max_systems=max_systems,
             time_limit_seconds=time_limit,
             course_file=_path_or_none(form.course_file_text),
-            dates_file=_path_or_none(form.dates_file_text),
+            dates_file=runtime_dates_file or _path_or_none(form.dates_file_text),
             user_file=selected_programs_file,
         )
 

@@ -1,8 +1,12 @@
 import pytest
+from datetime import date
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel
 
 from src.services.cli_run_service import build_cli_arguments
+from src.models.enums import Semester, Term
+from src.models.scheduling import ExamPeriod
+from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.program_selection_policy import (
     DEFAULT_PROGRAM_SELECTION_POLICY,
 )
@@ -107,6 +111,36 @@ def test_input_panel_passes_selected_programs_to_scheduler_config(tmp_path, qtbo
     assert config.user_file is not None
     assert args[user_file_index] == str(config.user_file)
     assert config.user_file.read_text(encoding="utf-8") == "83101, 83108"
+
+
+def test_input_panel_passes_excluded_day_state_to_scheduler_config(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+    panel.replace_program_list(["83101"])
+    panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+    panel.notify_data_loaded(
+        LoadedSchedulerInput(
+            courses=(),
+            exam_periods=(
+                ExamPeriod(
+                    semester=Semester.FALL,
+                    term=Term.ALEPH,
+                    start_date=date(2026, 1, 1),
+                    end_date=date(2026, 1, 3),
+                ),
+            ),
+            programs=(),
+        )
+    )
+    panel._exclude_calendar_day(0, date(2026, 1, 2))
+
+    with qtbot.waitSignal(panel.run_requested, timeout=1000) as blocker:
+        qtbot.mouseClick(panel.run_button, Qt.MouseButton.LeftButton)
+
+    config = blocker.args[0]
+    assert config.dates_file is not None
+    assert config.dates_file.name == "ui_exam_dates.txt"
+    assert "- 02-01-2026" in config.dates_file.read_text(encoding="utf-8")
 
 
 def test_valid_files_enable_load_button(widget, tmp_path):

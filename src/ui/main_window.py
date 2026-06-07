@@ -83,17 +83,10 @@ class MainWindow(QMainWindow):
                 "replace",
                 "replace",
             )
-        except FileLoadingError as exc:
-            self.input_panel.set_data_load_error(str(exc))
+        except FileLoadingError:
             return
 
         loaded_data = result.loaded_data
-        self.input_panel.set_data_load_success(
-            loaded_data.course_count,
-            loaded_data.exam_period_count,
-            loaded_data.program_count,
-            result.message,
-        )
         self.input_panel.notify_data_loaded(loaded_data)
 
     def _load_selected_files(

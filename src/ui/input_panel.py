@@ -23,6 +23,7 @@ from src.services.cli_run_service import (
 )
 from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.scheduler_input_state import SchedulerInputState
+from src.ui.exam_calendar_day_panel import ExamCalendarDayPanel
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.program_selection_widget import MAX_SELECTED_PROGRAMS, ProgramSelectionWidget
 from src.ui.selected_programs_panel import SelectedProgramsPanel
@@ -77,6 +78,7 @@ class InputPanel(QWidget):
         self.program_selection_message.setObjectName("programSelectionMessage")
         self.program_selection_message.setVisible(False)
 
+        self.calendar_day_panel = ExamCalendarDayPanel()
         self.selected_programs_panel = SelectedProgramsPanel()
 
         self._build_layout()
@@ -94,6 +96,7 @@ class InputPanel(QWidget):
         title.setObjectName("screenTitle")
         root_layout.addWidget(title)
         root_layout.addWidget(self.file_loader)
+        root_layout.addWidget(self.calendar_day_panel)
         root_layout.addWidget(self.program_selection_count)
         root_layout.addWidget(self.program_selector)
         root_layout.addWidget(self.selected_programs_panel)
@@ -118,6 +121,8 @@ class InputPanel(QWidget):
         self.selected_programs_panel.program_detail_requested.connect(
             self._open_program_courses
         )
+        self.calendar_day_panel.exclude_day_requested.connect(self._exclude_calendar_day)
+        self.calendar_day_panel.restore_day_requested.connect(self._restore_calendar_day)
 
     def set_data_load_success(
             self,
@@ -134,6 +139,8 @@ class InputPanel(QWidget):
     def notify_data_loaded(self, loaded_data: LoadedSchedulerInput) -> None:
 
         self.selected_programs_vm.update_available_programs(loaded_data)
+        self._scheduler_input_state.set_exam_periods(loaded_data.exam_periods)
+        self.calendar_day_panel.set_periods(self._scheduler_input_state.exam_periods)
 
         current_selected = self.program_selector.get_selected_program_ids()
         self.selected_programs_vm.set_selected_program_ids(current_selected)
@@ -182,6 +189,22 @@ class InputPanel(QWidget):
                 "Error",
                 f"Could not open courses dialog.\n\n{str(exc)}"
             )
+
+    def _exclude_calendar_day(self, period_index: int, day) -> None:
+        self._scheduler_input_state.exclude_day(period_index, day)
+        self.calendar_day_panel.set_periods(
+            self._scheduler_input_state.exam_periods,
+            selected_period_index=period_index,
+            selected_day=day,
+        )
+
+    def _restore_calendar_day(self, period_index: int, day) -> None:
+        self._scheduler_input_state.restore_day(period_index, day)
+        self.calendar_day_panel.set_periods(
+            self._scheduler_input_state.exam_periods,
+            selected_period_index=period_index,
+            selected_day=day,
+        )
 
     def _handle_data_load_requested(
             self,
