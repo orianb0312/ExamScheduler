@@ -34,6 +34,7 @@ class CourseRow:
 
 
 class SelectedProgramsViewModel:
+    """Resolve selected program IDs into display rows and course-detail rows."""
 
     def __init__(self) -> None:
         self._all_available_programs: dict[str, ProgramSummary] = {}
@@ -57,7 +58,6 @@ class SelectedProgramsViewModel:
     def get_selected_program_details(self) -> list[dict[str, str]]:
         details = []
         for pid in self._selected_ids:
-
             resolved_name = BASELINE_PROGRAM_NAMES.get(pid, f"Program {pid}")
             details.append({"program_id": pid, "display_name": resolved_name})
         return details

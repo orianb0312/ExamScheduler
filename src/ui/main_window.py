@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtWidgets import QMainWindow, QStackedWidget
+from PyQt6.QtWidgets import QMainWindow, QMessageBox, QStackedWidget
 
 from src.services.cli_run_service import CliRunConfig
 from src.services.file_loading_service import (
@@ -13,9 +13,11 @@ from src.services.file_loading_service import (
     LoadedSchedulerInput,
 )
 from src.services.schedule_output_service import StdoutScheduleParser
-from src.ui.calendar_view import CalendarView
+from src.ui.calendar_view import OutputView
+from src.ui.calendar_view_panel import CalendarView as ExamCalendarView
 from src.ui.input_panel import InputPanel
 from src.ui.process_runner import ProcessRunner
+from src.ui.view_models import ExamPeriodViewModel, ExclusionViewModel
 
 
 class MainWindow(QMainWindow):
@@ -31,7 +33,8 @@ class MainWindow(QMainWindow):
         self._file_loading_service = FileLoadingService()
 
         self.input_panel = InputPanel(project_root=project_root)
-        self.calendar_view = CalendarView()
+        self.calendar_view = ExamCalendarView()
+        self.output_view = OutputView()
         self._stack = QStackedWidget()
 
         self._build_layout()
@@ -44,13 +47,18 @@ class MainWindow(QMainWindow):
     def _build_layout(self) -> None:
         self._stack.addWidget(self.input_panel)
         self._stack.addWidget(self.calendar_view)
+        self._stack.addWidget(self.output_view)
         self.setCentralWidget(self._stack)
 
     def _connect_signals(self) -> None:
         self.input_panel.data_load_requested.connect(self._load_selected_files)
         self.input_panel.run_requested.connect(self._start_cli_run)
         self.input_panel.cancel_requested.connect(self._runner.cancel)
+        self.input_panel.view_calendar_requested.connect(self._show_calendar_screen)
         self.calendar_view.back_requested.connect(self._show_input_screen)
+        self.calendar_view.exclude_day_requested.connect(self._exclude_calendar_day)
+        self.calendar_view.restore_day_requested.connect(self._restore_calendar_day)
+        self.output_view.back_requested.connect(self._show_input_screen)
         self._runner.process_started.connect(self._handle_started)
         self._runner.stdout_received.connect(self._handle_stdout)
         self._runner.stderr_received.connect(self._handle_stderr)
@@ -65,7 +73,7 @@ class MainWindow(QMainWindow):
         """Populates the input panel selection view with the standard initial programs."""
         default_baseline = [
             "83101", "83102", "83104", "83107", "83108",
-            "83109", "83105", "83182", "83103", "83115"
+            "83109", "83105", "83182", "83103", "83115",
         ]
         self.input_panel.update_program_list(default_baseline)
 
@@ -87,14 +95,16 @@ class MainWindow(QMainWindow):
             return
 
         loaded_data = result.loaded_data
+        self.input_panel.set_exam_calendar_available(True)
         self.input_panel.notify_data_loaded(loaded_data)
+        self._load_exam_period_calendar()
 
     def _load_selected_files(
-            self,
-            courses_path: str,
-            exam_dates_path: str,
-            course_mode: str,
-            exam_dates_mode: str,
+        self,
+        courses_path: str,
+        exam_dates_path: str,
+        course_mode: str,
+        exam_dates_mode: str,
     ) -> None:
         try:
             result = self._file_loading_service.load_selected_files(
@@ -117,45 +127,102 @@ class MainWindow(QMainWindow):
         )
 
         resolved_ids = loaded_data.program_ids_as_strings or []
-
         if course_mode == "update":
             self.input_panel.update_program_list(resolved_ids)
         else:
             self.input_panel.replace_program_list(resolved_ids)
 
         self.input_panel.notify_data_loaded(loaded_data)
+        self._load_exam_period_calendar()
+
+    def _load_exam_period_calendar(
+        self,
+        selected_period_index: int | None = None,
+        selected_day=None,
+    ) -> None:
+        periods = self.input_panel.exam_periods
+        period_view_models = [
+            ExamPeriodViewModel(
+                semester_label=period.semester.value,
+                term_label=period.term.value,
+                start_date=period.start_date,
+                end_date=period.end_date,
+                exclusions=tuple(
+                    ExclusionViewModel(
+                        start_date=exclusion.start_date,
+                        end_date=exclusion.end_date,
+                    )
+                    for exclusion in period.exclusions
+                ),
+            )
+            for period in periods
+        ]
+        self.calendar_view.load_exam_periods(
+            period_view_models,
+            editable_periods=periods,
+            selected_period_index=selected_period_index,
+            selected_day=selected_day,
+        )
+
+    def _exclude_calendar_day(self, period_index: int, day) -> None:
+        try:
+            self.input_panel.exclude_calendar_day(period_index, day)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid calendar day", str(exc))
+            return
+
+        self._load_exam_period_calendar(
+            selected_period_index=period_index,
+            selected_day=day,
+        )
+
+    def _restore_calendar_day(self, period_index: int, day) -> None:
+        try:
+            self.input_panel.restore_calendar_day(period_index, day)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid calendar day", str(exc))
+            return
+
+        self._load_exam_period_calendar(
+            selected_period_index=period_index,
+            selected_day=day,
+        )
 
     def _start_cli_run(self, config: CliRunConfig) -> None:
         self._parser.reset()
-        self.calendar_view.clear()
+        self.output_view.clear()
         self._show_output_screen()
         self._runner.start(config)
 
     def _handle_started(self) -> None:
         self.input_panel.set_running(True)
-        self.calendar_view.set_running(True)
+        self.output_view.set_running(True)
 
     def _handle_stdout(self, text: str) -> None:
-        self.calendar_view.append_log(text)
-        self.calendar_view.add_systems(self._parser.feed(text))
+        self.output_view.append_log(text)
+        self.output_view.add_systems(self._parser.feed(text))
 
     def _handle_stderr(self, text: str) -> None:
-        self.calendar_view.append_log(text)
+        self.output_view.append_log(text)
 
     def _handle_finished(self, exit_code: int, status: str) -> None:
-        self.calendar_view.add_systems(self._parser.flush())
+        self.output_view.add_systems(self._parser.flush())
         self.input_panel.set_running(False)
-        self.calendar_view.set_finished(exit_code, status)
+        self.output_view.set_finished(exit_code, status)
 
     def _handle_error(self, message: str) -> None:
         self.input_panel.set_running(False)
-        self.calendar_view.set_error(message)
+        self.output_view.set_error(message)
 
     def _show_input_screen(self) -> None:
         self._stack.setCurrentWidget(self.input_panel)
 
-    def _show_output_screen(self) -> None:
+    def _show_calendar_screen(self) -> None:
+        self._load_exam_period_calendar()
         self._stack.setCurrentWidget(self.calendar_view)
+
+    def _show_output_screen(self) -> None:
+        self._stack.setCurrentWidget(self.output_view)
 
     def _load_stylesheet(self) -> None:
         stylesheet_path = Path(__file__).with_name("styles.qss")

@@ -57,6 +57,11 @@ def test_set_programs_replaces_existing_identifiers(combo_box):
     assert combo_box.item(0).text() == "83115"
 
 
+def test_program_list_uses_visible_vertical_scrollbar(combo_box):
+    assert combo_box.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+    assert combo_box.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+
+
 def test_selecting_one_program_records_only_that_program(combo_box):
     combo_box.add_programs(["83101", "83102", "83103"])
 

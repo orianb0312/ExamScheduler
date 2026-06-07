@@ -68,7 +68,6 @@ class SelectedProgramsPanel(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setCursor(Qt.CursorShape.PointingHandCursor)
 
-
         self.table.cellClicked.connect(self._on_cell_clicked)
 
         layout.addWidget(self.table, 1)

@@ -32,6 +32,8 @@ class ProgramSelectionWidget(QListWidget):
         self._updating_item_state = False
         self.setObjectName("programSelector")
         self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setMinimumHeight(180)
         self.setMaximumHeight(260)
         self.itemChanged.connect(self._on_item_changed)

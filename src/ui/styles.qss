@@ -2,6 +2,42 @@ QMainWindow {
     background: #f7f8fa;
 }
 
+QWidget#inputPanel,
+QScrollArea#inputPanelScroll,
+QWidget#inputPanelContent,
+QWidget#calendarView,
+QScrollArea#calendarScroll,
+QWidget#calendarContent,
+QWidget#periodCalendar,
+QWidget#calendarMonthGrid,
+QWidget#calendarLegend {
+    background: #f7f8fa;
+}
+
+QScrollArea#inputPanelScroll,
+QScrollArea#calendarScroll {
+    border: none;
+}
+
+QScrollArea#inputPanelScroll > QWidget,
+QScrollArea#inputPanelScroll > QWidget > QWidget,
+QScrollArea#calendarScroll > QWidget,
+QScrollArea#calendarScroll > QWidget > QWidget {
+    background: #f7f8fa;
+}
+
+QWidget#calendarPeriodSection {
+    background: #ffffff;
+    border: 1px solid #d8dde4;
+    border-radius: 4px;
+}
+
+QWidget#examCalendarDayPanel {
+    background: #ffffff;
+    border: 1px solid #d8dde4;
+    border-radius: 4px;
+}
+
 QWidget {
     color: #202124;
     font-size: 13px;
@@ -14,6 +50,12 @@ QLabel#screenTitle {
 }
 
 QLabel#sectionTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: #3c4043;
+}
+
+QLabel#sectionTitleLabel {
     font-size: 14px;
     font-weight: 600;
     color: #3c4043;
@@ -35,6 +77,13 @@ QLabel#programSelectionMessage {
 QLabel#paneTitle {
     font-weight: 600;
     color: #3c4043;
+}
+
+QLabel#panelHintLabel,
+QLabel#calendarDayStatusLabel,
+QLabel#dialogProgramSubtitle,
+QLabel#dialogSummaryLabel {
+    color: #5f6875;
 }
 
 QLabel#programSelectionCount {
@@ -75,9 +124,72 @@ QListWidget#programSelector::item:hover {
     background: #f3f6fb;
 }
 
+QListWidget#programSelector::item:disabled {
+    color: #7b8490;
+    background: #f7f8fa;
+}
+
 QListWidget#programSelector::indicator {
     width: 16px;
     height: 16px;
+}
+
+QListWidget#programSelector QScrollBar:vertical {
+    background: #eef1f4;
+    width: 16px;
+    margin: 16px 0 16px 0;
+    border-left: 1px solid #c8cdd3;
+}
+
+QListWidget#programSelector QScrollBar::handle:vertical {
+    background: #8d98a7;
+    min-height: 32px;
+    border-radius: 6px;
+    margin: 2px 3px;
+}
+
+QListWidget#programSelector QScrollBar::handle:vertical:hover {
+    background: #6f7b8b;
+}
+
+QListWidget#programSelector QScrollBar::add-line:vertical,
+QListWidget#programSelector QScrollBar::sub-line:vertical {
+    background: #dde3ea;
+    height: 16px;
+    border: 1px solid #c8cdd3;
+}
+
+QListWidget#programSelector QScrollBar::sub-line:vertical {
+    subcontrol-position: top;
+    subcontrol-origin: margin;
+}
+
+QListWidget#programSelector QScrollBar::add-line:vertical {
+    subcontrol-position: bottom;
+    subcontrol-origin: margin;
+}
+
+QListWidget#programSelector QScrollBar::up-arrow:vertical {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 6px solid #5f6875;
+    width: 0;
+    height: 0;
+}
+
+QListWidget#programSelector QScrollBar::down-arrow:vertical {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid #5f6875;
+    width: 0;
+    height: 0;
+}
+
+QListWidget#programSelector QScrollBar::add-page:vertical,
+QListWidget#programSelector QScrollBar::sub-page:vertical {
+    background: none;
 }
 
 QPlainTextEdit {
@@ -85,6 +197,49 @@ QPlainTextEdit {
     color: #202124;
     border: 1px solid #c8cdd3;
     font-family: Consolas, "Courier New", monospace;
+}
+
+QTableWidget {
+    background: #ffffff;
+    alternate-background-color: #f7f9fc;
+    color: #202124;
+    gridline-color: #d8dde4;
+    border: 1px solid #c8cdd3;
+    border-radius: 4px;
+    selection-background-color: #dbe8ff;
+    selection-color: #202124;
+}
+
+QTableWidget::item {
+    color: #202124;
+    padding: 6px 8px;
+}
+
+QTableWidget::item:selected {
+    background: #dbe8ff;
+    color: #202124;
+}
+
+QHeaderView::section {
+    background: #eef2f7;
+    color: #202124;
+    border: 0;
+    border-right: 1px solid #d8dde4;
+    border-bottom: 1px solid #c8cdd3;
+    font-weight: 600;
+    padding: 7px 8px;
+}
+
+QTableCornerButton::section {
+    background: #eef2f7;
+    border: 0;
+    border-right: 1px solid #d8dde4;
+    border-bottom: 1px solid #c8cdd3;
+}
+
+QDialog {
+    background: #f7f8fa;
+    color: #202124;
 }
 
 QPushButton {
@@ -109,6 +264,17 @@ QPushButton#primaryButton {
 QPushButton#primaryButton:hover {
     background: #2563d8;
     border-color: #2563d8;
+}
+
+QPushButton#calendarButton {
+    font-weight: 600;
+    background: #ffffff;
+    color: #174ea6;
+    border-color: #9bbcf9;
+}
+
+QPushButton#calendarButton:hover {
+    background: #eef4ff;
 }
 
 QPushButton#load_button,

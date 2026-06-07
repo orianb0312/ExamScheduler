@@ -3,15 +3,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -23,11 +25,10 @@ from src.services.cli_run_service import (
 )
 from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.scheduler_input_state import SchedulerInputState
-from src.ui.exam_calendar_day_panel import ExamCalendarDayPanel
+from src.services.selected_programs_service import SelectedProgramsViewModel
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.program_selection_widget import MAX_SELECTED_PROGRAMS, ProgramSelectionWidget
 from src.ui.selected_programs_panel import SelectedProgramsPanel
-from src.services.selected_programs_service import SelectedProgramsViewModel
 
 
 class InputPanel(QWidget):
@@ -35,9 +36,11 @@ class InputPanel(QWidget):
     run_requested = pyqtSignal(CliRunConfig)
     cancel_requested = pyqtSignal()
     data_load_requested = pyqtSignal(str, str, str, str)
+    view_calendar_requested = pyqtSignal()
 
     def __init__(self, project_root: Path, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("inputPanel")
         self._project_root = project_root
         self._scheduler_input_state = SchedulerInputState(
             project_root / "outputs" / "ui_runtime"
@@ -71,6 +74,10 @@ class InputPanel(QWidget):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
 
+        self.view_calendar_button = QPushButton("View Exam Calendar")
+        self.view_calendar_button.setObjectName("calendarButton")
+        self.view_calendar_button.setEnabled(False)
+
         self.program_selector = ProgramSelectionWidget()
         self.program_selection_count = QLabel(f"0/{MAX_SELECTED_PROGRAMS}")
         self.program_selection_count.setObjectName("programSelectionCount")
@@ -78,7 +85,6 @@ class InputPanel(QWidget):
         self.program_selection_message.setObjectName("programSelectionMessage")
         self.program_selection_message.setVisible(False)
 
-        self.calendar_day_panel = ExamCalendarDayPanel()
         self.selected_programs_panel = SelectedProgramsPanel()
 
         self._build_layout()
@@ -91,25 +97,45 @@ class InputPanel(QWidget):
     def _build_layout(self) -> None:
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(28, 24, 28, 24)
-        root_layout.setSpacing(18)
+        root_layout.setSpacing(14)
+
         title = QLabel("Exam Scheduler")
         title.setObjectName("screenTitle")
         root_layout.addWidget(title)
-        root_layout.addWidget(self.file_loader)
-        root_layout.addWidget(self.calendar_day_panel)
-        root_layout.addWidget(self.program_selection_count)
-        root_layout.addWidget(self.program_selector)
-        root_layout.addWidget(self.selected_programs_panel)
-        root_layout.addWidget(self.program_selection_message)
+
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("inputPanelScroll")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        content = QWidget()
+        content.setObjectName("inputPanelContent")
+        self._content_layout = QVBoxLayout(content)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(12)
+        self._content_layout.addWidget(self.file_loader)
+        self._content_layout.addWidget(self.program_selection_count)
+        self._content_layout.addWidget(self.program_selector)
+        self._content_layout.addWidget(self.program_selection_message)
+        self._content_layout.addWidget(self.selected_programs_panel)
+        self._content_layout.addStretch(1)
+
+        scroll_area.setWidget(content)
+        root_layout.addWidget(scroll_area, 1)
+
         self.run_button.setFixedWidth(220)
         self.run_button.setMinimumHeight(36)
+        self.view_calendar_button.setFixedWidth(190)
+        self.view_calendar_button.setMinimumHeight(36)
 
         run_action_layout = QHBoxLayout()
         run_action_layout.setContentsMargins(0, 0, 0, 0)
+        run_action_layout.setSpacing(10)
         run_action_layout.addStretch(1)
+        run_action_layout.addWidget(self.view_calendar_button)
         run_action_layout.addWidget(self.run_button)
         root_layout.addLayout(run_action_layout)
-        root_layout.addStretch()
 
     def _connect_signals(self) -> None:
         self.file_loader.load_requested.connect(self._handle_data_load_requested)
@@ -118,11 +144,10 @@ class InputPanel(QWidget):
         self.program_selector.limitMessageChanged.connect(self._set_program_selection_message)
         self.run_button.clicked.connect(self._emit_run_requested)
         self.cancel_button.clicked.connect(self.cancel_requested.emit)
+        self.view_calendar_button.clicked.connect(self.view_calendar_requested.emit)
         self.selected_programs_panel.program_detail_requested.connect(
             self._open_program_courses
         )
-        self.calendar_day_panel.exclude_day_requested.connect(self._exclude_calendar_day)
-        self.calendar_day_panel.restore_day_requested.connect(self._restore_calendar_day)
 
     def set_data_load_success(
             self,
@@ -132,15 +157,19 @@ class InputPanel(QWidget):
             message: str | None = None,
     ) -> None:
         self.file_loader.show_load_success(course_count, period_count, program_count, message)
+        self.view_calendar_button.setEnabled(True)
 
     def set_data_load_error(self, message: str) -> None:
         self.file_loader.show_load_error(message)
+        self.view_calendar_button.setEnabled(False)
+
+    def set_exam_calendar_available(self, available: bool) -> None:
+        self.view_calendar_button.setEnabled(available)
 
     def notify_data_loaded(self, loaded_data: LoadedSchedulerInput) -> None:
 
         self.selected_programs_vm.update_available_programs(loaded_data)
         self._scheduler_input_state.set_exam_periods(loaded_data.exam_periods)
-        self.calendar_day_panel.set_periods(self._scheduler_input_state.exam_periods)
 
         current_selected = self.program_selector.get_selected_program_ids()
         self.selected_programs_vm.set_selected_program_ids(current_selected)
@@ -153,6 +182,10 @@ class InputPanel(QWidget):
 
     def replace_program_list(self, program_ids: list[str]) -> None:
         self.program_selector.set_programs(program_ids)
+
+    @property
+    def exam_periods(self):
+        return self._scheduler_input_state.exam_periods
 
     def _set_program_selection_message(self, message: str) -> None:
         self.program_selection_message.setText(message)
@@ -183,28 +216,17 @@ class InputPanel(QWidget):
             dialog.exec()
 
         except Exception as exc:
-            print(f"CRITICAL: Failed to open ProgramCoursesDialog: {exc}")
             QMessageBox.critical(
                 self,
                 "Error",
-                f"Could not open courses dialog.\n\n{str(exc)}"
+                f"Could not open courses dialog.\n\n{str(exc)}",
             )
 
-    def _exclude_calendar_day(self, period_index: int, day) -> None:
+    def exclude_calendar_day(self, period_index: int, day) -> None:
         self._scheduler_input_state.exclude_day(period_index, day)
-        self.calendar_day_panel.set_periods(
-            self._scheduler_input_state.exam_periods,
-            selected_period_index=period_index,
-            selected_day=day,
-        )
 
-    def _restore_calendar_day(self, period_index: int, day) -> None:
+    def restore_calendar_day(self, period_index: int, day) -> None:
         self._scheduler_input_state.restore_day(period_index, day)
-        self.calendar_day_panel.set_periods(
-            self._scheduler_input_state.exam_periods,
-            selected_period_index=period_index,
-            selected_day=day,
-        )
 
     def _handle_data_load_requested(
             self,

@@ -94,6 +94,20 @@ def test_input_panel_shows_program_selection_limit_message(tmp_path, qtbot):
     assert panel.program_selection_message.isHidden()
 
 
+def test_input_panel_places_limit_message_before_selected_program_details(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+
+    assert panel._content_layout.indexOf(panel.program_selector) < panel._content_layout.indexOf(
+        panel.program_selection_message
+    )
+    assert panel._content_layout.indexOf(panel.program_selection_message) < panel._content_layout.indexOf(
+        panel.selected_programs_panel
+    )
+    assert panel.run_button.parent() is panel
+    assert panel.view_calendar_button.parent() is panel
+
+
 def test_input_panel_passes_selected_programs_to_scheduler_config(tmp_path, qtbot):
     panel = InputPanel(project_root=tmp_path)
     qtbot.addWidget(panel)
@@ -132,7 +146,7 @@ def test_input_panel_passes_excluded_day_state_to_scheduler_config(tmp_path, qtb
             programs=(),
         )
     )
-    panel._exclude_calendar_day(0, date(2026, 1, 2))
+    panel.exclude_calendar_day(0, date(2026, 1, 2))
 
     with qtbot.waitSignal(panel.run_requested, timeout=1000) as blocker:
         qtbot.mouseClick(panel.run_button, Qt.MouseButton.LeftButton)

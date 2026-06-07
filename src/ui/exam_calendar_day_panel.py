@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -31,6 +32,7 @@ class ExamCalendarDayPanel(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("examCalendarDayPanel")
         self._periods: tuple[object, ...] = ()
 
         self.title_label = QLabel("Exam Calendar Days")
@@ -60,7 +62,7 @@ class ExamCalendarDayPanel(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
         layout.addWidget(self.title_label)
 
@@ -79,7 +81,12 @@ class ExamCalendarDayPanel(QWidget):
         self.day_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.day_table.verticalHeader().setVisible(False)
         self.day_table.setAlternatingRowColors(True)
-        self.day_table.setMinimumHeight(150)
+        self.day_table.setMinimumHeight(132)
+        self.day_table.setMaximumHeight(178)
+        self.day_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
         self.day_table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.day_table)
         layout.addWidget(self.status_label)
