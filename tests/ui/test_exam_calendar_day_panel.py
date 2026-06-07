@@ -1,10 +1,13 @@
 from datetime import date
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QDate, Qt
 
 from src.models.enums import Semester, Term
 from src.models.scheduling import DateExclusion, ExamPeriod
-from src.ui.exam_calendar_day_panel import ExamCalendarDayPanel
+from src.ui.exam_calendar_day_panel import (
+    CALENDAR_DAY_TABLE_MIN_HEIGHT,
+    ExamCalendarDayPanel,
+)
 
 
 def _period() -> ExamPeriod:
@@ -31,7 +34,10 @@ def test_panel_displays_days_and_existing_exclusions(qtbot):
     panel.set_periods([_period()])
 
     assert panel.period_selector.count() == 1
+    assert panel.start_date_edit.date() == QDate(2026, 1, 1)
+    assert panel.end_date_edit.date() == QDate(2026, 1, 3)
     assert panel.day_table.rowCount() == 3
+    assert panel.day_table.minimumHeight() == CALENDAR_DAY_TABLE_MIN_HEIGHT
     assert _table_statuses(panel) == ["Available", "Excluded", "Available"]
 
 
@@ -57,3 +63,18 @@ def test_panel_emits_restore_for_selected_excluded_day(qtbot):
         qtbot.mouseClick(panel.restore_button, Qt.MouseButton.LeftButton)
 
     assert blocker.args == [0, date(2026, 1, 2)]
+
+
+def test_panel_emits_period_dates_when_date_field_changes(qtbot):
+    panel = ExamCalendarDayPanel()
+    qtbot.addWidget(panel)
+    panel.set_periods([_period()])
+
+    with qtbot.waitSignal(panel.period_dates_changed, timeout=1000) as blocker:
+        panel.start_date_edit.setDate(QDate(2026, 1, 2))
+
+    assert blocker.args == [
+        0,
+        date(2026, 1, 2),
+        date(2026, 1, 3),
+    ]

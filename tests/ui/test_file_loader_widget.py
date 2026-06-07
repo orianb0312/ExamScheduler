@@ -1,7 +1,7 @@
 import pytest
 from datetime import date
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtWidgets import QLabel, QPushButton, QScrollArea
 
 from src.services.cli_run_service import build_cli_arguments
 from src.models.enums import Semester, Term
@@ -46,6 +46,9 @@ def test_mode_buttons_are_inline_and_styled(widget):
 
     assert "Courses Mode:" not in labels
     assert "Exam Dates Mode:" not in labels
+    assert "File Management" in labels
+    assert "Course Data" in labels
+    assert "Date Data" in labels
     assert widget.course_replace_button.objectName() == "modeButton"
     assert widget.course_update_button.objectName() == "modeButton"
     assert widget.exam_dates_replace_button.objectName() == "modeButton"
@@ -65,6 +68,20 @@ def test_input_panel_shows_output_action_without_cli_controls(tmp_path, qtbot):
     assert panel.run_button.parent() is panel
     assert panel.run_button.text() == "Generate Schedules"
     assert panel.cancel_button.parent() is None
+
+
+def test_input_panel_uses_dashboard_shell_layout(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+
+    assert panel.findChild(QScrollArea, "inputPanelScrollArea") is not None
+    assert "Programs" in panel.nav_tabs
+    assert panel.nav_tabs["Programs"].objectName() == "navTabActive"
+    assert [
+        button.text()
+        for button in panel.findChildren(QPushButton)
+        if button.objectName() in {"navTab", "navTabActive"}
+    ] == ["Dashboard", "Programs", "Courses", "Calendar", "Schedules"]
 
 
 def test_input_panel_shows_program_selection_limit_message(tmp_path, qtbot):
@@ -94,18 +111,18 @@ def test_input_panel_shows_program_selection_limit_message(tmp_path, qtbot):
     assert panel.program_selection_message.isHidden()
 
 
-def test_input_panel_places_limit_message_before_selected_program_details(tmp_path, qtbot):
+def test_input_panel_keeps_calendar_action_in_dashboard_nav(tmp_path, qtbot):
     panel = InputPanel(project_root=tmp_path)
     qtbot.addWidget(panel)
 
-    assert panel._content_layout.indexOf(panel.program_selector) < panel._content_layout.indexOf(
-        panel.program_selection_message
-    )
-    assert panel._content_layout.indexOf(panel.program_selection_message) < panel._content_layout.indexOf(
-        panel.selected_programs_panel
-    )
+    assert panel.view_calendar_button is panel.nav_tabs["Calendar"]
+    assert panel.view_calendar_button.text() == "Calendar"
+    assert not panel.view_calendar_button.isEnabled()
+
+    panel.set_exam_calendar_available(True)
+
+    assert panel.view_calendar_button.isEnabled()
     assert panel.run_button.parent() is panel
-    assert panel.view_calendar_button.parent() is panel
 
 
 def test_input_panel_passes_selected_programs_to_scheduler_config(tmp_path, qtbot):
@@ -155,6 +172,35 @@ def test_input_panel_passes_excluded_day_state_to_scheduler_config(tmp_path, qtb
     assert config.dates_file is not None
     assert config.dates_file.name == "ui_exam_dates.txt"
     assert "- 02-01-2026" in config.dates_file.read_text(encoding="utf-8")
+
+
+def test_input_panel_passes_edited_period_dates_to_scheduler_config(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+    panel.replace_program_list(["83101"])
+    panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+    panel.notify_data_loaded(
+        LoadedSchedulerInput(
+            courses=(),
+            exam_periods=(
+                ExamPeriod(
+                    semester=Semester.FALL,
+                    term=Term.ALEPH,
+                    start_date=date(2026, 1, 1),
+                    end_date=date(2026, 1, 3),
+                ),
+            ),
+            programs=(),
+        )
+    )
+    panel._update_period_dates(0, date(2026, 1, 2), date(2026, 1, 4))
+
+    with qtbot.waitSignal(panel.run_requested, timeout=1000) as blocker:
+        qtbot.mouseClick(panel.run_button, Qt.MouseButton.LeftButton)
+
+    config = blocker.args[0]
+    assert config.dates_file is not None
+    assert "02-01-2026, 04-01-2026" in config.dates_file.read_text(encoding="utf-8")
 
 
 def test_valid_files_enable_load_button(widget, tmp_path):
@@ -208,7 +254,7 @@ def test_invalid_path_handling_behavior(widget):
     # 1. Ensure the error label is NO LONGER hidden (meaning it was instructed to reveal itself)
     assert not widget.error_label.isHidden()
 
-    # 2. Verify that the correct descriptive string is injected for user clarity
+    # The user should get a clear reason why loading is blocked.
     assert "Courses file path is invalid or does not exist." in widget.error_label.text()
 
     # 3. Ensure the widget clearly flags this as invalid by keeping the execution path disabled
@@ -230,7 +276,7 @@ def test_load_action_emits_mvp_signal(widget, tmp_path, qtbot):
     widget.set_course_load_mode("replace")
     widget.set_exam_dates_load_mode("update")
 
-    # Catch the Qt Signal emission natively using qtbot context manager
+    # qtbot records the signal payload after the button click.
     with qtbot.waitSignal(widget.load_requested, timeout=1000) as blocker:
         qtbot.mouseClick(widget.load_button, Qt.MouseButton.LeftButton)
 

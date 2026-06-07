@@ -5,17 +5,13 @@ from src.models.enums import Semester, Term
 
 @dataclass
 class ScheduledExam:
-    """
-    Domain entity representing a specific exam placement.
-    SOLID Principles: Encapsulates exam data without business logic.
-    """
+    """A single exam placement after scheduling."""
     course_name: str
     course_id: int
     semester: Semester
     term: Term
     exam_date: date
-    # Default value "TBD" ensures compatibility with previous tests
-    # and prevents TypeErrors when instructor is not provided.
+    # Some older tests build exams without an instructor, so keep a safe default.
     instructor: str = "TBD"
 
     def __post_init__(self):

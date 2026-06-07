@@ -22,12 +22,18 @@ from PyQt6.QtWidgets import (
 from src.ui.exam_calendar_day_panel import ExamCalendarDayPanel
 from src.ui.view_models import ExamPeriodViewModel
 
-_COLOR_VALID = "#d4edda"
-_COLOR_EXCLUDED = "#f8d7da"
-_COLOR_OUT_OF_PERIOD = "#f0f0f0"
-_COLOR_TODAY = "#fff3cd"
-_COLOR_HEADER = "#eef2f7"
-_COLOR_HEADER_FG = "#202124"
+_COLOR_VALID = "#244d3a"
+_COLOR_EXCLUDED = "#5a2f3c"
+_COLOR_OUT_OF_PERIOD = "#2b303a"
+_COLOR_TODAY = "#4b3f25"
+_COLOR_HEADER = "#2b415c"
+_COLOR_HEADER_FG = "#7ed3ff"
+_COLOR_CELL_TEXT = "#f1f3f5"
+_COLOR_MUTED_TEXT = "#aeb7c6"
+_COLOR_CELL_BORDER = "#4b5568"
+_COLOR_VALID_BORDER = "#4e8b6c"
+_COLOR_EXCLUDED_BORDER = "#a45b70"
+_COLOR_TODAY_BORDER = "#ad8840"
 
 
 class _DayCell(QLabel):
@@ -35,6 +41,7 @@ class _DayCell(QLabel):
 
     def __init__(self, day_number: int | None, bg_color: str, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("calendarDayCell")
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setFixedSize(40, 36)
         if day_number is not None:
@@ -42,12 +49,15 @@ class _DayCell(QLabel):
         self._apply_style(bg_color)
 
     def _apply_style(self, bg_color: str) -> None:
+        border_color = _border_for_cell(bg_color)
+        text_color = _COLOR_MUTED_TEXT if bg_color == _COLOR_OUT_OF_PERIOD else _COLOR_CELL_TEXT
         self.setStyleSheet(
             f"background-color: {bg_color}; "
-            "color: #202124; "
-            "border: 1px solid #dee2e6; "
+            f"color: {text_color}; "
+            f"border: 1px solid {border_color}; "
             "border-radius: 4px; "
-            "font-size: 12px;"
+            "font-size: 12px; "
+            "font-weight: 600;"
         )
 
 
@@ -76,12 +86,13 @@ class _MonthGrid(QWidget):
 
         month_name = date(self._year, self._month, 1).strftime("%B %Y")
         title = QLabel(month_name)
+        title.setObjectName("calendarMonthTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(
             f"background-color: {_COLOR_HEADER}; "
             f"color: {_COLOR_HEADER_FG}; "
             "font-weight: bold; "
-            "padding: 4px; "
+            "padding: 5px; "
             "border-radius: 4px;"
         )
         root.addWidget(title)
@@ -91,9 +102,12 @@ class _MonthGrid(QWidget):
 
         for col, header in enumerate(self._DAY_HEADERS):
             lbl = QLabel(header)
+            lbl.setObjectName("calendarWeekdayLabel")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setFixedSize(40, 22)
-            lbl.setStyleSheet("font-weight: bold; font-size: 11px; color: #495057;")
+            lbl.setStyleSheet(
+                f"font-weight: bold; font-size: 11px; color: {_COLOR_MUTED_TEXT};"
+            )
             grid.addWidget(lbl, 0, col)
 
         first_weekday, days_in_month = calendar.monthrange(self._year, self._month)
@@ -143,7 +157,6 @@ class _PeriodCalendar(QWidget):
             grid.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             layout.addWidget(grid)
 
-
         layout.addStretch()
 
     def _months_in_range(self) -> list[tuple[int, int]]:
@@ -181,10 +194,6 @@ class _PeriodSection(QWidget):
         )
         header = QLabel(label_text)
         header.setObjectName("calendarPeriodHeader")
-        header.setStyleSheet(
-            "font-weight: bold; font-size: 13px; padding: 8px 10px; "
-            "background-color: #eef2f7; color: #202124; border-radius: 4px;"
-        )
         root.addWidget(header)
         root.addWidget(self._build_legend())
 
@@ -192,7 +201,7 @@ class _PeriodSection(QWidget):
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("color: #dee2e6;")
+        line.setObjectName("calendarDivider")
         root.addWidget(line)
 
     @staticmethod
@@ -209,12 +218,15 @@ class _PeriodSection(QWidget):
             (_COLOR_TODAY, "Today"),
         ]:
             swatch = QLabel()
+            swatch.setObjectName("calendarLegendSwatch")
             swatch.setFixedSize(14, 14)
             swatch.setStyleSheet(
-                f"background-color: {color}; border: 1px solid #adb5bd; border-radius: 2px;"
+                f"background-color: {color}; "
+                f"border: 1px solid {_border_for_cell(color)}; "
+                "border-radius: 2px;"
             )
             label = QLabel(text)
-            label.setStyleSheet("font-size: 11px; color: #495057;")
+            label.setObjectName("calendarLegendLabel")
             layout.addWidget(swatch)
             layout.addWidget(label)
         layout.addStretch()
@@ -234,6 +246,7 @@ class CalendarView(QWidget):
     back_requested = pyqtSignal()
     exclude_day_requested = pyqtSignal(int, object)
     restore_day_requested = pyqtSignal(int, object)
+    period_dates_changed = pyqtSignal(int, object, object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -251,6 +264,7 @@ class CalendarView(QWidget):
         self._clear_content()
 
         if editable_periods:
+            self._day_editor_card.setVisible(True)
             self.day_editor.setVisible(True)
             self.day_editor.set_periods(
                 editable_periods,
@@ -258,12 +272,13 @@ class CalendarView(QWidget):
                 selected_day=selected_day,
             )
         else:
+            self._day_editor_card.setVisible(False)
             self.day_editor.setVisible(False)
 
         if not periods:
             placeholder = QLabel("No exam periods loaded yet.")
+            placeholder.setObjectName("calendarPlaceholderLabel")
             placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            placeholder.setStyleSheet("color: #6c757d; font-size: 13px;")
             self._content_layout.addWidget(placeholder)
             self._status_label.setText("No data")
             return
@@ -283,13 +298,14 @@ class CalendarView(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 18, 18, 18)
-        root.setSpacing(10)
+        root.setContentsMargins(28, 28, 28, 24)
+        root.setSpacing(14)
 
         header = QHBoxLayout()
         title = QLabel("Exam Period Calendar")
         title.setObjectName("screenTitle")
         self._back_button = QPushButton("Back to Input")
+        self._back_button.setObjectName("calendarBackButton")
         self._back_button.clicked.connect(self.back_requested.emit)
         header.addWidget(title)
         header.addStretch()
@@ -297,6 +313,7 @@ class CalendarView(QWidget):
         root.addLayout(header)
 
         self._status_label = QLabel("Ready")
+        self._status_label.setObjectName("calendarStatusLabel")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         root.addWidget(self._status_label)
 
@@ -308,7 +325,16 @@ class CalendarView(QWidget):
         self.day_editor.restore_day_requested.connect(
             lambda period_index, day: self.restore_day_requested.emit(period_index, day)
         )
-        root.addWidget(self.day_editor)
+        self.day_editor.period_dates_changed.connect(
+            lambda period_index, start_date, end_date: self.period_dates_changed.emit(
+                period_index,
+                start_date,
+                end_date,
+            )
+        )
+        self._day_editor_card = _calendar_card(self.day_editor)
+        self._day_editor_card.setVisible(False)
+        root.addWidget(self._day_editor_card)
 
         scroll = QScrollArea()
         scroll.setObjectName("calendarScroll")
@@ -331,3 +357,24 @@ class CalendarView(QWidget):
             item = self._content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+
+
+def _calendar_card(widget: QWidget) -> QWidget:
+    card = QWidget()
+    card.setObjectName("cardPanel")
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(22, 20, 22, 22)
+    layout.setSpacing(12)
+    layout.addWidget(widget)
+    return card
+
+
+def _border_for_cell(bg_color: str) -> str:
+    # The status colors share one helper so the grid and legend stay consistent.
+    if bg_color == _COLOR_VALID:
+        return _COLOR_VALID_BORDER
+    if bg_color == _COLOR_EXCLUDED:
+        return _COLOR_EXCLUDED_BORDER
+    if bg_color == _COLOR_TODAY:
+        return _COLOR_TODAY_BORDER
+    return _COLOR_CELL_BORDER

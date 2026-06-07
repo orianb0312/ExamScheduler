@@ -103,10 +103,9 @@ class OutputView(QWidget):
     def _refresh_page(self) -> None:
         if self.cache.batch_count == 0:
             self.system_view.setPlainText(
-                "No streamed schedule pages were received.\n\n"
-                "This is expected for complete-count mode and for the current main.py "
-                "stdout format, which prints a summary but does not stream "
-                "'Complete System #' blocks yet."
+                "No schedule pages are available yet.\n\n"
+                "This is expected before a run finishes, or when using complete-count "
+                "mode because that mode only reports totals."
             )
             return
 

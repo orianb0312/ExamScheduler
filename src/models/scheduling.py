@@ -46,11 +46,9 @@ class ExamPeriod:
         Validates if a given date is strictly within the exam period bounds
         and is not blocked by any exclusions (Holidays/Saturdays).
         """
-        # 1. Boundary Check
         if not (self.start_date <= check_date <= self.end_date):
             return False
 
-        # 2. Exclusion Check (Crucial for satisfying Appendix A requirements)
         for exclusion in self.exclusions:
             if exclusion.is_date_excluded(check_date):
                 return False

@@ -11,6 +11,7 @@ from src.services.day_status_service import (
     exclude_day,
     format_exam_periods,
     restore_day,
+    update_period_dates,
 )
 
 
@@ -41,6 +42,9 @@ class SchedulerInputState:
 
     def restore_day(self, period_index: int, day) -> None:
         restore_day(self._period_at(period_index), day)
+
+    def update_period_dates(self, period_index: int, start_date, end_date) -> None:
+        update_period_dates(self._period_at(period_index), start_date, end_date)
 
     def write_selected_programs_file(self) -> Path:
         if not self._selected_program_ids:

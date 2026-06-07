@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QStackedWidget
 
-from src.services.cli_run_service import CliRunConfig
+from src.services.cli_run_service import CliRunConfig, resolve_cli_output_file
 from src.services.file_loading_service import (
     FileLoadingError,
     FileLoadingService,
@@ -31,6 +31,7 @@ class MainWindow(QMainWindow):
         self._parser = StdoutScheduleParser()
         self._runner = ProcessRunner(self)
         self._file_loading_service = FileLoadingService()
+        self._active_run_config: CliRunConfig | None = None
 
         self.input_panel = InputPanel(project_root=project_root)
         self.calendar_view = ExamCalendarView()
@@ -58,6 +59,7 @@ class MainWindow(QMainWindow):
         self.calendar_view.back_requested.connect(self._show_input_screen)
         self.calendar_view.exclude_day_requested.connect(self._exclude_calendar_day)
         self.calendar_view.restore_day_requested.connect(self._restore_calendar_day)
+        self.calendar_view.period_dates_changed.connect(self._update_period_dates)
         self.output_view.back_requested.connect(self._show_input_screen)
         self._runner.process_started.connect(self._handle_started)
         self._runner.stdout_received.connect(self._handle_stdout)
@@ -188,7 +190,22 @@ class MainWindow(QMainWindow):
             selected_day=day,
         )
 
+    def _update_period_dates(self, period_index: int, start_date, end_date) -> None:
+        try:
+            self.input_panel.update_calendar_period_dates(
+                period_index,
+                start_date,
+                end_date,
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid exam period dates", str(exc))
+            self._load_exam_period_calendar(selected_period_index=period_index)
+            return
+
+        self._load_exam_period_calendar(selected_period_index=period_index)
+
     def _start_cli_run(self, config: CliRunConfig) -> None:
+        self._active_run_config = config
         self._parser.reset()
         self.output_view.clear()
         self._show_output_screen()
@@ -209,10 +226,35 @@ class MainWindow(QMainWindow):
         self.output_view.add_systems(self._parser.flush())
         self.input_panel.set_running(False)
         self.output_view.set_finished(exit_code, status)
+        if exit_code == 0:
+            self._load_generated_output_file()
 
     def _handle_error(self, message: str) -> None:
         self.input_panel.set_running(False)
         self.output_view.set_error(message)
+
+    def _load_generated_output_file(self) -> None:
+        config = self._active_run_config
+        if config is None or config.mode == "complete-count":
+            return
+        if self.output_view.cache.system_count:
+            return
+
+        output_path = resolve_cli_output_file(config)
+        if not output_path.is_file():
+            return
+
+        # The CLI writes schedules to a file, so the UI reads that file after the run.
+        parser = StdoutScheduleParser()
+        try:
+            with open(output_path, encoding="utf-8") as file:
+                while chunk := file.read(64 * 1024):
+                    self.output_view.add_systems(parser.feed(chunk))
+        except OSError as exc:
+            self.output_view.set_error(f"Could not load output file: {exc}")
+            return
+
+        self.output_view.add_systems(parser.flush())
 
     def _show_input_screen(self) -> None:
         self._stack.setCurrentWidget(self.input_panel)

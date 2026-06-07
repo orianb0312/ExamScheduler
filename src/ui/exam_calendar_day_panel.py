@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import date
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QDateEdit,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -22,6 +23,7 @@ from src.services.day_status_service import iter_period_days
 
 
 DAY_ROLE = Qt.ItemDataRole.UserRole
+CALENDAR_DAY_TABLE_MIN_HEIGHT = 230
 
 
 class ExamCalendarDayPanel(QWidget):
@@ -29,16 +31,19 @@ class ExamCalendarDayPanel(QWidget):
 
     exclude_day_requested = pyqtSignal(int, object)
     restore_day_requested = pyqtSignal(int, object)
+    period_dates_changed = pyqtSignal(int, object, object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setObjectName("examCalendarDayPanel")
         self._periods: tuple[object, ...] = ()
+        self._syncing_date_fields = False
 
         self.title_label = QLabel("Exam Calendar Days")
         self.title_label.setObjectName("sectionTitleLabel")
         self.period_selector = QComboBox()
         self.period_selector.setObjectName("examPeriodSelector")
+        self.start_date_edit = _date_edit("periodStartDateEdit")
+        self.end_date_edit = _date_edit("periodEndDateEdit")
         self.day_table = QTableWidget()
         self.day_table.setObjectName("examCalendarDayTable")
         self.exclude_button = QPushButton("Exclude Day")
@@ -62,7 +67,7 @@ class ExamCalendarDayPanel(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         layout.addWidget(self.title_label)
 
@@ -74,6 +79,15 @@ class ExamCalendarDayPanel(QWidget):
         controls.addWidget(self.restore_button)
         layout.addLayout(controls)
 
+        date_controls = QHBoxLayout()
+        date_controls.setContentsMargins(0, 0, 0, 0)
+        date_controls.addWidget(QLabel("Start Date"))
+        date_controls.addWidget(self.start_date_edit)
+        date_controls.addWidget(QLabel("End Date"))
+        date_controls.addWidget(self.end_date_edit)
+        date_controls.addStretch(1)
+        layout.addLayout(date_controls)
+
         self.day_table.setColumnCount(2)
         self.day_table.setHorizontalHeaderLabels(["Date", "Status"])
         self.day_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -81,8 +95,7 @@ class ExamCalendarDayPanel(QWidget):
         self.day_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.day_table.verticalHeader().setVisible(False)
         self.day_table.setAlternatingRowColors(True)
-        self.day_table.setMinimumHeight(132)
-        self.day_table.setMaximumHeight(178)
+        self.day_table.setMinimumHeight(CALENDAR_DAY_TABLE_MIN_HEIGHT)
         self.day_table.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
@@ -98,6 +111,8 @@ class ExamCalendarDayPanel(QWidget):
         self.day_table.itemSelectionChanged.connect(self._sync_action_state)
         self.exclude_button.clicked.connect(self._emit_exclude_day)
         self.restore_button.clicked.connect(self._emit_restore_day)
+        self.start_date_edit.dateChanged.connect(lambda _date: self._emit_dates_changed())
+        self.end_date_edit.dateChanged.connect(lambda _date: self._emit_dates_changed())
 
     def _populate_period_selector(self, selected_period_index: int | None) -> None:
         self.period_selector.blockSignals(True)
@@ -120,6 +135,7 @@ class ExamCalendarDayPanel(QWidget):
             self._set_empty_state()
             return
 
+        self._sync_date_fields(period)
         days = list(iter_period_days(period))
         self.day_table.setRowCount(len(days))
         selected_row = 0
@@ -146,6 +162,8 @@ class ExamCalendarDayPanel(QWidget):
 
     def _set_empty_state(self) -> None:
         self.period_selector.setEnabled(False)
+        self.start_date_edit.setEnabled(False)
+        self.end_date_edit.setEnabled(False)
         self.day_table.setRowCount(0)
         self.exclude_button.setEnabled(False)
         self.restore_button.setEnabled(False)
@@ -157,6 +175,8 @@ class ExamCalendarDayPanel(QWidget):
         has_selection = period is not None and day is not None
 
         self.period_selector.setEnabled(bool(self._periods))
+        self.start_date_edit.setEnabled(bool(self._periods))
+        self.end_date_edit.setEnabled(bool(self._periods))
         self.exclude_button.setEnabled(
             bool(has_selection and period.is_date_valid(day))
         )
@@ -170,12 +190,35 @@ class ExamCalendarDayPanel(QWidget):
     def _emit_restore_day(self) -> None:
         self._emit_day_action(self.restore_day_requested)
 
+    def _emit_dates_changed(self) -> None:
+        if self._syncing_date_fields:
+            return
+
+        period_index = self.period_selector.currentData()
+        if period_index is None:
+            return
+
+        # Convert Qt dates to normal Python dates before they reach the service layer.
+        self.period_dates_changed.emit(
+            int(period_index),
+            _qdate_to_date(self.start_date_edit.date()),
+            _qdate_to_date(self.end_date_edit.date()),
+        )
+
     def _emit_day_action(self, signal) -> None:
         day = self._selected_day()
         period_index = self.period_selector.currentData()
         if day is None or period_index is None:
             return
         signal.emit(int(period_index), day)
+
+    def _sync_date_fields(self, period) -> None:
+        self._syncing_date_fields = True
+        try:
+            self.start_date_edit.setDate(_date_to_qdate(period.start_date))
+            self.end_date_edit.setDate(_date_to_qdate(period.end_date))
+        finally:
+            self._syncing_date_fields = False
 
     def _current_period(self):
         period_index = self.period_selector.currentData()
@@ -210,3 +253,19 @@ def _day_status(period, day: date) -> str:
 
 def _enum_value(value) -> str:
     return str(getattr(value, "value", value))
+
+
+def _date_edit(object_name: str) -> QDateEdit:
+    edit = QDateEdit()
+    edit.setObjectName(object_name)
+    edit.setCalendarPopup(True)
+    edit.setDisplayFormat("dd-MM-yyyy")
+    return edit
+
+
+def _date_to_qdate(value: date) -> QDate:
+    return QDate(value.year, value.month, value.day)
+
+
+def _qdate_to_date(value: QDate) -> date:
+    return date(value.year(), value.month(), value.day())

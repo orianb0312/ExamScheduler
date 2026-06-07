@@ -42,6 +42,16 @@ def test_scheduler_input_state_excludes_and_restores_days():
     assert state.exam_periods[0].is_date_valid(date(2026, 1, 2))
 
 
+def test_scheduler_input_state_updates_period_start_and_end_dates():
+    state = SchedulerInputState(Path("runtime"))
+    state.set_exam_periods([_period()])
+
+    state.update_period_dates(0, date(2026, 1, 2), date(2026, 1, 4))
+
+    assert state.exam_periods[0].start_date == date(2026, 1, 2)
+    assert state.exam_periods[0].end_date == date(2026, 1, 4)
+
+
 def test_scheduler_input_state_rejects_unknown_period_index():
     state = SchedulerInputState(Path("runtime"))
     state.set_exam_periods([_period()])
@@ -70,10 +80,10 @@ def test_run_config_uses_runtime_dates_file_when_day_state_exists(tmp_path):
     state = SchedulerInputState(tmp_path / "runtime")
     state.set_selected_programs(["83101"])
     state.set_exam_periods([_period()])
-    state.exclude_day(0, date(2026, 1, 2))
+    state.update_period_dates(0, date(2026, 1, 2), date(2026, 1, 4))
 
     config = SchedulerRunConfigBuilder(state).build(_form(tmp_path))
 
     assert config.dates_file == tmp_path / "runtime" / "ui_exam_dates.txt"
     assert config.user_file == tmp_path / "runtime" / "ui_selected_programs.txt"
-    assert "02-01-2026" in config.dates_file.read_text(encoding="utf-8")
+    assert "02-01-2026, 04-01-2026" in config.dates_file.read_text(encoding="utf-8")

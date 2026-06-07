@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -94,6 +95,24 @@ class V1CliRunAdapter:
 
     def build_command(self, config: CliRunConfig) -> tuple[str, list[str]]:
         return build_cli_arguments(config)
+
+
+def resolve_cli_output_file(config: CliRunConfig) -> Path:
+    """Return the text file path that the current CLI run writes to."""
+    output_config = config.output_config or config.project_root / "config.json"
+
+    try:
+        config_data = json.loads(output_config.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return config.project_root / "outputs" / "master_schedule.txt"
+
+    settings = config_data.get("output_settings", {})
+    base_directory = Path(settings.get("base_directory", "outputs"))
+    if not base_directory.is_absolute():
+        base_directory = config.project_root / base_directory
+
+    filename = str(settings.get("master_filename", "master_schedule")).split(".")[0]
+    return base_directory / f"{filename}.txt"
 
 
 def build_cli_arguments(config: CliRunConfig) -> tuple[str, list[str]]:

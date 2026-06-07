@@ -28,15 +28,9 @@ class FileLoaderWidget(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(14)
 
-        header_label = QLabel("Data Source Configuration")
+        header_label = QLabel("File Management")
         header_label.setObjectName("sectionTitle")
         main_layout.addWidget(header_label)
-
-        courses_layout = QHBoxLayout()
-        courses_layout.setSpacing(12)
-
-        courses_lbl = QLabel("Courses File:")
-        courses_lbl.setMinimumWidth(120)
 
         self.courses_input = QLineEdit()
         self.courses_input.setReadOnly(False)
@@ -58,19 +52,6 @@ class FileLoaderWidget(QWidget):
         self.course_mode_group.addButton(self.course_update_button)
         self.course_replace_button.setChecked(True)
 
-        courses_layout.addWidget(courses_lbl)
-        courses_layout.addWidget(self.courses_input)
-        courses_layout.addWidget(self.courses_btn)
-        courses_layout.addWidget(self.course_replace_button)
-        courses_layout.addWidget(self.course_update_button)
-        main_layout.addLayout(courses_layout)
-
-        exams_layout = QHBoxLayout()
-        exams_layout.setSpacing(12)
-
-        exams_lbl = QLabel("Exam Dates File:")
-        exams_lbl.setMinimumWidth(120)
-
         self.exams_input = QLineEdit()
         self.exams_input.setReadOnly(False)
         self.exams_input.setMinimumHeight(32)
@@ -91,12 +72,24 @@ class FileLoaderWidget(QWidget):
         self.exam_dates_mode_group.addButton(self.exam_dates_update_button)
         self.exam_dates_replace_button.setChecked(True)
 
-        exams_layout.addWidget(exams_lbl)
-        exams_layout.addWidget(self.exams_input)
-        exams_layout.addWidget(self.exams_btn)
-        exams_layout.addWidget(self.exam_dates_replace_button)
-        exams_layout.addWidget(self.exam_dates_update_button)
-        main_layout.addLayout(exams_layout)
+        main_layout.addWidget(
+            self._build_file_section(
+                "Course Data",
+                self.courses_input,
+                self.courses_btn,
+                self.course_replace_button,
+                self.course_update_button,
+            )
+        )
+        main_layout.addWidget(
+            self._build_file_section(
+                "Date Data",
+                self.exams_input,
+                self.exams_btn,
+                self.exam_dates_replace_button,
+                self.exam_dates_update_button,
+            )
+        )
 
         self.error_label = QLabel("")
         self.error_label.setObjectName("error_label")
@@ -119,6 +112,40 @@ class FileLoaderWidget(QWidget):
         main_layout.addLayout(load_action_layout)
 
         self.setLayout(main_layout)
+
+    @staticmethod
+    def _build_file_section(
+        title: str,
+        path_input: QLineEdit,
+        browse_button: QPushButton,
+        replace_button: QPushButton,
+        update_button: QPushButton,
+    ) -> QWidget:
+        # Each file source is stacked so it fits inside the left dashboard card.
+        section = QWidget()
+        section.setObjectName("fileSourceSection")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        label = QLabel(title)
+        label.setObjectName("fileSourceTitle")
+        layout.addWidget(label)
+
+        path_layout = QHBoxLayout()
+        path_layout.setContentsMargins(0, 0, 0, 0)
+        path_layout.setSpacing(8)
+        path_layout.addWidget(path_input, 1)
+        path_layout.addWidget(browse_button)
+        layout.addLayout(path_layout)
+
+        mode_layout = QHBoxLayout()
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(8)
+        mode_layout.addWidget(replace_button)
+        mode_layout.addWidget(update_button)
+        layout.addLayout(mode_layout)
+        return section
 
     def get_courses_path(self) -> str:
         return self.courses_input.text()
