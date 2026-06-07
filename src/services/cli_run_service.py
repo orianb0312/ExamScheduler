@@ -150,10 +150,10 @@ def build_cli_arguments(config: CliRunConfig) -> tuple[str, list[str]]:
         args.extend(["--time-limit", str(config.time_limit_seconds)])
 
     if config.lazy_schedules and config.mode in {"auto", "complete-write"}:
-        # Lazy mode keeps the generator alive and waits for the UI before each next page.
+        # Lazy mode keeps big output responsive by generating the next page only on demand.
         args.append("--lazy-schedules")
     elif config.stream_schedules and config.mode in {"auto", "complete-write"}:
-        # Streaming mode is kept for callers that want continuous stdout output.
+        # Streaming mode is still useful for callers that want continuous stdout output.
         args.append("--stream-schedules")
 
     if config.course_file is not None:

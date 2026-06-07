@@ -1,4 +1,8 @@
-from src.services.schedule_output_service import BATCH_END_MARKER, StdoutScheduleParser
+from src.services.schedule_output_service import (
+    BATCH_END_MARKER,
+    StdoutScheduleParser,
+    parse_schedule_total,
+)
 
 
 def test_parser_emits_complete_system_blocks_when_next_marker_arrives():
@@ -65,3 +69,10 @@ def test_parser_flushes_last_system_when_batch_marker_arrives():
     assert systems[0].number == 1
     assert "Course A" in systems[0].text
     assert parser.flush() == []
+
+
+def test_parse_schedule_total_from_cli_summary_lines():
+    assert parse_schedule_total("Total complete systems: 4,900\n") == 4900
+    assert parse_schedule_total("Complete systems: 12\n") == 12
+    assert parse_schedule_total("Total schedules across periods: 8\n") == 8
+    assert parse_schedule_total("New scheduler completed.\n") is None

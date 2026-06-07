@@ -1,4 +1,4 @@
-"""Pagination controls for cached stdout schedule batches."""
+"""Pagination controls for schedule pages."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidg
 
 
 class PaginationBar(QWidget):
-    """Navigate between cached schedule pages."""
+    """Navigate between generated schedule pages."""
 
     page_changed = pyqtSignal(int)
     more_requested = pyqtSignal()
