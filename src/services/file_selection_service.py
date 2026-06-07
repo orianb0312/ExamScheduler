@@ -32,9 +32,16 @@ class FileSelectionValidator:
 
         courses_selected = bool(courses_path)
         exam_dates_selected = bool(exam_dates_path)
-        courses_exists = _is_existing_file(courses_path)
-        exam_dates_exists = _is_existing_file(exam_dates_path)
 
+        # Architecture Rule: Block network/UNC paths to enforce local standalone execution
+        courses_is_network = courses_path.startswith(r"\\") or courses_path.startswith("//")
+        exams_is_network = exam_dates_path.startswith(r"\\") or exam_dates_path.startswith("//")
+
+        courses_exists = not courses_is_network and _is_existing_file(courses_path)
+        exam_dates_exists = not exams_is_network and _is_existing_file(exam_dates_path)
+
+        if courses_is_network or exams_is_network:
+            errors.append("Network paths (\\\\) are not allowed. Local files only.")
         if courses_selected and not courses_exists:
             errors.append("Courses file path is invalid or does not exist.")
         if exam_dates_selected and not exam_dates_exists:
