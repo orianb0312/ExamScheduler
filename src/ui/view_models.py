@@ -8,6 +8,8 @@ from datetime import date
 
 @dataclass(frozen=True)
 class ScheduledExamViewModel:
+    """Calendar-ready exam data after the scheduler output has been enriched."""
+
     course_name: str
     exam_date: date
     instructor: str
@@ -17,14 +19,17 @@ class ScheduledExamViewModel:
 
     @property
     def calendar_label(self) -> str:
+        # Course number is part of the Phase 2 schedule display requirement.
         if self.course_id is None:
             return self.course_name
         return f"{self.course_name} ({self.course_id})"
 
     @property
     def calendar_detail(self) -> str:
+        # Keep each exam compact while still showing program and requirement.
         parts: list[str] = []
         if self.program_ids:
+            # Multiple selected programs can be affected by one shared course.
             parts.append(", ".join(str(program_id) for program_id in self.program_ids))
         if self.requirement_types:
             parts.append(", ".join(self.requirement_types))

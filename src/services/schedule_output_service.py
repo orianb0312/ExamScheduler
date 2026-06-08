@@ -24,7 +24,11 @@ _MAX_PREFIX_BUFFER = 64
 
 @dataclass(frozen=True)
 class ScheduleExamDisplay:
-    """One exam placement in the shape the output screen needs."""
+    """One exam placement in the shape the output screen needs.
+
+    Program IDs and requirement types come from the course catalog, because the
+    scheduler output text itself only carries the course name, date, and lecturer.
+    """
 
     course_name: str
     exam_date: date | None
@@ -82,6 +86,7 @@ class ScheduleOutputDataAdapter:
         courses: Iterable[Course],
         selected_program_ids: Iterable[int | str] = (),
     ) -> None:
+        # Rebuild the lookup whenever data is loaded or the selected programs change.
         self._course_catalog = _CourseCatalog(courses, selected_program_ids)
 
     def convert(self, systems: Iterable[ScheduleSystem]) -> list[ScheduleSystem]:
@@ -158,6 +163,8 @@ class ScheduleOutputDataAdapter:
 
 
 class _CourseCatalog:
+    """Small lookup table used to add course metadata back onto printed schedules."""
+
     def __init__(
         self,
         courses: Iterable[Course],
@@ -170,6 +177,7 @@ class _CourseCatalog:
         for course in courses:
             name_key = _normalize_text(course.name)
             instructor_key = _normalize_text(course.instructor)
+            # Keep both lookups: exact matches first, unique-name fallback second.
             self._by_name.setdefault(name_key, []).append(course)
             self._by_name_and_instructor[(name_key, instructor_key)] = course
 
@@ -190,8 +198,10 @@ class _CourseCatalog:
         ids: list[int] = []
         for affiliation in course.affiliations:
             program_id = affiliation.program_id
+            # Show the program context from the user's current selection.
             if self._selected_program_ids and program_id not in self._selected_program_ids:
                 continue
+            # A course may list the same program more than once for different rows.
             if program_id not in ids:
                 ids.append(program_id)
 
@@ -200,6 +210,7 @@ class _CourseCatalog:
     def requirement_types_for(self, course: Course) -> tuple[str, ...]:
         values: list[str] = []
         for affiliation in course.affiliations:
+            # Requirement status should describe the same selected programs.
             if (
                 self._selected_program_ids
                 and affiliation.program_id not in self._selected_program_ids
@@ -207,6 +218,7 @@ class _CourseCatalog:
                 continue
 
             value = _enum_display_value(affiliation.requirement_type)
+            # The compact calendar line only needs each status once.
             if value and value not in values:
                 values.append(value)
 

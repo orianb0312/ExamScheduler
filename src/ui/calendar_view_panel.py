@@ -79,7 +79,8 @@ class _DayCell(QFrame):
         return "" if self._day_number is None else str(self._day_number)
 
     def exam_text(self) -> str:
-        return "\n".join(_exam_cell_text(exam) for exam in self._exams)
+        compact = len(self._exams) > 1
+        return "\n".join(_exam_cell_text(exam, compact=compact) for exam in self._exams)
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -92,8 +93,9 @@ class _DayCell(QFrame):
         day_label.setStyleSheet("font-size: 11px; font-weight: 700; background: transparent;")
         layout.addWidget(day_label)
 
+        compact = len(self._exams) > 1
         for exam in self._exams[:_MAX_EXAMS_SHOWN_IN_CELL]:
-            exam_label = QLabel(_exam_cell_text(exam))
+            exam_label = QLabel(_exam_cell_text(exam, compact=compact))
             exam_label.setObjectName("calendarExamItem")
             exam_label.setToolTip(_exam_tooltip(exam))
             exam_label.setWordWrap(True)
@@ -494,7 +496,10 @@ def _clip_cell_text(value: str, limit: int = 24) -> str:
     return value[: limit - 3].rstrip() + "..."
 
 
-def _exam_cell_text(exam: ScheduledExamViewModel) -> str:
+def _exam_cell_text(exam: ScheduledExamViewModel, *, compact: bool = False) -> str:
+    if compact:
+        return _clip_cell_text(exam.calendar_label, limit=20)
+    # First line: course. Second line: compact program and requirement context.
     lines = [_clip_cell_text(exam.calendar_label)]
     if exam.calendar_detail:
         lines.append(_clip_cell_text(exam.calendar_detail, limit=30))
@@ -502,6 +507,7 @@ def _exam_cell_text(exam: ScheduledExamViewModel) -> str:
 
 
 def _exam_tooltip(exam: ScheduledExamViewModel) -> str:
+    # The tooltip keeps the full values when the calendar cell has clipped them.
     lines = [exam.calendar_label, exam.exam_date.isoformat()]
     if exam.instructor:
         lines.append(exam.instructor)
