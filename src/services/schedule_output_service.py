@@ -8,6 +8,8 @@ from datetime import date
 from typing import Iterable
 
 from src.models.academic import Course
+from src.process_protocol import BATCH_END_MARKER, LAZY_NEXT_COMMAND, LAZY_STOP_COMMAND
+
 
 _MARKER_PATTERN = re.compile(r"(?m)^(Complete System|Schedule) #(?P<number>\d+)\s*$")
 _SEMESTER_PATTERN = re.compile(r"^===\s*SEMESTER:\s*(?P<semester>.*?)\s*===\s*$")
@@ -18,9 +20,6 @@ _TOTAL_PATTERNS = (
     re.compile(r"(?mi)^Total schedules across periods:\s*(?P<count>[\d,]+)\s*$"),
 )
 _MAX_PREFIX_BUFFER = 64
-BATCH_END_MARKER = "__EXAM_SCHEDULER_BATCH_END__"
-LAZY_NEXT_COMMAND = "NEXT"
-LAZY_STOP_COMMAND = "STOP"
 
 
 @dataclass(frozen=True)

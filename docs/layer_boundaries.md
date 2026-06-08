@@ -35,6 +35,19 @@ These modules must stay free of PyQt6 imports. A service may call v1.0 modules
 when it is acting as an adapter, such as `ExistingFileParserAdapter` or
 `V1CliRunAdapter`.
 
+## Process Protocol
+
+The UI and `main.py` share a tiny text protocol for lazy schedule paging.
+It lives outside the UI and service layers so both sides can import it without
+reversing dependencies.
+
+```text
+src/process_protocol.py
+```
+
+The protocol contains markers such as `NEXT`, `STOP`, and the batch-end marker.
+It does not import PyQt6 or scheduling code.
+
 ## Existing V1.0 Application And Domain Layer
 
 The v1.0 layer owns parsing, domain objects, scheduling rules, schedule
@@ -63,3 +76,7 @@ PyQt6 UI -> services/adapters -> v1.0 application/domain
 The reverse direction is intentionally blocked. Widgets collect user input,
 show state, and emit signals; services handle validation, parsing adapters,
 command construction, selection policy, and output-text adaptation.
+
+Long-running scheduling work crosses this boundary through `QProcess`, not by
+calling scheduler classes from widgets. See `docs/qprocess_boundaries.md` for
+the chosen process boundaries.

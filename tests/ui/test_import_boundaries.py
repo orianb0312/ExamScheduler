@@ -82,3 +82,16 @@ def test_file_loading_service_does_not_depend_on_ui_or_pyqt6():
                 violations.append(f"{path.relative_to(ROOT_DIR)} imports {module}")
 
     assert violations == []
+
+
+def test_workflow_does_not_import_ui_or_ui_services():
+    workflow_path = SRC_DIR / "workflow.py"
+    forbidden_prefixes = ("src.ui", "src.services", "PyQt6")
+
+    violations = [
+        module
+        for module in _imports_for(workflow_path)
+        if module.startswith(forbidden_prefixes)
+    ]
+
+    assert violations == []

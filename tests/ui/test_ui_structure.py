@@ -24,3 +24,12 @@ def test_gui_main_is_root_desktop_entry_point():
 
     assert gui_main.exists()
     assert "from src.ui import main" in gui_main.read_text(encoding="utf-8")
+
+
+def test_qprocess_boundaries_are_documented():
+    boundary_doc = ROOT_DIR / "docs" / "qprocess_boundaries.md"
+
+    assert boundary_doc.exists()
+    text = boundary_doc.read_text(encoding="utf-8")
+    assert "Run Through QProcess" in text
+    assert "Process Result Flow" in text

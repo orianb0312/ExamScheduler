@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QStackedWidget
 
+from src.process_protocol import LAZY_NEXT_COMMAND, LAZY_STOP_COMMAND
 from src.services.cli_run_service import CliRunConfig, resolve_cli_output_file
 from src.services.file_loading_service import (
     FileLoadingError,
@@ -14,8 +16,6 @@ from src.services.file_loading_service import (
 )
 from src.services.schedule_calendar_service import ScheduleCalendarDataService
 from src.services.schedule_output_service import (
-    LAZY_NEXT_COMMAND,
-    LAZY_STOP_COMMAND,
     ScheduleOutputDataAdapter,
     ScheduleExamDisplay,
     ScheduleSystem,
@@ -33,10 +33,18 @@ from src.ui.view_models import (
 )
 
 
+ProcessRunnerFactory = Callable[[object], ProcessRunner]
+
+
 class MainWindow(QMainWindow):
     """Coordinate input controls, QProcess execution, and streamed output."""
 
-    def __init__(self, project_root: Path, parent=None) -> None:
+    def __init__(
+        self,
+        project_root: Path,
+        parent=None,
+        process_runner_factory: ProcessRunnerFactory | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("ExamScheduler v2.0")
         self.resize(1200, 760)
@@ -44,7 +52,9 @@ class MainWindow(QMainWindow):
         self._parser = StdoutScheduleParser()
         self._output_adapter = ScheduleOutputDataAdapter()
         self._calendar_data_service = ScheduleCalendarDataService()
-        self._runner = ProcessRunner(self)
+        # Tests can inject a fake runner, while the real app still uses QProcess.
+        runner_factory = process_runner_factory or ProcessRunner
+        self._runner = runner_factory(self)
         self._file_loading_service = FileLoadingService()
         self._active_run_config: CliRunConfig | None = None
         self._selected_schedule: ScheduleSystem | None = None
@@ -216,6 +226,7 @@ class MainWindow(QMainWindow):
         self._refresh_output_adapter(self.loaded_input_data)
         self._parser.reset()
         self.output_view.clear()
+        self.output_view.set_more_available(False)
         self._show_output_screen()
         self._runner.start(config)
 
@@ -248,11 +259,16 @@ class MainWindow(QMainWindow):
         self.output_view.add_systems(self._output_adapter.convert(self._parser.flush()))
         self.input_panel.set_running(False)
         self.output_view.set_more_available(False)
-        self.output_view.set_finished(exit_code, status)
         if exit_code == 0:
+            self.output_view.set_finished(exit_code, status)
             self._load_generated_output_file()
-        if self.output_view.schedule_total is None and self.output_view.cache.system_count:
-            self.output_view.set_schedule_total(self.output_view.cache.system_count)
+            if self.output_view.schedule_total is None and self.output_view.cache.system_count:
+                self.output_view.set_schedule_total(self.output_view.cache.system_count)
+            return
+
+        self.output_view.set_error(
+            f"Scheduler process exited with code {exit_code} ({status})."
+        )
 
     def _handle_error(self, message: str) -> None:
         self.input_panel.set_running(False)

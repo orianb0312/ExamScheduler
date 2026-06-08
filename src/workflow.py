@@ -12,12 +12,8 @@ from src.parser.IParser import IParser
 from src.parser.file_parser import FileParser
 from src.parser.course_factory import CourseFactory
 from src.parser.period_factory import PeriodFactory
+from src.process_protocol import BATCH_END_MARKER, LAZY_NEXT_COMMAND, LAZY_STOP_COMMAND
 from src.rules.academic_conflict_rule import AcademicConflictRule
-from src.services.schedule_output_service import (
-    BATCH_END_MARKER,
-    LAZY_NEXT_COMMAND,
-    LAZY_STOP_COMMAND,
-)
 from src.solver.complete_scheduler import (
     DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE,
     CompleteSystemResult,

@@ -6,7 +6,6 @@ from src.services.cli_run_service import (
     CliCommandBuilder,
     CliRunConfig,
     V1CliRunAdapter,
-    build_cli_arguments,
 )
 
 try:
@@ -98,9 +97,24 @@ class ProcessRunner(QObject):
             self.stderr_received.emit(text)
 
     def _handle_finished(self, exit_code: int, exit_status) -> None:
+        # A very short process can finish before Qt delivers the last readyRead signal.
+        self._read_stdout()
+        self._read_stderr()
         status_name = getattr(exit_status, "name", str(exit_status))
         self.process_finished.emit(exit_code, status_name)
 
     def _handle_error(self, error) -> None:
         error_name = getattr(error, "name", str(error))
-        self.process_error.emit(error_name)
+        self.process_error.emit(format_process_error(error_name))
+
+
+def format_process_error(error_name: str) -> str:
+    messages = {
+        "FailedToStart": "Scheduler process could not start. Check the Python path and main.py.",
+        "Crashed": "Scheduler process crashed before finishing.",
+        "Timedout": "Scheduler process timed out.",
+        "WriteError": "Could not send a command to the scheduler process.",
+        "ReadError": "Could not read output from the scheduler process.",
+        "UnknownError": "Unknown scheduler process error.",
+    }
+    return messages.get(error_name, f"Scheduler process error: {error_name}")

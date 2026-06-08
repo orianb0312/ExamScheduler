@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtCore import QObject, QDate, Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
 
@@ -35,6 +35,35 @@ def simple_period() -> ExamPeriodViewModel:
         end_date=date(2025, 2, 20),
         exclusions=(ExclusionViewModel(start_date=date(2025, 1, 15), end_date=None),),
     )
+
+
+class _FakeProcessRunner(QObject):
+    stdout_received = pyqtSignal(str)
+    stderr_received = pyqtSignal(str)
+    process_started = pyqtSignal()
+    process_finished = pyqtSignal(int, str)
+    process_error = pyqtSignal(str)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.started_config: CliRunConfig | None = None
+        self.running = False
+        self.sent_lines: list[str] = []
+
+    def start(self, config: CliRunConfig) -> None:
+        # The fake proves the UI uses the runner boundary without starting main.py.
+        self.started_config = config
+        self.running = True
+        self.process_started.emit()
+
+    def is_running(self) -> bool:
+        return self.running
+
+    def cancel(self) -> None:
+        self.running = False
+
+    def send_input_line(self, line: str) -> None:
+        self.sent_lines.append(line)
 
 
 def test_exam_period_view_model_logic(simple_period: ExamPeriodViewModel) -> None:
@@ -115,6 +144,32 @@ def test_main_window_keeps_calendar_and_output_screens_separate(tmp_path, qtbot:
     assert isinstance(window.calendar_view, CalendarView)
     assert isinstance(window.output_view, OutputView)
     assert window.calendar_view is not window.output_view
+
+
+def test_generate_schedules_starts_process_runner_boundary(tmp_path, qtbot: QtBot) -> None:
+    created_runners: list[_FakeProcessRunner] = []
+
+    def create_runner(parent) -> _FakeProcessRunner:
+        runner = _FakeProcessRunner(parent)
+        created_runners.append(runner)
+        return runner
+
+    window = MainWindow(
+        project_root=tmp_path,
+        process_runner_factory=create_runner,
+    )
+    qtbot.addWidget(window)
+    window.input_panel.replace_program_list(["83101"])
+    window.input_panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+
+    qtbot.mouseClick(window.input_panel.run_button, Qt.MouseButton.LeftButton)
+
+    runner = created_runners[0]
+    assert runner.started_config is not None
+    assert runner.started_config.lazy_schedules is True
+    assert window._stack.currentWidget() is window.output_view
+    assert not window.input_panel.run_button.isEnabled()
+    assert window.input_panel.program_selector.isEnabled()
 
 
 def test_output_view_selected_schedule_follows_visible_page(qtbot: QtBot) -> None:
@@ -357,4 +412,13 @@ def _schedule_with_exam(course_name: str, course_id: int, exam_date: date) -> Sc
             ),
         ),
     )
+
+
+def test_failed_run_sets_output_error_status(tmp_path, qtbot: QtBot) -> None:
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    window._handle_finished(2, "CrashExit")
+
+    assert "Scheduler process exited with code 2" in window.output_view.status_label.text()
 
