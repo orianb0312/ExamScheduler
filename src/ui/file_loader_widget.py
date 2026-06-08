@@ -1,4 +1,4 @@
-import os
+from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -9,39 +9,28 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PyQt6.QtCore import pyqtSignal, Qt
+
+from src.services.file_selection_service import FileSelectionValidator
+
 
 class FileLoaderWidget(QWidget):
-    """
-    A passive, format-agnostic UI view managing file path collections.
-    Dispatches targeted state modifications and verification events to support decoupled architecture.
-    """
-    # Signal emitted when the user triggers the data load sequence
+    """Collect course/date file paths and emit a load request."""
+
     load_requested = pyqtSignal(str, str, str, str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, validator: FileSelectionValidator | None = None):
         super().__init__(parent)
+        self._validator = validator or FileSelectionValidator()
         self.init_ui()
 
     def init_ui(self):
-        # Top-level layout orchestration
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(14)
 
-        # Header Section
-        header_label = QLabel("Data Source Configuration")
+        header_label = QLabel("File Management")
         header_label.setObjectName("sectionTitle")
         main_layout.addWidget(header_label)
-
-        # -------------------------------------------------------------------
-        # Row 1: Courses Catalog Configuration
-        # -------------------------------------------------------------------
-        courses_layout = QHBoxLayout()
-        courses_layout.setSpacing(12)
-
-        courses_lbl = QLabel("Courses File:")
-        courses_lbl.setMinimumWidth(120)
 
         self.courses_input = QLineEdit()
         self.courses_input.setReadOnly(False)
@@ -63,22 +52,6 @@ class FileLoaderWidget(QWidget):
         self.course_mode_group.addButton(self.course_update_button)
         self.course_replace_button.setChecked(True)
 
-        courses_layout.addWidget(courses_lbl)
-        courses_layout.addWidget(self.courses_input)
-        courses_layout.addWidget(self.courses_btn)
-        courses_layout.addWidget(self.course_replace_button)
-        courses_layout.addWidget(self.course_update_button)
-        main_layout.addLayout(courses_layout)
-
-        # -------------------------------------------------------------------
-        # Row 2: Exam Dates / Calendar Layout
-        # -------------------------------------------------------------------
-        exams_layout = QHBoxLayout()
-        exams_layout.setSpacing(12)
-
-        exams_lbl = QLabel("Exam Dates File:")
-        exams_lbl.setMinimumWidth(120)
-
         self.exams_input = QLineEdit()
         self.exams_input.setReadOnly(False)
         self.exams_input.setMinimumHeight(32)
@@ -99,25 +72,31 @@ class FileLoaderWidget(QWidget):
         self.exam_dates_mode_group.addButton(self.exam_dates_update_button)
         self.exam_dates_replace_button.setChecked(True)
 
-        exams_layout.addWidget(exams_lbl)
-        exams_layout.addWidget(self.exams_input)
-        exams_layout.addWidget(self.exams_btn)
-        exams_layout.addWidget(self.exam_dates_replace_button)
-        exams_layout.addWidget(self.exam_dates_update_button)
-        main_layout.addLayout(exams_layout)
+        main_layout.addWidget(
+            self._build_file_section(
+                "Course Data",
+                self.courses_input,
+                self.courses_btn,
+                self.course_replace_button,
+                self.course_update_button,
+            )
+        )
+        main_layout.addWidget(
+            self._build_file_section(
+                "Date Data",
+                self.exams_input,
+                self.exams_btn,
+                self.exam_dates_replace_button,
+                self.exam_dates_update_button,
+            )
+        )
 
-        # -------------------------------------------------------------------
-        # Contextual Inline Error Feedback Block
-        # -------------------------------------------------------------------
         self.error_label = QLabel("")
         self.error_label.setObjectName("error_label")
         self.error_label.setWordWrap(True)
-        self.error_label.setVisible(False)  # Muted initially until invalid state occurs
+        self.error_label.setVisible(False)
         main_layout.addWidget(self.error_label)
 
-        # -------------------------------------------------------------------
-        # Bottom Execution Control
-        # -------------------------------------------------------------------
         self.load_button = QPushButton("Load Files Into Scheduler")
         self.load_button.setObjectName("load_button")
         self.load_button.setFixedWidth(220)
@@ -134,25 +113,51 @@ class FileLoaderWidget(QWidget):
 
         self.setLayout(main_layout)
 
-    # =======================================================================
-    # MVP INTERFACE METHODS (Exposed API for Presenters/Controllers)
-    # =======================================================================
+    @staticmethod
+    def _build_file_section(
+        title: str,
+        path_input: QLineEdit,
+        browse_button: QPushButton,
+        replace_button: QPushButton,
+        update_button: QPushButton,
+    ) -> QWidget:
+        # Each file source is stacked so it fits inside the left dashboard card.
+        section = QWidget()
+        section.setObjectName("fileSourceSection")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        label = QLabel(title)
+        label.setObjectName("fileSourceTitle")
+        layout.addWidget(label)
+
+        path_layout = QHBoxLayout()
+        path_layout.setContentsMargins(0, 0, 0, 0)
+        path_layout.setSpacing(8)
+        path_layout.addWidget(path_input, 1)
+        path_layout.addWidget(browse_button)
+        layout.addLayout(path_layout)
+
+        mode_layout = QHBoxLayout()
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(8)
+        mode_layout.addWidget(replace_button)
+        mode_layout.addWidget(update_button)
+        layout.addLayout(mode_layout)
+        return section
 
     def get_courses_path(self) -> str:
-        """Retrieves the raw text value of the courses input field."""
         return self.courses_input.text()
 
     def set_courses_path(self, path: str):
-        """Sets the courses input text programmatically and re-evaluates UI validation state."""
         self.courses_input.setText(path)
         self._validate_inputs()
 
     def get_exam_dates_path(self) -> str:
-        """Retrieves the raw text value of the exam dates input field."""
         return self.exams_input.text()
 
     def set_exam_dates_path(self, path: str):
-        """Sets the exam dates input text programmatically and re-evaluates UI validation state."""
         self.exams_input.setText(path)
         self._validate_inputs()
 
@@ -193,18 +198,12 @@ class FileLoaderWidget(QWidget):
         self.error_label.setVisible(True)
         self.load_button.setEnabled(False)
 
-    # =======================================================================
-    # INTERNAL EVENT LOGIC & VALIDATION INTERCEPTORS
-    # =======================================================================
-
     def _browse_courses(self):
-        """Launches the native Windows File Dialog to capture standard user selection paths."""
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Courses File", "", "All Files (*)")
         if file_path:
             self.set_courses_path(file_path)
 
     def _browse_exam_dates(self):
-        """Launches the native Windows File Dialog to capture standard user selection paths."""
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Exam Dates File", "", "All Files (*)")
         if file_path:
             self.set_exam_dates_path(file_path)
@@ -220,39 +219,21 @@ class FileLoaderWidget(QWidget):
         return button
 
     def _validate_inputs(self):
-        """
-        Evaluates current input parameters defensively.
-        Updates user-facing warning fields without modifying backend system memory state.
-        """
-        courses_path = self.get_courses_path()
-        exams_path = self.get_exam_dates_path()
+        result = self._validator.validate(
+            self.get_courses_path(),
+            self.get_exam_dates_path(),
+        )
 
-        # Isolate verification hooks to actively populated targets only
-        courses_missing = courses_path != "" and not os.path.isfile(courses_path)
-        exams_missing = exams_path != "" and not os.path.isfile(exams_path)
-
-        if courses_missing or exams_missing:
-            errors = []
-            if courses_missing:
-                errors.append("Courses file path is invalid or does not exist.")
-            if exams_missing:
-                errors.append("Exam Dates file path is invalid or does not exist.")
-
-            self.error_label.setText(" Error: " + " | ".join(errors))
+        if result.errors:
+            self.error_label.setText(result.message)
             self.error_label.setVisible(True)
             self.load_button.setEnabled(False)
         else:
-            # Clear warnings if states are currently valid or empty
             self.error_label.setVisible(False)
             self.error_label.setText("")
-
-            # Unlock operational transition buttons only if fully loaded and verified
-            courses_exists = os.path.isfile(courses_path)
-            exams_exists = os.path.isfile(exams_path)
-            self.load_button.setEnabled(courses_exists and exams_exists)
+            self.load_button.setEnabled(result.can_load)
 
     def _handle_load_clicked(self):
-        """Propagates verified path strings to active listeners upon user dispatch request."""
         self.load_requested.emit(
             self.get_courses_path(),
             self.get_exam_dates_path(),

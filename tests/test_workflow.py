@@ -1,7 +1,12 @@
 import json
+from io import StringIO
 from pathlib import Path
 
-from src.workflow import run_v1_workflow
+from src.workflow import (
+    run_complete_auto_stream_workflow,
+    run_complete_lazy_stream_workflow,
+    run_v1_workflow,
+)
 
 
 def test_run_v1_workflow_processes_all_exam_periods(tmp_path):
@@ -90,3 +95,166 @@ def test_run_v1_workflow_processes_all_exam_periods(tmp_path):
     assert "Fall Exam | 2026-01-01 | Dr. Fall" in content
     assert "Spring Exam | 2026-01-03 | Dr. Spring" in content
     assert "Fall Project" not in content
+
+
+def test_run_complete_auto_stream_workflow_writes_schedule_blocks_to_stdout(tmp_path):
+    course_file = tmp_path / "courses.txt"
+    dates_file = tmp_path / "dates.txt"
+    user_file = tmp_path / "programs.txt"
+    output_config = tmp_path / "config.json"
+
+    course_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "Fall Exam",
+                "10001",
+                "Dr. Fall",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+                "$$$$",
+                "Spring Exam",
+                "10002",
+                "Dr. Spring",
+                "83101,1,SPRI,Obligatory",
+                "Exam",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dates_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "FALL,Aleph",
+                "01-01-2026, 02-01-2026",
+                "02-01-2026 Blocked",
+                "$$$$",
+                "SPRI,Aleph",
+                "03-01-2026, 04-01-2026",
+                "04-01-2026 Blocked",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_file.write_text("83101", encoding="utf-8")
+    output_config.write_text(
+        json.dumps(
+            {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(course_file),
+                    "dates_file": str(dates_file),
+                    "user_file": str(user_file),
+                },
+                "output_settings": {
+                    "base_directory": str(tmp_path / "output"),
+                    "master_filename": "workflow_schedule",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    stdout = StringIO()
+    stderr = StringIO()
+    result = run_complete_auto_stream_workflow(
+        output_config=output_config,
+        time_limit_seconds=30.0,
+        batch_size=1,
+        output_stream=stdout,
+        progress_stream=stderr,
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+    )
+
+    output = stdout.getvalue()
+
+    assert result.complete_system_count == 1
+    assert result.written_system_count == 1
+    assert "Complete System #1" in output
+    assert "Fall Exam | 2026-01-01 | Dr. Fall" in output
+    assert "Spring Exam | 2026-01-03 | Dr. Spring" in output
+
+
+def test_run_complete_lazy_stream_workflow_waits_for_next_command(tmp_path):
+    course_file = tmp_path / "courses.txt"
+    dates_file = tmp_path / "dates.txt"
+    user_file = tmp_path / "programs.txt"
+    output_config = tmp_path / "config.json"
+
+    course_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "Fall Exam",
+                "10001",
+                "Dr. Fall",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dates_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "FALL,Aleph",
+                "01-01-2026, 03-01-2026",
+                "03-01-2026 Blocked",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_file.write_text("83101", encoding="utf-8")
+    output_config.write_text(
+        json.dumps(
+            {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(course_file),
+                    "dates_file": str(dates_file),
+                    "user_file": str(user_file),
+                },
+                "output_settings": {
+                    "base_directory": str(tmp_path / "output"),
+                    "master_filename": "workflow_schedule",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    first_page_stdout = StringIO()
+    first_page_result = run_complete_lazy_stream_workflow(
+        output_config=output_config,
+        batch_size=1,
+        input_stream=StringIO(""),
+        output_stream=first_page_stdout,
+        progress_stream=StringIO(),
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+    )
+
+    assert first_page_result.written_system_count == 1
+    assert "Complete System #1" in first_page_stdout.getvalue()
+    assert "Complete System #2" not in first_page_stdout.getvalue()
+
+    second_page_stdout = StringIO()
+    second_page_result = run_complete_lazy_stream_workflow(
+        output_config=output_config,
+        batch_size=1,
+        input_stream=StringIO("NEXT\n"),
+        output_stream=second_page_stdout,
+        progress_stream=StringIO(),
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+    )
+
+    assert second_page_result.written_system_count == 2
+    assert "Complete System #1" in second_page_stdout.getvalue()
+    assert "Complete System #2" in second_page_stdout.getvalue()

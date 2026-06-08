@@ -8,9 +8,7 @@ from src.output.text_formatter import TextFormatter
 
 class OutputManager:
     """
-    Context class that manages file I/O operations.
-    Delegates the actual string formatting to the injected IOutputFormatter strategy.
-    Demonstrates Dependency Inversion (DIP) and Single Responsibility (SRP) principles.
+    Writes formatted schedules to the output file configured for the project.
     """
 
     def __init__(self, formatter: IOutputFormatter, config_path: str = "config.json"):
@@ -27,14 +25,14 @@ class OutputManager:
                 config = json.load(f)
                 settings = config.get("output_settings", {})
 
-                # Resolve absolute path for safety
+                # Keep the output path absolute so tests and CLI runs agree.
                 self.base_directory = Path(settings.get("base_directory", "outputs")).resolve()
 
-                # Extract raw filename without extension to allow the formatter to append its own
+                # Store the filename without extension; the formatter owns the suffix.
                 raw_filename = settings.get("master_filename", "master_schedule")
                 self.filename = raw_filename.split('.')[0]
         except (FileNotFoundError, json.JSONDecodeError):
-            # Fallback to default values if config is missing, broken, or unreadable
+            # Use the original defaults when config.json is missing or broken.
             self.base_directory = Path("outputs").resolve()
             self.filename = "master_schedule"
 
@@ -43,7 +41,7 @@ class OutputManager:
         self.base_directory.mkdir(parents=True, exist_ok=True)
 
     def get_full_path(self) -> Path:
-        """Constructs the full absolute path, dynamically appending the formatter's extension."""
+        """Return the full output path with the formatter's extension."""
         return self.base_directory / f"{self.filename}{self.formatter.get_extension()}"
 
     def export(self, structured_data: Optional[Dict[Semester, Dict[Term, List[ScheduledExam]]]]) -> str:
@@ -56,10 +54,8 @@ class OutputManager:
         self._ensure_dir_exists()
         full_path = self.get_full_path()
 
-        # Dependency Inversion: Formatting logic is fully delegated to the injected strategy
         content = self.formatter.format(structured_data)
 
-        # Write the formatted string to the file system using UTF-8 encoding
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
 

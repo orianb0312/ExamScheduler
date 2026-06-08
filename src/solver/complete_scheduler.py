@@ -1,14 +1,17 @@
 import time
 from dataclasses import dataclass
 from datetime import date, timedelta
-from itertools import islice, product
+from itertools import product
 from pathlib import Path
-from typing import Dict, Generator, Iterable, List, Optional, Sequence, Set
+from typing import Dict, Generator, Iterable, Iterator, List, Optional, Sequence, Set
 
 from src.output.output_manager import TextOutputManager
 from src.interfaces import ISchedulingRule
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
+
+
+DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE = 1000
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,37 @@ class CompleteSystemResult:
     auto_limit_seconds: Optional[float] = None
 
 
+@dataclass(frozen=True)
+class GeneratedCompleteSystem:
+    number: int
+    text: str
+
+
+@dataclass(frozen=True)
+class CompleteSystemStream:
+    period_course_counts: List[int]
+    period_schedule_counts: List[int]
+    complete_system_count: int
+    systems: Iterator[GeneratedCompleteSystem]
+
+    def iter_batches(
+        self,
+        batch_size: int = DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE,
+    ) -> Iterator[List[GeneratedCompleteSystem]]:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than zero")
+
+        batch: List[GeneratedCompleteSystem] = []
+        for system in self.systems:
+            batch.append(system)
+            if len(batch) >= batch_size:
+                yield batch
+                batch = []
+
+        if batch:
+            yield batch
+
+
 class CompleteSystemScheduler:
     """
     Generates complete exam systems across multiple exam periods.
@@ -60,6 +94,7 @@ class CompleteSystemScheduler:
     def __init__(self, rules: List[ISchedulingRule]):
         self.rules = rules
         self._course_keys: List[_CourseKey] = []
+        self._write_batch_size = 2048
 
     def count_complete_systems(
         self,
@@ -79,6 +114,28 @@ class CompleteSystemScheduler:
             truncated=False,
         )
 
+    def stream_complete_systems(
+        self,
+        period_course_sets: Sequence[tuple[ExamPeriod, List[Course]]],
+        max_systems: Optional[int] = None,
+    ) -> CompleteSystemStream:
+        schedule_sets = self._build_period_schedule_sets(period_course_sets)
+        complete_count = self._product_count(schedule_sets)
+        formatted_caches = self._build_formatted_schedule_caches(schedule_sets)
+
+        systems = self._iter_generated_complete_systems(
+            schedule_sets,
+            formatted_caches,
+            max_systems=max_systems,
+        )
+
+        return CompleteSystemStream(
+            period_course_counts=[len(schedule_set.courses) for schedule_set in schedule_sets],
+            period_schedule_counts=[schedule_set.count for schedule_set in schedule_sets],
+            complete_system_count=complete_count,
+            systems=systems,
+        )
+
     def write_complete_systems(
         self,
         period_course_sets: Sequence[tuple[ExamPeriod, List[Course]]],
@@ -86,8 +143,10 @@ class CompleteSystemScheduler:
         max_systems: Optional[int] = None,
     ) -> CompleteSystemResult:
         started_at = time.perf_counter()
-        schedule_sets = self._build_period_schedule_sets(period_course_sets)
-        complete_count = self._product_count(schedule_sets)
+        stream = self.stream_complete_systems(
+            period_course_sets,
+            max_systems=max_systems,
+        )
 
         output_manager._ensure_dir_exists()
         output_path = output_manager.get_full_path()
@@ -96,32 +155,37 @@ class CompleteSystemScheduler:
         with open(output_path, "w", encoding="utf-8") as file:
             file.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
             file.write("=" * 65 + "\n")
-            file.write(f"Total complete systems: {complete_count:,}\n")
+            file.write(f"Total complete systems: {stream.complete_system_count:,}\n")
             file.write(
                 "Period schedule counts: "
-                + ", ".join(f"{schedule_set.count:,}" for schedule_set in schedule_sets)
+                + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
                 + "\n\n"
             )
 
-            complete_systems = self._iter_complete_systems(schedule_sets)
-            if max_systems is not None:
-                complete_systems = islice(complete_systems, max_systems)
+            output_batch = []
+            for system in stream.systems:
+                written_count = system.number
+                output_batch.append(system.text)
 
-            for written_count, complete_system in enumerate(complete_systems, start=1):
-                self._write_complete_system(file, written_count, complete_system)
+                if len(output_batch) >= self._write_batch_size:
+                    file.write("".join(output_batch))
+                    output_batch.clear()
 
-            truncated = max_systems is not None and written_count < complete_count
+            if output_batch:
+                file.write("".join(output_batch))
+
+            truncated = max_systems is not None and written_count < stream.complete_system_count
             if truncated:
                 file.write(
                     f"\n... Stopped after writing {written_count:,} of "
-                    f"{complete_count:,} complete systems ...\n"
+                    f"{stream.complete_system_count:,} complete systems ...\n"
                 )
 
         return CompleteSystemResult(
             output_path=output_path,
-            period_course_counts=[len(schedule_set.courses) for schedule_set in schedule_sets],
-            period_schedule_counts=[schedule_set.count for schedule_set in schedule_sets],
-            complete_system_count=complete_count,
+            period_course_counts=stream.period_course_counts,
+            period_schedule_counts=stream.period_schedule_counts,
+            complete_system_count=stream.complete_system_count,
             written_system_count=written_count,
             elapsed_seconds=time.perf_counter() - started_at,
             truncated=truncated,
@@ -142,8 +206,7 @@ class CompleteSystemScheduler:
         exhausted. The full count is still reported in the file header.
         """
         started_at = time.perf_counter()
-        schedule_sets = self._build_period_schedule_sets(period_course_sets)
-        complete_count = self._product_count(schedule_sets)
+        stream = self.stream_complete_systems(period_course_sets)
 
         output_manager._ensure_dir_exists()
         output_path = output_manager.get_full_path()
@@ -154,39 +217,53 @@ class CompleteSystemScheduler:
         with open(output_path, "w", encoding="utf-8") as file:
             file.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
             file.write("=" * 65 + "\n")
-            file.write(f"Total complete systems: {complete_count:,}\n")
+            file.write(f"Total complete systems: {stream.complete_system_count:,}\n")
             file.write(
                 "Period course counts: "
-                + ", ".join(f"{len(schedule_set.courses):,}" for schedule_set in schedule_sets)
+                + ", ".join(f"{count:,}" for count in stream.period_course_counts)
                 + "\n"
             )
             file.write(
                 "Period schedule counts: "
-                + ", ".join(f"{schedule_set.count:,}" for schedule_set in schedule_sets)
+                + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
                 + "\n"
             )
             file.write(f"Auto time limit: {time_limit_seconds:.2f} seconds\n\n")
 
-            for complete_system in self._iter_complete_systems(schedule_sets):
+            output_batch = []
+            systems = iter(stream.systems)
+            while True:
                 if time.perf_counter() >= deadline:
                     break
 
-                written_count += 1
-                self._write_complete_system(file, written_count, complete_system)
+                try:
+                    system = next(systems)
+                except StopIteration:
+                    break
 
-            truncated = written_count < complete_count
+                written_count = system.number
+                output_batch.append(system.text)
+
+                if len(output_batch) >= self._write_batch_size:
+                    file.write("".join(output_batch))
+                    output_batch.clear()
+
+            if output_batch:
+                file.write("".join(output_batch))
+
+            truncated = written_count < stream.complete_system_count
             if truncated:
                 file.write(
                     f"\n... Auto limit wrote {written_count:,} of "
-                    f"{complete_count:,} complete systems within "
+                    f"{stream.complete_system_count:,} complete systems within "
                     f"{time_limit_seconds:.2f} seconds ...\n"
                 )
 
         return CompleteSystemResult(
             output_path=output_path,
-            period_course_counts=[len(schedule_set.courses) for schedule_set in schedule_sets],
-            period_schedule_counts=[schedule_set.count for schedule_set in schedule_sets],
-            complete_system_count=complete_count,
+            period_course_counts=stream.period_course_counts,
+            period_schedule_counts=stream.period_schedule_counts,
+            complete_system_count=stream.complete_system_count,
             written_system_count=written_count,
             elapsed_seconds=time.perf_counter() - started_at,
             truncated=truncated,
@@ -382,11 +459,110 @@ class CompleteSystemScheduler:
                 for schedule_set, period_schedule in zip(schedule_sets, combination)
             ]
 
+    def _build_formatted_schedule_caches(
+        self,
+        schedule_sets: List[PeriodScheduleSet],
+    ) -> List[List[Optional[str]]]:
+        return [[None] * schedule_set.count for schedule_set in schedule_sets]
+
+    def _iter_formatted_complete_systems(
+        self,
+        schedule_sets: List[PeriodScheduleSet],
+        formatted_caches: List[List[Optional[str]]],
+    ) -> Iterable[List[str]]:
+        schedule_index_ranges = [range(schedule_set.count) for schedule_set in schedule_sets]
+
+        for schedule_indexes in product(*schedule_index_ranges):
+            yield [
+                self._get_formatted_period_schedule(
+                    schedule_sets[period_index],
+                    formatted_caches[period_index],
+                    schedule_index,
+                )
+                for period_index, schedule_index in enumerate(schedule_indexes)
+            ]
+
+    def _iter_generated_complete_systems(
+        self,
+        schedule_sets: List[PeriodScheduleSet],
+        formatted_caches: List[List[Optional[str]]],
+        max_systems: Optional[int] = None,
+    ) -> Iterator[GeneratedCompleteSystem]:
+        if max_systems is not None and max_systems <= 0:
+            return
+
+        for system_number, complete_system_blocks in enumerate(
+            self._iter_formatted_complete_systems(schedule_sets, formatted_caches),
+            start=1,
+        ):
+            if max_systems is not None and system_number > max_systems:
+                break
+
+            yield GeneratedCompleteSystem(
+                number=system_number,
+                text=self._format_complete_system(system_number, complete_system_blocks),
+            )
+
+    def _get_formatted_period_schedule(
+        self,
+        schedule_set: PeriodScheduleSet,
+        formatted_cache: List[Optional[str]],
+        schedule_index: int,
+    ) -> str:
+        formatted = formatted_cache[schedule_index]
+        if formatted is None:
+            formatted = self._format_period_schedule(
+                schedule_set,
+                schedule_set.schedules[schedule_index],
+            )
+            formatted_cache[schedule_index] = formatted
+
+        return formatted
+
     def _product_count(self, schedule_sets: List[PeriodScheduleSet]) -> int:
         total = 1
         for schedule_set in schedule_sets:
             total *= schedule_set.count
         return total
+
+    def _format_complete_system(
+        self,
+        system_number: int,
+        period_blocks: Sequence[str],
+    ) -> str:
+        return (
+            f"Complete System #{system_number}\n"
+            + "".join(period_blocks)
+            + "\n"
+            + "*" * 70
+            + "\n\n"
+        )
+
+    def _format_period_schedule(
+        self,
+        schedule_set: PeriodScheduleSet,
+        assignment: Dict[int, date],
+    ) -> str:
+        lines = [
+            f"=== SEMESTER: {schedule_set.period.semester.value} ===\n",
+            f"  [TERM: {schedule_set.period.term.value}]\n",
+            "  " + "-" * 40 + "\n",
+        ]
+
+        if not assignment:
+            lines.append("  EMPTY PERIOD: No exams scheduled for this period.\n")
+            return "".join(lines)
+
+        sorted_items = sorted(
+            assignment.items(),
+            key=lambda item: (item[1], schedule_set.courses[item[0]].name.lower()),
+        )
+
+        for course_index, exam_date in sorted_items:
+            course = schedule_set.courses[course_index]
+            lines.append(f"  {course.name} | {exam_date} | {course.instructor}\n")
+
+        return "".join(lines)
 
     def _write_complete_system(
         self,

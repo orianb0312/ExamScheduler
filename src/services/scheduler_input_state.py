@@ -5,6 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
+from src.models.scheduling import ExamPeriod
+from src.services.day_status_service import (
+    copy_exam_period,
+    exclude_day,
+    format_exam_periods,
+    restore_day,
+    update_period_dates,
+)
+
 
 class SchedulerInputState:
     """Keep selected programs and expose them through the existing file input flow."""
@@ -12,13 +21,30 @@ class SchedulerInputState:
     def __init__(self, runtime_dir: Path) -> None:
         self._runtime_dir = runtime_dir
         self._selected_program_ids: tuple[str, ...] = ()
+        self._exam_periods: tuple[ExamPeriod, ...] = ()
 
     @property
     def selected_program_ids(self) -> tuple[str, ...]:
         return self._selected_program_ids
 
+    @property
+    def exam_periods(self) -> tuple[ExamPeriod, ...]:
+        return self._exam_periods
+
     def set_selected_programs(self, program_ids: Sequence[str]) -> None:
         self._selected_program_ids = tuple(str(program_id) for program_id in program_ids)
+
+    def set_exam_periods(self, periods: Sequence[ExamPeriod]) -> None:
+        self._exam_periods = tuple(copy_exam_period(period) for period in periods)
+
+    def exclude_day(self, period_index: int, day) -> None:
+        exclude_day(self._period_at(period_index), day)
+
+    def restore_day(self, period_index: int, day) -> None:
+        restore_day(self._period_at(period_index), day)
+
+    def update_period_dates(self, period_index: int, start_date, end_date) -> None:
+        update_period_dates(self._period_at(period_index), start_date, end_date)
 
     def write_selected_programs_file(self) -> Path:
         if not self._selected_program_ids:
@@ -28,3 +54,23 @@ class SchedulerInputState:
         programs_file = self._runtime_dir / "ui_selected_programs.txt"
         programs_file.write_text(", ".join(self._selected_program_ids), encoding="utf-8")
         return programs_file
+
+    def write_exam_dates_file(self) -> Path | None:
+        if not self._exam_periods:
+            return None
+
+        self._runtime_dir.mkdir(parents=True, exist_ok=True)
+        exam_dates_file = self._runtime_dir / "ui_exam_dates.txt"
+        exam_dates_file.write_text(
+            format_exam_periods(self._exam_periods),
+            encoding="utf-8",
+        )
+        return exam_dates_file
+
+    def _period_at(self, period_index: int) -> ExamPeriod:
+        if period_index < 0:
+            raise ValueError(f"Unknown exam period index: {period_index}")
+        try:
+            return self._exam_periods[period_index]
+        except IndexError as exc:
+            raise ValueError(f"Unknown exam period index: {period_index}") from exc

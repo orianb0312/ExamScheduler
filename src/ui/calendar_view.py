@@ -1,44 +1,51 @@
-"""Output view for streamed schedule systems."""
+"""Output screen for generated exam schedules."""
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QTextCursor
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QPlainTextEdit,
     QPushButton,
-    QSplitter,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from src.ui.calendar_view_panel import CalendarPeriodList
 from src.ui.pagination_bar import PaginationBar
-from src.ui.ui_cache import DEFAULT_BATCH_SIZE, ScheduleCache, ScheduleSystem
+from src.ui.ui_cache import ScheduleCache, ScheduleSystem
+from src.ui.view_models import ExamPeriodViewModel
 
 
-class CalendarView(QWidget):
-    """Display live CLI logs and cached schedule pages."""
+class OutputView(QWidget):
+    """Show one generated schedule at a time as a calendar."""
 
     back_requested = pyqtSignal()
+    more_requested = pyqtSignal()
+    selected_schedule_changed = pyqtSignal(object)
 
-    def __init__(self, batch_size: int = DEFAULT_BATCH_SIZE, parent=None) -> None:
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.cache = ScheduleCache(batch_size=batch_size)
+        # The output screen pages through schedules one by one.
+        self.cache = ScheduleCache(batch_size=1)
+        self._selected_schedule: ScheduleSystem | None = None
+        self._pending_more_page: int | None = None
+        self._schedule_total: int | None = None
+        self._process_notes: list[str] = []
 
-        self.title_label = QLabel("Output Screen")
+        self.title_label = QLabel("Possible Exam Schedules")
         self.title_label.setObjectName("screenTitle")
         self.status_label = QLabel("Ready")
         self.pagination_bar = PaginationBar()
         self.back_button = QPushButton("Back to Input")
-        self.log_label = QLabel("CLI output")
-        self.cache_label = QLabel("Cached schedule pages")
-        self.log_view = QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.system_view = QPlainTextEdit()
-        self.system_view.setReadOnly(True)
+        self.schedule_label = QLabel("No schedule selected")
+        self.schedule_label.setObjectName("paneTitle")
+        self.calendar_body = CalendarPeriodList(
+            "No possible schedule is available yet."
+        )
+        self.calendar_body.setObjectName("calendarContent")
 
         self._build_layout()
         self._connect_signals()
@@ -46,8 +53,12 @@ class CalendarView(QWidget):
 
     def clear(self) -> None:
         self.cache.clear()
-        self.log_view.clear()
-        self.system_view.clear()
+        self.schedule_label.setText("No schedule selected")
+        self.calendar_body.load_periods(())
+        self._set_selected_schedule(None)
+        self._pending_more_page = None
+        self._schedule_total = None
+        self._process_notes.clear()
         self.status_label.setText("Ready")
         self.pagination_bar.reset()
         self._refresh_page()
@@ -58,13 +69,34 @@ class CalendarView(QWidget):
     def set_finished(self, exit_code: int, status: str) -> None:
         self.status_label.setText(f"Finished: exit {exit_code}, {status}")
 
+    def set_stream_progress(self, system_count: int) -> None:
+        self.status_label.setText(f"Running... cached {system_count:,} schedule systems")
+
+    def set_more_available(self, available: bool) -> None:
+        self.pagination_bar.set_can_request_more(available)
+
     def set_error(self, message: str) -> None:
         self.status_label.setText(f"Error: {message}")
 
     def append_log(self, text: str) -> None:
-        self.log_view.moveCursor(QTextCursor.MoveOperation.End)
-        self.log_view.insertPlainText(text)
-        self.log_view.moveCursor(QTextCursor.MoveOperation.End)
+        if text:
+            self._process_notes.append(text)
+
+    @property
+    def process_notes(self) -> str:
+        return "".join(self._process_notes)
+
+    @property
+    def schedule_total(self) -> int | None:
+        return self._schedule_total
+
+    def set_schedule_total(self, total: int | None) -> None:
+        self._schedule_total = total if total and total > 0 else None
+        self._refresh_page()
+
+    def set_schedule_calendar(self, periods: tuple[ExamPeriodViewModel, ...]) -> None:
+        self.calendar_body.load_periods(periods)
+        self.calendar_scroll.verticalScrollBar().setValue(0)
 
     def add_systems(self, systems: list[ScheduleSystem]) -> None:
         if not systems:
@@ -72,7 +104,17 @@ class CalendarView(QWidget):
 
         self.cache.extend(systems)
         self.pagination_bar.set_page_count(self.cache.batch_count)
+        if (
+            self._pending_more_page is not None
+            and self.cache.batch_count >= self._pending_more_page
+        ):
+            self.pagination_bar.set_current_page(self._pending_more_page)
+            self._pending_more_page = None
         self._refresh_page()
+
+    @property
+    def selected_schedule(self) -> ScheduleSystem | None:
+        return self._selected_schedule
 
     def _build_layout(self) -> None:
         root_layout = QVBoxLayout(self)
@@ -89,39 +131,49 @@ class CalendarView(QWidget):
         root_layout.addWidget(self.status_label)
         root_layout.addWidget(self.pagination_bar)
 
-        splitter = QSplitter()
-        splitter.setOrientation(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._labeled_pane(self.log_label, self.log_view))
-        splitter.addWidget(self._labeled_pane(self.cache_label, self.system_view))
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
-        root_layout.addWidget(splitter)
+        root_layout.addWidget(self.schedule_label)
+
+        self.calendar_scroll = QScrollArea()
+        self.calendar_scroll.setObjectName("calendarScroll")
+        self.calendar_scroll.setWidgetResizable(True)
+        self.calendar_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.calendar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.calendar_scroll.setWidget(self.calendar_body)
+        root_layout.addWidget(self.calendar_scroll, 1)
 
     def _connect_signals(self) -> None:
         self.pagination_bar.page_changed.connect(lambda _page: self._refresh_page())
+        self.pagination_bar.more_requested.connect(self._request_more_systems)
         self.back_button.clicked.connect(self.back_requested.emit)
+
+    def _request_more_systems(self) -> None:
+        # The next batch arrives later from QProcess, so keep the requested page.
+        self._pending_more_page = self.pagination_bar.current_page + 1
+        self.set_more_available(False)
+        self.status_label.setText("Generating next 1,000 schedule systems...")
+        self.more_requested.emit()
 
     def _refresh_page(self) -> None:
         if self.cache.batch_count == 0:
-            self.system_view.setPlainText(
-                "No streamed schedule pages were received.\n\n"
-                "This is expected for complete-count mode and for the current main.py "
-                "stdout format, which prints a summary but does not stream "
-                "'Complete System #' blocks yet."
-            )
+            self.schedule_label.setText("No schedule selected")
+            self.calendar_body.load_periods(())
+            self._set_selected_schedule(None)
             return
 
         systems = self.cache.get_page(self.pagination_bar.current_page)
-        text = "\n\n".join(system.text for system in systems)
-        self.system_view.setPlainText(text)
+        schedule = systems[0] if systems else None
+        if schedule is None:
+            self.schedule_label.setText("No schedule selected")
+        else:
+            total = self._schedule_total or self.cache.system_count
+            self.schedule_label.setText(
+                f"Schedule {self.pagination_bar.current_page} of {total}"
+            )
+        self._set_selected_schedule(schedule)
 
-    @staticmethod
-    def _labeled_pane(label: QLabel, editor: QPlainTextEdit) -> QWidget:
-        pane = QWidget()
-        layout = QVBoxLayout(pane)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        label.setObjectName("paneTitle")
-        layout.addWidget(label)
-        layout.addWidget(editor)
-        return pane
+    def _set_selected_schedule(self, schedule: ScheduleSystem | None) -> None:
+        if self._selected_schedule == schedule:
+            return
+        self._selected_schedule = schedule
+        self.selected_schedule_changed.emit(schedule)
+

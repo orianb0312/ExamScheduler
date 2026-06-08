@@ -12,6 +12,7 @@ project.
 - `test_specification.md` - formal Version 1.0 test specification and execution results.
 - `ExamScheduler_Test_Specification_v1_0.docx` - Word version of the formal test specification.
 - `organization_plan.md` - current structure notes and recommended cleanup steps.
+- `layer_boundaries.md` - ownership rules for PyQt6 UI, services/adapters, and v1.0 logic.
 
 ## Current Main Entry Point
 

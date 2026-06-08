@@ -4,6 +4,7 @@ import pytest
 from PyQt6.QtCore import Qt
 
 from src.services.file_loading_service import DataLoadMode, FileLoadingError, FileLoadingService
+from src.ui.program_selection_widget import PROGRAM_ID_ROLE
 from src.ui.main_window import MainWindow
 
 
@@ -186,6 +187,59 @@ def test_update_mode_adds_supplementary_courses_and_exam_dates(tmp_path):
     assert result.message.count("Ignored 1 duplicate record") == 1
 
 
+def test_update_mode_merges_distinct_affiliations_for_duplicate_course(tmp_path):
+    initial_courses_text = """$$$$
+Shared Course
+10001
+Dr. Existing
+83101,1,FALL,Obligatory
+Exam
+"""
+    supplemental_courses_text = """$$$$
+Shared Course Updated
+10001
+Dr. Incoming
+83101,2,SPRI,Elective
+83101,1,FALL,Obligatory
+Exam
+"""
+    initial_courses_file, initial_dates_file = _write_input_files(
+        tmp_path,
+        initial_courses_text,
+        EXAM_DATES_TEXT,
+    )
+    supplemental_courses_file, supplemental_dates_file = _write_input_files(
+        tmp_path,
+        supplemental_courses_text,
+        EXAM_DATES_TEXT,
+        suffix="_supplemental_affiliations",
+    )
+    service = FileLoadingService()
+    service.load_selected_files(initial_courses_file, initial_dates_file)
+
+    result = service.load_selected_files(
+        supplemental_courses_file,
+        supplemental_dates_file,
+        DataLoadMode.UPDATE,
+        DataLoadMode.UPDATE,
+    )
+    loaded_course = result.loaded_data.courses[0]
+
+    assert loaded_course.name == "Shared Course"
+    assert [
+        (
+            affiliation.program_id,
+            affiliation.year,
+            affiliation.semester.value,
+            affiliation.requirement_type.value,
+        )
+        for affiliation in loaded_course.affiliations
+    ] == [
+        (83101, 1, "FALL", "Obligatory"),
+        (83101, 2, "SPRI", "Elective"),
+    ]
+
+
 def test_courses_and_exam_dates_can_use_different_load_modes(tmp_path):
     initial_courses_file, initial_dates_file = _write_input_files(tmp_path)
     mixed_courses_file, mixed_dates_file = _write_input_files(
@@ -244,6 +298,21 @@ def test_main_window_loads_file_loader_selection_into_memory(tmp_path, qtbot):
     assert "Replaced loaded data with 2 courses" in window.input_panel.file_loader.error_label.text()
 
 
+def test_main_window_default_startup_load_does_not_show_success_message(tmp_path, qtbot):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "V1.0CourseDB.txt").write_text(COURSES_TEXT, encoding="utf-8")
+    (data_dir / "V1.0 ExamDates.txt").write_text(EXAM_DATES_TEXT, encoding="utf-8")
+
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    assert window.loaded_input_data is not None
+    assert window.loaded_input_data.course_count == 2
+    assert window.input_panel.file_loader.error_label.isHidden()
+    assert window.input_panel.file_loader.error_label.text() == ""
+
+
 def test_main_window_update_keeps_existing_program_choices(tmp_path, qtbot):
     courses_text = """$$$$
 Manual New Program Course
@@ -260,7 +329,7 @@ Exam
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
     initial_programs = [
-        window.input_panel.program_selector.item(index).text()
+        window.input_panel.program_selector.item(index).data(PROGRAM_ID_ROLE)
         for index in range(window.input_panel.program_selector.count())
     ]
 
@@ -274,9 +343,27 @@ Exam
     )
 
     updated_programs = [
-        window.input_panel.program_selector.item(index).text()
+        window.input_panel.program_selector.item(index).data(PROGRAM_ID_ROLE)
         for index in range(window.input_panel.program_selector.count())
     ]
 
     assert set(initial_programs) <= set(updated_programs)
     assert "99999" in updated_programs
+
+
+def test_main_window_displays_program_name_and_identifier_after_load(tmp_path, qtbot):
+    courses_file, exam_dates_file = _write_input_files(tmp_path)
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    window.input_panel.file_loader.set_courses_path(str(courses_file))
+    window.input_panel.file_loader.set_exam_dates_path(str(exam_dates_file))
+    qtbot.mouseClick(
+        window.input_panel.file_loader.load_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    first_item = window.input_panel.program_selector.item(0)
+
+    assert first_item.data(PROGRAM_ID_ROLE) == "83101"
+    assert first_item.text() == "83101"

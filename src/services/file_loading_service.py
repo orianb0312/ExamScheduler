@@ -308,15 +308,25 @@ def _apply_courses(
 
 def _merge_course_affiliations(existing_course: Course, incoming_course: Course) -> Course:
     affiliations = list(existing_course.affiliations)
-    seen_program_ids = {affiliation.program_id for affiliation in affiliations}
+    seen_affiliations = {_affiliation_key(affiliation) for affiliation in affiliations}
 
     for affiliation in incoming_course.affiliations:
-        if affiliation.program_id in seen_program_ids:
+        key = _affiliation_key(affiliation)
+        if key in seen_affiliations:
             continue
-        seen_program_ids.add(affiliation.program_id)
+        seen_affiliations.add(key)
         affiliations.append(affiliation)
 
     return replace(existing_course, affiliations=affiliations)
+
+
+def _affiliation_key(affiliation) -> tuple:
+    return (
+        affiliation.program_id,
+        affiliation.year,
+        affiliation.semester,
+        affiliation.requirement_type,
+    )
 
 
 def _apply_exam_periods(

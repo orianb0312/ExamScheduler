@@ -1,4 +1,4 @@
-from src.ui.input_data import InputDataStore, PeriodPreview
+from src.services.input_data_service import InputDataStore, PeriodPreview
 
 
 COURSES_TEXT = """$$$$

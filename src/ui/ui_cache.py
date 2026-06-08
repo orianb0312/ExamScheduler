@@ -2,19 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Iterable
+
+from src.services.schedule_output_service import ScheduleSystem
 
 
 DEFAULT_BATCH_SIZE = 1000
-
-
-@dataclass(frozen=True)
-class ScheduleSystem:
-    """One schedule system streamed from the CLI stdout pipe."""
-
-    number: int
-    text: str
 
 
 class ScheduleCache:
