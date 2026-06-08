@@ -28,6 +28,7 @@ from src.ui.view_models import (
 
 @pytest.fixture()
 def simple_period() -> ExamPeriodViewModel:
+    """Fixture that provides a basic ExamPeriodViewModel with a single exclusion day."""
     return ExamPeriodViewModel(
         semester_label="Semester A",
         term_label="Moed A",
@@ -38,25 +39,34 @@ def simple_period() -> ExamPeriodViewModel:
 
 
 def test_exam_period_view_model_logic(simple_period: ExamPeriodViewModel) -> None:
+    """Verify core date logic within ExamPeriodViewModel, including boundaries and exclusions."""
+    # Date within the valid period range
     assert simple_period.is_date_in_period(date(2025, 1, 5))
+    # Date outside the valid period range
     assert not simple_period.is_date_in_period(date(2025, 2, 21))
+    # Date specifically marked as excluded
     assert simple_period.is_date_excluded(date(2025, 1, 15))
+    # Regular active date (not excluded)
     assert not simple_period.is_date_excluded(date(2025, 1, 10))
+    # Ensure no exams are scheduled on this date by default
     assert simple_period.exams_on(date(2025, 1, 10)) == ()
 
 
 def test_month_grid_cell_background_colors(qtbot: QtBot, simple_period: ExamPeriodViewModel) -> None:
+    """Verify that different day cell states (Available, Excluded, Outside) get correct stylesheets."""
     grid = _MonthGrid(2025, 1, simple_period)
     qtbot.addWidget(grid)
 
+    # Map day numbers to their respective cell widgets
     cells = {int(c.text()): c for c in grid.findChildren(_DayCell) if c.text().isdigit()}
 
-    assert "#244d3a" in cells[10].styleSheet()
-    assert "#5a2f3c" in cells[15].styleSheet()
-    assert "#2b303a" in cells[1].styleSheet()
+    assert "#244d3a" in cells[10].styleSheet()  # Available day style
+    assert "#5a2f3c" in cells[15].styleSheet()  # Excluded day style
+    assert "#2b303a" in cells[1].styleSheet()  # Day outside the exam period
 
 
 def test_month_grid_displays_exam_inside_matching_day_cell(qtbot: QtBot) -> None:
+    """Ensure that scheduled exams are properly drawn and displayed within the matching day cell widget."""
     period = ExamPeriodViewModel(
         semester_label="FALL",
         term_label="Aleph",
@@ -79,36 +89,44 @@ def test_month_grid_displays_exam_inside_matching_day_cell(qtbot: QtBot) -> None
     cells = {int(c.text()): c for c in grid.findChildren(_DayCell) if c.text().isdigit()}
     day_ten_labels = [label.text() for label in cells[10].findChildren(QLabel)]
 
+    # Check cell text content for the scheduled exam details
     assert "Algorithms (10001)" in cells[10].exam_text()
     assert "83101 | Obligatory" in cells[10].exam_text()
     assert any("Algorithms" in text for text in day_ten_labels)
+    # Check that a day with no exams remains empty
     assert cells[11].exam_text() == ""
 
 
 def test_period_section_header_and_legend(qtbot: QtBot, simple_period: ExamPeriodViewModel) -> None:
+    """Check that the period view component properly displays header information and calendar legends."""
     section = _PeriodSection(simple_period)
     qtbot.addWidget(section)
 
     texts = [lbl.text() for lbl in section.findChildren(QLabel)]
 
+    # Verify header descriptors
     assert any("Semester A" in t and "Moed A" in t for t in texts)
     assert any("2025-01-05" in t and "2025-02-20" in t for t in texts)
 
+    # Verify color legend labels are present
     for expected_label in ("Available", "Excluded", "Outside period", "Today"):
         assert any(expected_label in t for t in texts)
 
 
 def test_calendar_view_loading_and_layout(qtbot: QtBot, simple_period: ExamPeriodViewModel) -> None:
+    """Verify that CalendarView correctly initialises and handles layout rendering for loaded periods."""
     view = CalendarView()
     qtbot.addWidget(view)
 
     view.load_exam_periods([simple_period])
 
+    # Check status bar text updates and grids are generated (Jan + Feb 2025 = 2 month grids)
     assert "1 exam period" in view._status_label.text()
     assert len(view.findChildren(_MonthGrid)) == 2
 
 
 def test_main_window_keeps_calendar_and_output_screens_separate(tmp_path, qtbot: QtBot) -> None:
+    """Ensure MainWindow manages separate instances for editing (CalendarView) and viewing (OutputView)."""
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
 
@@ -118,6 +136,7 @@ def test_main_window_keeps_calendar_and_output_screens_separate(tmp_path, qtbot:
 
 
 def test_output_view_selected_schedule_follows_visible_page(qtbot: QtBot) -> None:
+    """Test pagination within OutputView to ensure switching pages changes the selected schedule object."""
     view = OutputView()
     qtbot.addWidget(view)
 
@@ -126,16 +145,20 @@ def test_output_view_selected_schedule_follows_visible_page(qtbot: QtBot) -> Non
         ScheduleSystem(number=2, text="Schedule #2"),
     ])
 
+    # Initial state should point to the first schedule
     assert view.selected_schedule is not None
     assert view.selected_schedule.number == 1
 
+    # Simulate UI click on the 'Next' page button
     qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
 
+    # Selected schedule should update to the next system
     assert view.selected_schedule is not None
     assert view.selected_schedule.number == 2
 
 
 def test_output_view_label_uses_known_total_count(qtbot: QtBot) -> None:
+    """Verify that the summary tracker label tracks pagination indices relative to a hard total count."""
     view = OutputView()
     qtbot.addWidget(view)
     view.set_schedule_total(12)
@@ -147,12 +170,13 @@ def test_output_view_label_uses_known_total_count(qtbot: QtBot) -> None:
 
     assert view.schedule_label.text() == "Schedule 1 of 12"
 
+    # Click next page and verify counter changes
     qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
-
     assert view.schedule_label.text() == "Schedule 2 of 12"
 
 
 def test_calendar_button_opens_day_editor_and_updates_status(tmp_path, qtbot: QtBot) -> None:
+    """Test the complete UI workflow of loading data, launching day editor, and toggling exclusions."""
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
     loaded_data = LoadedSchedulerInput(
@@ -173,12 +197,15 @@ def test_calendar_button_opens_day_editor_and_updates_status(tmp_path, qtbot: Qt
 
     assert window.input_panel.view_calendar_button.isEnabled()
 
+    # Click view calendar to switch view screens
     qtbot.mouseClick(window.input_panel.view_calendar_button, Qt.MouseButton.LeftButton)
 
+    # Verify correct stack navigation and side editor activation
     assert window._stack.currentWidget() is window.calendar_view
     assert not window.calendar_view.day_editor.isHidden()
     assert window.calendar_view.day_editor.day_table.rowCount() == 3
 
+    # Select a row and simulate hitting the 'Exclude' button
     window.calendar_view.day_editor.day_table.selectRow(1)
     qtbot.mouseClick(
         window.calendar_view.day_editor.exclude_button,
@@ -186,6 +213,7 @@ def test_calendar_button_opens_day_editor_and_updates_status(tmp_path, qtbot: Qt
     )
     assert window.calendar_view.day_editor.day_table.item(1, 1).text() == "Excluded"
 
+    # Simulate hitting the 'Restore' button to reverse the exclusion
     qtbot.mouseClick(
         window.calendar_view.day_editor.restore_button,
         Qt.MouseButton.LeftButton,
@@ -194,6 +222,7 @@ def test_calendar_button_opens_day_editor_and_updates_status(tmp_path, qtbot: Qt
 
 
 def test_calendar_date_fields_update_period_range(tmp_path, qtbot: QtBot) -> None:
+    """Verify that shifting start or end date widgets reactively reshapes data structures and tables."""
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
     loaded_data = LoadedSchedulerInput(
@@ -219,6 +248,7 @@ def test_calendar_date_fields_update_period_range(tmp_path, qtbot: QtBot) -> Non
     assert window.input_panel.exam_periods[0].end_date == date(2026, 1, 4)
     assert window.calendar_view.day_editor.day_table.rowCount() == 4
 
+    # Push forward the starting boundary date
     window.calendar_view.day_editor.start_date_edit.setDate(QDate(2026, 1, 2))
 
     assert window.input_panel.exam_periods[0].start_date == date(2026, 1, 2)
@@ -226,6 +256,7 @@ def test_calendar_date_fields_update_period_range(tmp_path, qtbot: QtBot) -> Non
 
 
 def test_calendar_refreshes_when_selected_schedule_changes(tmp_path, qtbot: QtBot) -> None:
+    """Ensure that switching current schedules forces a complete re-render of calendar cells."""
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
     loaded_data = LoadedSchedulerInput(
@@ -243,6 +274,8 @@ def test_calendar_refreshes_when_selected_schedule_changes(tmp_path, qtbot: QtBo
 
     window.input_panel.notify_data_loaded(loaded_data)
     window.input_panel.set_data_load_success(0, 1, 0)
+
+    # Load first mock schedule configuration
     window._set_selected_schedule(
         _schedule_with_exam("Algorithms", 10001, date(2026, 1, 2))
     )
@@ -252,16 +285,20 @@ def test_calendar_refreshes_when_selected_schedule_changes(tmp_path, qtbot: QtBo
     assert len(window.calendar_view.findChildren(_DayCell)) == 31
     assert "Algorithms (10001)" in first_cells[2].exam_text()
 
+    # Swap to second schedule configuration containing different courses/dates
     window._set_selected_schedule(
         _schedule_with_exam("Databases", 10002, date(2026, 1, 3))
     )
 
+    # UI must refresh and display the updated dataset accurately
     refreshed_cells = _calendar_cells_by_day(window.calendar_view)
     assert len(window.calendar_view.findChildren(_DayCell)) == 31
     assert refreshed_cells[2].exam_text() == ""
     assert "Databases (10002)" in refreshed_cells[3].exam_text()
 
+
 def test_calendar_label_without_course_id() -> None:
+    """Verify string formatting fallback for ScheduledExamViewModel when course_id missing."""
     exam = ScheduledExamViewModel(
         course_name="Philosophy",
         exam_date=date(2026, 1, 10),
@@ -270,7 +307,9 @@ def test_calendar_label_without_course_id() -> None:
     )
     assert exam.calendar_label == "Philosophy"
 
+
 def test_exam_cell_text_clips_long_course_name(qtbot: QtBot) -> None:
+    """Ensure text rendering wraps cleanly or truncates with ellipses if titles cross max length."""
     period = ExamPeriodViewModel(
         semester_label="FALL",
         term_label="Aleph",
@@ -294,7 +333,9 @@ def test_exam_cell_text_clips_long_course_name(qtbot: QtBot) -> None:
     assert len(text.splitlines()[0]) <= 24
     assert "..." in text
 
+
 def test_exam_cell_text_compact_when_multiple_exams(qtbot: QtBot) -> None:
+    """Test that cell text automatically optimizes layout density when multi-exams land on same slot."""
     period = ExamPeriodViewModel(
         semester_label="FALL",
         term_label="Aleph",
@@ -324,11 +365,15 @@ def test_exam_cell_text_compact_when_multiple_exams(qtbot: QtBot) -> None:
     text = cells[5].exam_text()
     lines = text.splitlines()
 
+    # Layout should drop secondary meta tags to maintain row sizing constraints
     assert len(lines) == 2
     assert all(len(line) <= 20 for line in lines)
     assert "83101" not in text
 
+
 def test_finished_run_loads_generated_output_file_into_output_view(tmp_path, qtbot: QtBot) -> None:
+    """Integration test validating that post-processing reads config and correctly builds outputs inside OutputView."""
+    # Write mock configurations and results directly to temp path filesystem
     config_path = tmp_path / "config.json"
     output_dir = tmp_path / "outputs"
     output_dir.mkdir()
@@ -377,8 +422,10 @@ def test_finished_run_loads_generated_output_file_into_output_view(tmp_path, qtb
         output_config=config_path,
     )
 
+    # Trigger process finalization callback
     window._handle_finished(0, "NormalExit")
 
+    # Assert systems parsed successfully
     assert window.output_view.cache.system_count == 2
     assert window.output_view.schedule_label.text() == "Schedule 1 of 2"
 
@@ -387,6 +434,7 @@ def test_finished_run_loads_generated_output_file_into_output_view(tmp_path, qtb
     assert "Course A" in first_schedule_cells[1].exam_text()
     assert first_schedule_cells[2].exam_text() == ""
 
+    # Switch views and evaluate second generated calendar instance
     qtbot.mouseClick(window.output_view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
 
     second_schedule_cells = _calendar_cells_by_day(window.output_view)
@@ -396,6 +444,7 @@ def test_finished_run_loads_generated_output_file_into_output_view(tmp_path, qtb
 
 
 def _calendar_cells_by_day(view) -> dict[int, _DayCell]:
+    """Helper method to filter day cells containing active text entries."""
     return {
         int(cell.text()): cell
         for cell in view.findChildren(_DayCell)
@@ -404,6 +453,7 @@ def _calendar_cells_by_day(view) -> dict[int, _DayCell]:
 
 
 def _schedule_with_exam(course_name: str, course_id: int, exam_date: date) -> ScheduleSystem:
+    """Helper factory method to programmatically build mock ScheduleSystem configurations."""
     exam = ScheduleExamDisplay(
         course_name=course_name,
         course_id=course_id,
@@ -423,4 +473,3 @@ def _schedule_with_exam(course_name: str, course_id: int, exam_date: date) -> Sc
             ),
         ),
     )
-
