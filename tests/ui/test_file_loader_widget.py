@@ -286,3 +286,22 @@ def test_load_action_emits_mvp_signal(widget, tmp_path, qtbot):
 
     # Assert that the signal was emitted with the exact expected file path payloads
     assert blocker.args == [courses_file, exams_file, "replace", "update"]
+
+
+def test_network_drive_paths_are_rejected(widget):
+    """
+    Architecture Rule: Prevent loading files directly from network drives (UNC paths).
+    This enforces the Standalone/Offline architecture requirement.
+    """
+    # Simulate an attempt to load from a network shared folder
+    widget.set_courses_path(r"\\CorporateServer\SharedFiles\courses.csv")
+
+    # 1. Verify the UI correctly identifies the error and shows the label
+    assert not widget.error_label.isHidden()
+
+    # 2. We expect the UI to specifically reject network paths
+    error_text = widget.error_label.text()
+    assert "Network paths" in error_text
+
+    # 3. Ensure the load button remains strictly disabled to prevent server/network calls
+    assert not widget.load_button.isEnabled()
