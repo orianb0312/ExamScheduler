@@ -261,6 +261,72 @@ def test_calendar_refreshes_when_selected_schedule_changes(tmp_path, qtbot: QtBo
     assert refreshed_cells[2].exam_text() == ""
     assert "Databases (10002)" in refreshed_cells[3].exam_text()
 
+def test_calendar_label_without_course_id() -> None:
+    exam = ScheduledExamViewModel(
+        course_name="Philosophy",
+        exam_date=date(2026, 1, 10),
+        instructor="Dr. B",
+        course_id=None,
+    )
+    assert exam.calendar_label == "Philosophy"
+
+def test_exam_cell_text_clips_long_course_name(qtbot: QtBot) -> None:
+    period = ExamPeriodViewModel(
+        semester_label="FALL",
+        term_label="Aleph",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        scheduled_exams=(
+            ScheduledExamViewModel(
+                course_name="Introduction to Advanced Algorithms",
+                course_id=99999,
+                exam_date=date(2026, 1, 5),
+                instructor="Dr. C",
+            ),
+        ),
+    )
+    grid = _MonthGrid(2026, 1, period)
+    qtbot.addWidget(grid)
+
+    cells = {int(c.text()): c for c in grid.findChildren(_DayCell) if c.text().isdigit()}
+    text = cells[5].exam_text()
+
+    assert len(text.splitlines()[0]) <= 24
+    assert "..." in text
+
+def test_exam_cell_text_compact_when_multiple_exams(qtbot: QtBot) -> None:
+    period = ExamPeriodViewModel(
+        semester_label="FALL",
+        term_label="Aleph",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        scheduled_exams=(
+            ScheduledExamViewModel(
+                course_name="Algorithms",
+                course_id=10001,
+                exam_date=date(2026, 1, 5),
+                instructor="Dr. A",
+                program_ids=(83101,),
+                requirement_types=("Obligatory",),
+            ),
+            ScheduledExamViewModel(
+                course_name="Databases",
+                course_id=10002,
+                exam_date=date(2026, 1, 5),
+                instructor="Dr. B",
+            ),
+        ),
+    )
+    grid = _MonthGrid(2026, 1, period)
+    qtbot.addWidget(grid)
+
+    cells = {int(c.text()): c for c in grid.findChildren(_DayCell) if c.text().isdigit()}
+    text = cells[5].exam_text()
+    lines = text.splitlines()
+
+    assert len(lines) == 2
+    assert all(len(line) <= 20 for line in lines)
+    assert "83101" not in text
 
 def test_finished_run_loads_generated_output_file_into_output_view(tmp_path, qtbot: QtBot) -> None:
     config_path = tmp_path / "config.json"
