@@ -499,6 +499,7 @@ def _clip_cell_text(value: str, limit: int = 24) -> str:
 def _exam_cell_text(exam: ScheduledExamViewModel, *, compact: bool = False) -> str:
     if compact:
         return _clip_cell_text(exam.calendar_label, limit=20)
+    # First line: course. Second line: compact program and requirement context.
     lines = [_clip_cell_text(exam.calendar_label)]
     if exam.calendar_detail:
         lines.append(_clip_cell_text(exam.calendar_detail, limit=30))
@@ -506,6 +507,7 @@ def _exam_cell_text(exam: ScheduledExamViewModel, *, compact: bool = False) -> s
 
 
 def _exam_tooltip(exam: ScheduledExamViewModel) -> str:
+    # The tooltip keeps the full values when the calendar cell has clipped them.
     lines = [exam.calendar_label, exam.exam_date.isoformat()]
     if exam.instructor:
         lines.append(exam.instructor)
