@@ -34,9 +34,26 @@ _COLOR_CELL_BORDER = "#4b5568"
 _COLOR_VALID_BORDER = "#4e8b6c"
 _COLOR_EXCLUDED_BORDER = "#a45b70"
 _COLOR_TODAY_BORDER = "#ad8840"
-_DAY_CELL_WIDTH = 104
-_DAY_CELL_HEIGHT = 88
+_DAY_CELL_WIDTH = 76
+_DAY_CELL_HEIGHT = 92
+_MONTH_GRID_COLUMNS = 2
+_WEEK_ROW_COUNT = 6
 _MAX_EXAMS_SHOWN_IN_CELL = 2
+
+
+class _EmptyDayCell(QFrame):
+    """Muted filler cell that keeps each month aligned to a full 6-week grid."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("calendarEmptyDayCell")
+        self.setMinimumSize(_DAY_CELL_WIDTH, _DAY_CELL_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setStyleSheet(
+            f"background-color: {_COLOR_OUT_OF_PERIOD}; "
+            f"border: 1px solid {_COLOR_CELL_BORDER}; "
+            "border-radius: 4px;"
+        )
 
 
 class _DayCell(QFrame):
@@ -170,6 +187,8 @@ class _MonthGrid(QWidget):
         first_weekday, days_in_month = calendar.monthrange(self._year, self._month)
 
         row, col = 1, (first_weekday + 1) % 7
+        for blank_col in range(col):
+            grid.addWidget(_EmptyDayCell(), row, blank_col)
 
         for day in range(1, days_in_month + 1):
             d = date(self._year, self._month, day)
@@ -179,6 +198,16 @@ class _MonthGrid(QWidget):
             if col == 7:
                 col = 0
                 row += 1
+
+        while row <= _WEEK_ROW_COUNT:
+            grid.addWidget(_EmptyDayCell(), row, col)
+            col += 1
+            if col == 7:
+                col = 0
+                row += 1
+
+        for week_row in range(1, _WEEK_ROW_COUNT + 1):
+            grid.setRowMinimumHeight(week_row, _DAY_CELL_HEIGHT)
 
         root.addLayout(grid)
 
@@ -203,18 +232,21 @@ class _PeriodCalendar(QWidget):
         self._build()
 
     def _build(self) -> None:
-        layout = QVBoxLayout(self)
+        layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(12)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        for year, month in self._months_in_range():
+        for index, (year, month) in enumerate(self._months_in_range()):
             grid = _MonthGrid(year, month, self._period)
             grid.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            layout.addWidget(grid)
+            row = index // _MONTH_GRID_COLUMNS
+            column = index % _MONTH_GRID_COLUMNS
+            layout.addWidget(grid, row, column)
 
-        layout.addStretch()
+        for column in range(_MONTH_GRID_COLUMNS):
+            layout.setColumnStretch(column, 1)
 
     def _months_in_range(self) -> list[tuple[int, int]]:
         start = self._period.start_date
@@ -242,8 +274,8 @@ class _PeriodSection(QWidget):
 
     def _build(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 10)
-        root.setSpacing(8)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
 
         label_text = (
             f"{self._period.semester_label} - {self._period.term_label} "

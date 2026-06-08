@@ -332,7 +332,11 @@ QLabel#calendarPlaceholderLabel {
     font-size: 13px;
 }
 
-QWidget#calendarPeriodSection,
+QWidget#calendarPeriodSection {
+    background: transparent;
+    border: none;
+}
+
 QWidget#calendarMonthGrid {
     background: #252b38;
     border: 1px solid #495467;
@@ -342,9 +346,10 @@ QWidget#calendarMonthGrid {
 QLabel#calendarPeriodHeader {
     background: #2b415c;
     color: #7ed3ff;
-    border-radius: 4px;
-    padding: 8px 10px;
-    font-size: 13px;
+    border: 1px solid #49627f;
+    border-radius: 6px;
+    padding: 9px 12px;
+    font-size: 14px;
     font-weight: 700;
 }
 

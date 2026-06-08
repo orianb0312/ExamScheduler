@@ -20,10 +20,12 @@ class PaginationBar(QWidget):
 
         self.previous_button = QPushButton("Previous")
         self.next_button = QPushButton("Next")
+        self.save_button = QPushButton("Save")
         self.page_label = QLabel("Page 0 of 0")
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.previous_button.setFixedWidth(110)
         self.next_button.setFixedWidth(110)
+        self.save_button.setFixedWidth(110)
         self.page_label.setMinimumWidth(90)
 
         layout = QHBoxLayout(self)
@@ -32,10 +34,12 @@ class PaginationBar(QWidget):
         layout.addWidget(self.previous_button)
         layout.addWidget(self.page_label)
         layout.addWidget(self.next_button)
+        layout.addWidget(self.save_button)
         layout.addStretch()
 
         self.previous_button.clicked.connect(self._go_previous)
         self.next_button.clicked.connect(self._go_next)
+        self.save_button.clicked.connect(self._go_save)
         self.set_page_count(0)
 
     @property
@@ -89,6 +93,10 @@ class PaginationBar(QWidget):
         self._current_page += 1
         self._refresh()
         self.page_changed.emit(self._current_page)
+
+    def _go_save(self) -> None:
+        # Save behavior belongs to a later export task, so this button is idle for now.
+        pass
 
     def _refresh(self) -> None:
         self.page_label.setText(f"Page {self._current_page} of {self._page_count}")
