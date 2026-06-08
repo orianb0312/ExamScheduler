@@ -237,6 +237,31 @@ QPushButton#modeButton:checked:hover {
     border-color: #4f8cff;
 }
 
+QPushButton#pageRulerButton,
+QPushButton#pageRulerButtonActive {
+    background: transparent;
+    border: none;
+    color: #8fd8ff;
+    font-weight: 600;
+    padding: 4px 6px;
+}
+
+QPushButton#pageRulerButton:hover {
+    color: #ffffff;
+    background: #2b415c;
+}
+
+QPushButton#pageRulerButtonActive {
+    color: #ffffff;
+    border-bottom: 2px solid #8fd8ff;
+}
+
+QLabel#pageRulerEllipsis {
+    color: #8f98a8;
+    font-weight: 600;
+    padding: 4px 2px;
+}
+
 QPushButton:disabled,
 QLineEdit:disabled,
 QComboBox:disabled,

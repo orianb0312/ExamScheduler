@@ -75,6 +75,6 @@ def test_scheduler_output_reaches_output_screen_calendar(tmp_path, qtbot: QtBot)
     assert cached_exam.course_id == 10001
     assert cached_exam.program_ids == (83101,)
     assert cached_exam.requirement_types == ("Obligatory",)
-    assert window.output_view.schedule_label.text() == "Schedule 1 of 1"
+    assert window.output_view.schedule_label.text() == "1 of 1 schedules"
     assert "Algorithms (10001)" in cells[1].exam_text()
     assert "83101 | Obligatory" in cells[1].exam_text()

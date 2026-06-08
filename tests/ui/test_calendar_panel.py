@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 from PyQt6.QtCore import QObject, QDate, Qt, pyqtSignal
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtWidgets import QLabel, QPushButton
 from pytestqt.qtbot import QtBot
 
 from src.models.enums import Semester, Term
@@ -223,11 +223,126 @@ def test_output_view_label_uses_known_total_count(qtbot: QtBot) -> None:
         ScheduleSystem(number=2, text="Schedule #2"),
     ])
 
-    assert view.schedule_label.text() == "Schedule 1 of 12"
+    assert view.schedule_label.text() == "1 of 12 schedules"
 
     # Click next page and verify counter changes
     qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
-    assert view.schedule_label.text() == "Schedule 2 of 12"
+    assert view.schedule_label.text() == "2 of 12 schedules"
+
+
+def test_output_view_label_compacts_large_total_count(qtbot: QtBot) -> None:
+    view = OutputView()
+    qtbot.addWidget(view)
+    view.set_schedule_total(4_900_450)
+
+    view.add_systems([
+        ScheduleSystem(number=1, text="Schedule #1"),
+        ScheduleSystem(number=2, text="Schedule #2"),
+        ScheduleSystem(number=3, text="Schedule #3"),
+        ScheduleSystem(number=4, text="Schedule #4"),
+    ])
+
+    for _ in range(3):
+        qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
+
+    assert view.schedule_label.text() == "4 of 4.9M schedules"
+
+
+def test_output_view_page_ruler_click_selects_schedule(qtbot: QtBot) -> None:
+    view = OutputView()
+    qtbot.addWidget(view)
+
+    view.add_systems([
+        ScheduleSystem(number=number, text=f"Schedule #{number}")
+        for number in range(1, 13)
+    ])
+
+    assert _page_ruler_texts(view) == ["1", "2", "3", "12"]
+    assert not view.pagination_bar.ellipsis_label.isHidden()
+
+    qtbot.mouseClick(_page_ruler_buttons(view)[2], Qt.MouseButton.LeftButton)
+
+    assert view.pagination_bar.current_page == 3
+    assert view.selected_schedule is not None
+    assert view.selected_schedule.number == 3
+    assert view.schedule_label.text() == "3 of 12 schedules"
+    assert _page_ruler_texts(view) == ["3", "4", "5", "12"]
+
+
+def test_output_view_page_ruler_slides_on_next_clicks(qtbot: QtBot) -> None:
+    view = OutputView()
+    qtbot.addWidget(view)
+
+    view.add_systems([
+        ScheduleSystem(number=number, text=f"Schedule #{number}")
+        for number in range(1, 13)
+    ])
+
+    for _ in range(3):
+        qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
+
+    assert view.pagination_bar.current_page == 4
+    assert _page_ruler_texts(view) == ["4", "5", "6", "12"]
+    assert not view.pagination_bar.ellipsis_label.isHidden()
+    assert view.schedule_label.text() == "4 of 12 schedules"
+
+    for _ in range(7):
+        qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
+
+    assert view.pagination_bar.current_page == 11
+    assert _page_ruler_texts(view) == ["11", "12"]
+    assert view.pagination_bar.ellipsis_label.isHidden()
+
+
+def test_output_view_page_ruler_keeps_last_generated_page_visible(qtbot: QtBot) -> None:
+    view = OutputView()
+    qtbot.addWidget(view)
+
+    view.add_systems([
+        ScheduleSystem(number=number, text=f"Schedule #{number}")
+        for number in range(1, 1001)
+    ])
+    view.set_more_available(True)
+
+    qtbot.mouseClick(view.pagination_bar.last_page_button, Qt.MouseButton.LeftButton)
+
+    assert view.pagination_bar.current_page == 1000
+    assert _page_ruler_texts(view) == ["1000", "1001", "1002", "1999"]
+    assert not view.pagination_bar.ellipsis_label.isHidden()
+
+
+def test_output_view_page_ruler_updates_lookahead_on_each_page_skip(qtbot: QtBot) -> None:
+    view = OutputView()
+    qtbot.addWidget(view)
+
+    view.add_systems([
+        ScheduleSystem(number=number, text=f"Schedule #{number}")
+        for number in range(1, 1001)
+    ])
+    view.set_more_available(True)
+
+    assert _page_ruler_texts(view) == ["1", "2", "3", "1000"]
+
+    qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
+
+    assert view.pagination_bar.current_page == 2
+    assert _page_ruler_texts(view) == ["2", "3", "4", "1001"]
+
+
+def test_output_view_page_ruler_keeps_large_numbers_readable(qtbot: QtBot) -> None:
+    view = OutputView()
+    qtbot.addWidget(view)
+
+    view.add_systems([
+        ScheduleSystem(number=number, text=f"Schedule #{number}")
+        for number in range(1, 2004)
+    ])
+    view.pagination_bar.set_current_page(1003)
+
+    assert _page_ruler_texts(view) == ["1003", "1004", "1005", "2003"]
+    assert not view.pagination_bar.ellipsis_label.isHidden()
+    for button in _page_ruler_buttons(view):
+        assert button.minimumWidth() >= button.fontMetrics().horizontalAdvance(button.text())
 
 
 def test_calendar_button_opens_day_editor_and_updates_status(tmp_path, qtbot: QtBot) -> None:
@@ -482,7 +597,7 @@ def test_finished_run_loads_generated_output_file_into_output_view(tmp_path, qtb
 
     # Assert systems parsed successfully
     assert window.output_view.cache.system_count == 2
-    assert window.output_view.schedule_label.text() == "Schedule 1 of 2"
+    assert window.output_view.schedule_label.text() == "1 of 2 schedules"
 
     first_schedule_cells = _calendar_cells_by_day(window.output_view)
     assert len(window.output_view.findChildren(_DayCell)) == 31
@@ -505,6 +620,21 @@ def _calendar_cells_by_day(view) -> dict[int, _DayCell]:
         for cell in view.findChildren(_DayCell)
         if cell.text().isdigit()
     }
+
+
+def _page_ruler_buttons(view: OutputView) -> list[QPushButton]:
+    return [
+        button
+        for button in [
+            *view.pagination_bar._page_buttons,
+            view.pagination_bar.last_page_button,
+        ]
+        if not button.isHidden()
+    ]
+
+
+def _page_ruler_texts(view: OutputView) -> list[str]:
+    return [button.text() for button in _page_ruler_buttons(view)]
 
 
 def _schedule_with_exam(course_name: str, course_id: int, exam_date: date) -> ScheduleSystem:

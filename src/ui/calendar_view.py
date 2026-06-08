@@ -92,6 +92,7 @@ class OutputView(QWidget):
 
     def set_schedule_total(self, total: int | None) -> None:
         self._schedule_total = total if total and total > 0 else None
+        self.pagination_bar.set_total_page_count(self._schedule_total)
         self._refresh_page()
 
     def set_schedule_calendar(self, periods: tuple[ExamPeriodViewModel, ...]) -> None:
@@ -144,11 +145,15 @@ class OutputView(QWidget):
     def _connect_signals(self) -> None:
         self.pagination_bar.page_changed.connect(lambda _page: self._refresh_page())
         self.pagination_bar.more_requested.connect(self._request_more_systems)
+        self.pagination_bar.future_page_requested.connect(self._request_schedule_page)
         self.back_button.clicked.connect(self.back_requested.emit)
 
     def _request_more_systems(self) -> None:
+        self._request_schedule_page(self.pagination_bar.current_page + 1)
+
+    def _request_schedule_page(self, page_number: int) -> None:
         # The next batch arrives later from QProcess, so keep the requested page.
-        self._pending_more_page = self.pagination_bar.current_page + 1
+        self._pending_more_page = page_number
         self.set_more_available(False)
         self.status_label.setText("Generating next 1,000 schedule systems...")
         self.more_requested.emit()
@@ -167,7 +172,7 @@ class OutputView(QWidget):
         else:
             total = self._schedule_total or self.cache.system_count
             self.schedule_label.setText(
-                f"Schedule {self.pagination_bar.current_page} of {total}"
+                f"{self.pagination_bar.current_page} of {_format_compact_count(total)} schedules"
             )
         self._set_selected_schedule(schedule)
 
@@ -176,4 +181,19 @@ class OutputView(QWidget):
             return
         self._selected_schedule = schedule
         self.selected_schedule_changed.emit(schedule)
+
+
+def _format_compact_count(value: int) -> str:
+    """Keep very large schedule totals readable in the output header."""
+    units = (
+        (1_000_000_000, "B"),
+        (1_000_000, "M"),
+        (1_000, "K"),
+    )
+    for threshold, suffix in units:
+        if value >= threshold:
+            compact = value / threshold
+            text = f"{compact:.1f}".rstrip("0").rstrip(".")
+            return f"{text}{suffix}"
+    return str(value)
 
