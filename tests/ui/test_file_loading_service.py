@@ -399,3 +399,111 @@ def test_main_window_displays_program_name_and_identifier_after_load(tmp_path, q
 
     assert first_item.data(PROGRAM_ID_ROLE) == "83101"
     assert first_item.text() == "83101"
+
+
+def test_unchanged_source_files_allow_internal_data_loading(tmp_path):
+    """
+    Acceptance Criteria:
+    - On application startup, check whether internal saved data exists.
+    - Compare the stored source file information with the current source files.
+    - If the source files are unchanged, load the internal saved data.
+    - Populate the application state from the internal data.
+    - Write a test confirming that unchanged source files allow internal data loading.
+    """
+    from src.services.internal_data_store import InternalDataStore
+    from src.services.file_loading_service import FileLoadingService
+
+    # Setup test files and an isolated cache file
+    courses_file, exam_dates_file = _write_input_files(tmp_path)
+    cache_file = tmp_path / "test_cache.json"
+    store = InternalDataStore(cache_file)
+
+    # 1. FIRST RUN (App Startup without cache)
+    # The internal data doesn't exist yet, so it reads the files and creates the cache.
+    first_service = FileLoadingService(internal_store=store)
+    first_result = first_service.load_selected_files(courses_file, exam_dates_file)
+
+    assert cache_file.exists(), "Internal saved data MUST be created after the first load."
+
+    # 2. SECOND RUN (App Restart with unchanged files)
+    # We create a dummy parser that intentionally crashes the test if it gets called.
+    # This is the ultimate proof that the app uses internal data WITHOUT reloading source files.
+    class _CrashParser:
+        def parse_files(self, c_file, e_file):
+            raise AssertionError("FAILED: The app tried to parse the files instead of using internal saved data!")
+
+    second_service = FileLoadingService(parser_adapter=_CrashParser(), internal_store=store)
+    second_result = second_service.load_selected_files(courses_file, exam_dates_file)
+
+    # 3. ASSERTIONS: Verify the application state is successfully populated from the internal data
+    assert second_result.loaded_data is not None
+    assert second_result.loaded_data.course_count == first_result.loaded_data.course_count
+    assert second_result.loaded_data.exam_period_count == first_result.loaded_data.exam_period_count
+
+def test_internal_data_ignored_when_source_file_becomes_empty(tmp_path):
+    """
+    Edge Case 1: The user clears all text from a source file after it was cached.
+    The hash will change, so the system must ignore the cache and parse again.
+    """
+    from src.services.internal_data_store import InternalDataStore
+    from src.services.file_loading_service import FileLoadingService, LoadedSchedulerInput
+
+    courses_file, exam_dates_file = _write_input_files(tmp_path)
+    cache_file = tmp_path / "test_cache_empty.json"
+    store = InternalDataStore(cache_file)
+
+    # 1. Populate the cache with valid data
+    FileLoadingService(internal_store=store).load_selected_files(courses_file, exam_dates_file)
+
+    # 2. Simulate user clearing the file completely
+    courses_file.write_text("", encoding="utf-8")
+
+    # 3. Create a mock parser that tracks if it was called
+    class _TrackerParser:
+        def __init__(self):
+            self.called = False
+
+        def parse_files(self, c_file, e_file):
+            self.called = True
+            return LoadedSchedulerInput(courses=(), exam_periods=(), programs=())
+
+    tracker = _TrackerParser()
+    FileLoadingService(parser_adapter=tracker, internal_store=store).load_selected_files(courses_file,
+                                                                                         exam_dates_file)
+
+    # 4. Assert that the cache was bypassed due to the file becoming empty
+    assert tracker.called is True, "System used cached data even though the source file was emptied!"
+
+def test_internal_data_ignored_when_cache_file_is_corrupted(tmp_path):
+    """
+    Edge Case 2: The internal JSON cache file gets corrupted.
+    The system should gracefully catch the JSON error, bypass the cache, and re-parse.
+    """
+    from src.services.internal_data_store import InternalDataStore
+    from src.services.file_loading_service import FileLoadingService, LoadedSchedulerInput
+
+    courses_file, exam_dates_file = _write_input_files(tmp_path)
+    cache_file = tmp_path / "test_cache_corrupted.json"
+    store = InternalDataStore(cache_file)
+
+    # 1. Populate the cache normally
+    FileLoadingService(internal_store=store).load_selected_files(courses_file, exam_dates_file)
+
+    # 2. Simulate data corruption in the JSON file
+    cache_file.write_text("{ corrupted : json [ data !! ", encoding="utf-8")
+
+    # 3. Create a mock parser that tracks if it was called
+    class _TrackerParser:
+        def __init__(self):
+            self.called = False
+
+        def parse_files(self, c_file, e_file):
+            self.called = True
+            return LoadedSchedulerInput(courses=(), exam_periods=(), programs=())
+
+    tracker = _TrackerParser()
+    FileLoadingService(parser_adapter=tracker, internal_store=store).load_selected_files(courses_file,
+                                                                                         exam_dates_file)
+
+    # 4. Assert that the cache was bypassed safely without crashing the application
+    assert tracker.called is True, "System crashed or didn't call parser when cache was corrupted!"

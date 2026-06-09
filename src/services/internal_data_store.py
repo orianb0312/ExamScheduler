@@ -226,3 +226,29 @@ def _evaluation_from_name(name: str) -> Evaluation:
     if name == "Attendance":
         return Attendance()
     raise ValueError(f"Unsupported evaluation type: {name}")
+
+
+def get_last_source_paths(self) -> tuple[Path, Path] | None:
+    """Extract the last used file paths from the internal data without loading all records."""
+    # Check if the cache file exists before attempting to read it
+    if not self._storage_file.is_file():
+        return None
+
+    try:
+        # Parse the JSON payload from the internal cache file
+        payload = json.loads(self._storage_file.read_text(encoding="utf-8"))
+        sources = payload.get("source_files", {})
+
+        # Safely extract the string paths for both the courses and exam dates files
+        courses_path_str = sources.get("courses_file", {}).get("path")
+        exam_dates_path_str = sources.get("exam_dates_file", {}).get("path")
+
+        # If both paths were successfully found, return them as Path objects
+        if courses_path_str and exam_dates_path_str:
+            return Path(courses_path_str), Path(exam_dates_path_str)
+    except (OSError, json.JSONDecodeError):
+        # Silently fail and return None if the file is corrupted, unreadable, or missing keys
+        pass
+
+    return None
+

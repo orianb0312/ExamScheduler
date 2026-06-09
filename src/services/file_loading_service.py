@@ -424,3 +424,9 @@ def _apply_exam_periods(
 
 def _period_key(period: ExamPeriod) -> tuple[str, str]:
     return period.semester.value, period.term.value
+
+
+def get_last_source_paths(self) -> tuple[Path, Path] | None:
+    """Ask the internal store for the last successfully loaded file paths."""
+    # Delegate the path extraction to the internal data store layer
+    return self._internal_store.get_last_source_paths()
