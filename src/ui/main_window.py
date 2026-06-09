@@ -24,7 +24,6 @@ from src.services.schedule_output_service import (
 )
 from src.services.selected_schedule_file_writer import SelectedScheduleFileWriter
 from src.ui.calendar_view import OutputView
-from src.ui.calendar_view_panel import CalendarView as ExamCalendarView
 from src.ui.input_panel import InputPanel
 from src.ui.process_runner import ProcessRunner
 from src.ui.toast_notification import ToastNotification
@@ -71,7 +70,7 @@ class MainWindow(QMainWindow):
         self._stay_on_input_after_lazy_stop = False
 
         self.input_panel = InputPanel(project_root=project_root)
-        self.calendar_view = ExamCalendarView()
+        self.calendar_view = self.input_panel.calendar_view
         self.output_view = OutputView()
         self._stack = QStackedWidget()
 
@@ -85,7 +84,6 @@ class MainWindow(QMainWindow):
 
     def _build_layout(self) -> None:
         self._stack.addWidget(self.input_panel)
-        self._stack.addWidget(self.calendar_view)
         self._stack.addWidget(self.output_view)
         self.setCentralWidget(self._stack)
 
@@ -95,8 +93,7 @@ class MainWindow(QMainWindow):
         self.input_panel.cancel_requested.connect(self._runner.cancel)
         self.input_panel.view_calendar_requested.connect(self._show_calendar_screen)
         self.calendar_view.back_requested.connect(self._show_input_screen)
-        self.calendar_view.exclude_day_requested.connect(self._exclude_calendar_day)
-        self.calendar_view.restore_day_requested.connect(self._restore_calendar_day)
+        self.calendar_view.day_clicked.connect(self._toggle_calendar_day)
         self.calendar_view.period_dates_changed.connect(self._update_period_dates)
         self.output_view.back_requested.connect(self._show_input_screen)
         self.output_view.more_requested.connect(self._request_next_schedule_batch)
@@ -160,10 +157,8 @@ class MainWindow(QMainWindow):
         self._load_exam_period_calendar()
         # Notify the user clearly if a stale state was detected and resolved
         if is_stale:
-            QMessageBox.information(
-                self,
-                "Data Reloaded",
-                "The source files were modified since your last session.\n"
+            self._toast.show_message(
+                "The source files were modified since your last session. "
                 "The application has automatically reloaded the newest data."
             )
 
@@ -207,42 +202,47 @@ class MainWindow(QMainWindow):
     def _load_exam_period_calendar(
         self,
         selected_period_index: int | None = None,
-        selected_day=None,
     ) -> None:
-        periods = self.input_panel.exam_periods
         period_view_models = self._build_schedule_period_view_models(
             self._selected_schedule
         )
         self.calendar_view.load_exam_periods(
             period_view_models,
-            editable_periods=periods,
             selected_period_index=selected_period_index,
-            selected_day=selected_day,
         )
 
-    def _exclude_calendar_day(self, period_index: int, day) -> None:
+    def _toggle_calendar_day(self, period_index: int, day) -> None:
+        periods = self.input_panel.exam_periods
+        # Clicks come from the UI, so keep this boundary defensive.
+        if period_index < 0 or period_index >= len(periods):
+            QMessageBox.warning(
+                self,
+                "Invalid calendar day",
+                f"Unknown exam period index: {period_index}",
+            )
+            return
+
+        period = periods[period_index]
+        # The model already defines validity; the UI just flips the current state.
+        is_excluding = period.is_date_valid(day)
         try:
-            self.input_panel.exclude_calendar_day(period_index, day)
+            if is_excluding:
+                self.input_panel.exclude_calendar_day(period_index, day)
+            else:
+                self.input_panel.restore_calendar_day(period_index, day)
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid calendar day", str(exc))
             return
 
-        self._load_exam_period_calendar(
-            selected_period_index=period_index,
-            selected_day=day,
+        # A day toggle is only a color change, so keep the calendar in place and repaint one cube.
+        did_repaint = self.calendar_view.update_day_status(
+            period_index,
+            day,
+            is_excluded=is_excluding,
         )
-
-    def _restore_calendar_day(self, period_index: int, day) -> None:
-        try:
-            self.input_panel.restore_calendar_day(period_index, day)
-        except ValueError as exc:
-            QMessageBox.warning(self, "Invalid calendar day", str(exc))
-            return
-
-        self._load_exam_period_calendar(
-            selected_period_index=period_index,
-            selected_day=day,
-        )
+        if not did_repaint:
+            # If the visible widgets are out of sync, rebuild once instead of leaving stale color.
+            self._load_exam_period_calendar(selected_period_index=period_index)
 
     def _update_period_dates(self, period_index: int, start_date, end_date) -> None:
         try:
@@ -441,7 +441,10 @@ class MainWindow(QMainWindow):
         self.output_view.set_schedule_calendar(
             self._build_schedule_period_view_models(schedule)
         )
-        if self._stack.currentWidget() is self.calendar_view:
+        if (
+            self._stack.currentWidget() is self.input_panel
+            and self.input_panel.is_calendar_page_visible()
+        ):
             self._load_exam_period_calendar()
 
     def _build_schedule_period_view_models(
@@ -483,11 +486,14 @@ class MainWindow(QMainWindow):
         ):
             self._stay_on_input_after_lazy_stop = True
             self._runner.send_input_line(LAZY_STOP_COMMAND)
+        self.input_panel.show_program_page()
         self._stack.setCurrentWidget(self.input_panel)
 
     def _show_calendar_screen(self) -> None:
         self._load_exam_period_calendar()
-        self._stack.setCurrentWidget(self.calendar_view)
+        # Calendar is an input-page tab; schedule generation is the only action that leaves it.
+        self.input_panel.show_calendar_page()
+        self._stack.setCurrentWidget(self.input_panel)
 
     def _show_output_screen(self) -> None:
         self._stack.setCurrentWidget(self.output_view)
