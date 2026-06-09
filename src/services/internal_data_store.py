@@ -76,6 +76,37 @@ class InternalDataStore:
         except (KeyError, TypeError, ValueError):
             return None
 
+    def is_cache_stale(
+        self,
+        courses_file: str | Path,
+        exam_dates_file: str | Path,
+    ) -> bool:
+        """Check if a valid cache exists but the source files have been modified."""
+        # If there is no cache file at all, it cannot be considered stale
+        if not self._storage_file.is_file():
+            return False
+
+        try:
+            # Attempt to read the existing internal cache data
+            payload = json.loads(self._storage_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            # If the cache is corrupted or unreadable, treat it as non-existent rather than stale
+            return False
+
+        # Validate cache structure and version compatibility before checking hashes
+        if payload.get("version") != CACHE_VERSION or "source_files" not in payload:
+            return False
+
+        try:
+            # Calculate the current SHA256 hashes for the files on disk
+            current_fingerprints = _source_fingerprints(courses_file, exam_dates_file)
+            # Compare current file hashes against the hashes stored in the cache
+            # Returns True if they differ (meaning files were modified)
+            return payload["source_files"] != current_fingerprints
+        except OSError:
+            # If we cannot read the current source files to hash them, assume they changed
+            return True
+
     def save(
         self,
         courses_file: str | Path,
@@ -99,6 +130,30 @@ class InternalDataStore:
             encoding="utf-8",
         )
         temp_file.replace(self._storage_file)
+
+    def get_last_source_paths(self) -> tuple[Path, Path] | None:
+        """Extract the last used file paths from the internal data without loading all records."""
+        # Check if the cache file exists before attempting to read it
+        if not self._storage_file.is_file():
+            return None
+
+        try:
+            # Parse the JSON payload from the internal cache file
+            payload = json.loads(self._storage_file.read_text(encoding="utf-8"))
+            sources = payload.get("source_files", {})
+
+            # Safely extract the string paths for both the courses and exam dates files
+            courses_path_str = sources.get("courses_file", {}).get("path")
+            exam_dates_path_str = sources.get("exam_dates_file", {}).get("path")
+
+            # If both paths were successfully found, return them as Path objects
+            if courses_path_str and exam_dates_path_str:
+                return Path(courses_path_str), Path(exam_dates_path_str)
+        except (OSError, json.JSONDecodeError):
+            # Silently fail and return None if the file is corrupted, unreadable, or missing keys
+            pass
+
+        return None
 
 
 def _source_fingerprints(
@@ -228,27 +283,5 @@ def _evaluation_from_name(name: str) -> Evaluation:
     raise ValueError(f"Unsupported evaluation type: {name}")
 
 
-def get_last_source_paths(self) -> tuple[Path, Path] | None:
-    """Extract the last used file paths from the internal data without loading all records."""
-    # Check if the cache file exists before attempting to read it
-    if not self._storage_file.is_file():
-        return None
 
-    try:
-        # Parse the JSON payload from the internal cache file
-        payload = json.loads(self._storage_file.read_text(encoding="utf-8"))
-        sources = payload.get("source_files", {})
-
-        # Safely extract the string paths for both the courses and exam dates files
-        courses_path_str = sources.get("courses_file", {}).get("path")
-        exam_dates_path_str = sources.get("exam_dates_file", {}).get("path")
-
-        # If both paths were successfully found, return them as Path objects
-        if courses_path_str and exam_dates_path_str:
-            return Path(courses_path_str), Path(exam_dates_path_str)
-    except (OSError, json.JSONDecodeError):
-        # Silently fail and return None if the file is corrupted, unreadable, or missing keys
-        pass
-
-    return None
 
