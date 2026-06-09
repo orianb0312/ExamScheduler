@@ -395,3 +395,40 @@ def _looks_like_schedule_output(text: str) -> bool:
         or "=== SEMESTER:" in text
         or "[TERM:" in text
     )
+
+def _load_default_files_if_available(self) -> None:
+    # First, try to recover the last used paths from the internal data cache
+    last_paths = self._file_loading_service.get_last_source_paths()
+
+    if last_paths:
+        courses_path, exam_dates_path = last_paths
+        # Populate the UI text fields so the user sees the paths from their last session
+        self.input_panel.file_loader.set_courses_path(str(courses_path))
+        self.input_panel.file_loader.set_exam_dates_path(str(exam_dates_path))
+    else:
+        # Fallback: get the paths currently written in the UI (which might be empty on startup)
+        courses_path = Path(self.input_panel.file_loader.get_courses_path())
+        exam_dates_path = Path(self.input_panel.file_loader.get_exam_dates_path())
+
+    # If either path is invalid or missing, abort the auto-load process
+    if not courses_path.is_file() or not exam_dates_path.is_file():
+        return
+
+    try:
+        # Attempt to load the files (this will hit the cache first due to the internal logic)
+        result = self._file_loading_service.load_selected_files(
+            courses_path,
+            exam_dates_path,
+            "replace",
+            "replace",
+        )
+    except FileLoadingError:
+        # Abort if the files cannot be loaded or parsed
+        return
+
+    # Successfully loaded data; update the UI state and display the calendar
+    loaded_data = result.loaded_data
+    self._refresh_output_adapter(loaded_data)
+    self.input_panel.set_exam_calendar_available(True)
+    self.input_panel.notify_data_loaded(loaded_data)
+    self._load_exam_period_calendar()
