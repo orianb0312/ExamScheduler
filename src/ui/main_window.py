@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtWidgets import QMainWindow, QMessageBox, QStackedWidget
+from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QStackedWidget
 
 from src.process_protocol import LAZY_NEXT_COMMAND, LAZY_STOP_COMMAND
 from src.services.cli_run_service import CliRunConfig, resolve_cli_output_file
@@ -22,6 +22,7 @@ from src.services.schedule_output_service import (
     StdoutScheduleParser,
     parse_schedule_total,
 )
+from src.services.selected_schedule_file_writer import SelectedScheduleFileWriter
 from src.ui.calendar_view import OutputView
 from src.ui.calendar_view_panel import CalendarView as ExamCalendarView
 from src.ui.input_panel import InputPanel
@@ -56,9 +57,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ExamScheduler v2.0")
         self.resize(1200, 760)
 
+        self._project_root = Path(project_root)
         self._parser = StdoutScheduleParser()
         self._output_adapter = ScheduleOutputDataAdapter()
         self._calendar_data_service = ScheduleCalendarDataService()
+        self._selected_schedule_writer = SelectedScheduleFileWriter()
         # Tests can inject a fake runner, while the real app still uses QProcess.
         runner_factory = process_runner_factory or ProcessRunner
         self._runner = runner_factory(self)
@@ -97,6 +100,7 @@ class MainWindow(QMainWindow):
         self.calendar_view.period_dates_changed.connect(self._update_period_dates)
         self.output_view.back_requested.connect(self._show_input_screen)
         self.output_view.more_requested.connect(self._request_next_schedule_batch)
+        self.output_view.save_requested.connect(self._save_selected_schedule)
         self.output_view.selected_schedule_changed.connect(self._set_selected_schedule)
         self._runner.process_started.connect(self._handle_started)
         self._runner.stdout_received.connect(self._handle_stdout)
@@ -318,6 +322,41 @@ class MainWindow(QMainWindow):
             return
 
         self._runner.send_input_line(LAZY_NEXT_COMMAND)
+
+    def _save_selected_schedule(self) -> None:
+        schedule = self.output_view.selected_schedule
+        if schedule is None:
+            QMessageBox.information(
+                self,
+                "No schedule selected",
+                "Generate or select a schedule before saving.",
+            )
+            return
+
+        default_path = self._default_selected_schedule_path(schedule)
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Schedule",
+            str(default_path),
+            self._selected_schedule_writer.file_filter,
+        )
+        if not file_path:
+            return
+
+        try:
+            saved_path = self._selected_schedule_writer.write(schedule, file_path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Could not save schedule", str(exc))
+            return
+
+        self._toast.show_message(f"Schedule saved to {saved_path}")
+
+    def _default_selected_schedule_path(self, schedule: ScheduleSystem) -> Path:
+        return (
+            self._project_root
+            / "outputs"
+            / self._selected_schedule_writer.suggested_filename(schedule)
+        )
 
     def _load_generated_output_file(self) -> None:
         config = self._active_run_config

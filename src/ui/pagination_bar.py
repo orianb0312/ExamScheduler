@@ -16,6 +16,7 @@ class PaginationBar(QWidget):
     page_changed = pyqtSignal(int)
     more_requested = pyqtSignal()
     future_page_requested = pyqtSignal(int)
+    save_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -27,12 +28,12 @@ class PaginationBar(QWidget):
 
         self.previous_button = QPushButton("Previous")
         self.next_button = QPushButton("Next")
-        self.save_button = QPushButton("Save")
+        self.save_button = QPushButton("Save Current Schedule")
         self.page_label = QLabel("Page 0 of 0")
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.previous_button.setFixedWidth(110)
         self.next_button.setFixedWidth(110)
-        self.save_button.setFixedWidth(110)
+        self.save_button.setFixedWidth(180)
         self.page_label.setMinimumWidth(90)
         self.page_label.hide()
 
@@ -81,7 +82,7 @@ class PaginationBar(QWidget):
 
         self.previous_button.clicked.connect(self._go_previous)
         self.next_button.clicked.connect(self._go_next)
-        self.save_button.clicked.connect(self._go_save)
+        self.save_button.clicked.connect(self.save_requested.emit)
         self.set_page_count(0)
 
     @property
@@ -149,10 +150,6 @@ class PaginationBar(QWidget):
         if page_number > self._page_count and self._can_request_more:
             self.future_page_requested.emit(page_number)
 
-    def _go_save(self) -> None:
-        # Save behavior belongs to a later export task, so this button is idle for now.
-        pass
-
     def _refresh(self) -> None:
         self.page_label.setText(f"Page {self._current_page} of {self._page_count}")
         self._refresh_page_ruler()
@@ -161,6 +158,7 @@ class PaginationBar(QWidget):
             self._page_count > 0
             and (self._current_page < self._page_count or self._can_request_more)
         )
+        self.save_button.setEnabled(self._page_count > 0)
 
     def _refresh_page_ruler(self) -> None:
         if self._page_count == 0:

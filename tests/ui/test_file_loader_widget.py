@@ -120,7 +120,7 @@ def test_input_panel_keeps_calendar_action_in_dashboard_nav(tmp_path, qtbot):
 
     assert panel.view_calendar_button is panel.nav_tabs["Calendar"]
     assert panel.view_calendar_button.text() == "Calendar"
-    assert not panel.view_calendar_button.isEnabled()
+    assert panel.view_calendar_button.isEnabled()
 
     panel.set_exam_calendar_available(True)
 

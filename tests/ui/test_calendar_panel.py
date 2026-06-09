@@ -7,6 +7,7 @@ from PyQt6.QtCore import QObject, QDate, Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QPushButton
 from pytestqt.qtbot import QtBot
 
+from src.ui import main_window as main_window_module
 from src.models.enums import Semester, Term
 from src.models.scheduling import ExamPeriod
 from src.process_protocol import LAZY_STOP_COMMAND
@@ -165,6 +166,19 @@ def test_main_window_keeps_calendar_and_output_screens_separate(tmp_path, qtbot:
     assert window.calendar_view is not window.output_view
 
 
+def test_top_calendar_nav_opens_calendar_without_loaded_data(tmp_path, qtbot: QtBot) -> None:
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    assert window.input_panel.view_calendar_button.isEnabled()
+
+    qtbot.mouseClick(window.input_panel.view_calendar_button, Qt.MouseButton.LeftButton)
+
+    assert window._stack.currentWidget() is window.calendar_view
+    assert window.calendar_view.day_editor.isHidden()
+    assert window.calendar_view._status_label.text() == "No data"
+
+
 def test_generate_schedules_starts_process_runner_boundary(tmp_path, qtbot: QtBot) -> None:
     created_runners: list[_FakeProcessRunner] = []
 
@@ -245,6 +259,19 @@ def test_output_view_selected_schedule_follows_visible_page(qtbot: QtBot) -> Non
     # Selected schedule should update to the next system
     assert view.selected_schedule is not None
     assert view.selected_schedule.number == 2
+
+
+def test_output_view_save_button_is_available_only_for_selected_schedule(qtbot: QtBot) -> None:
+    view = OutputView()
+    qtbot.addWidget(view)
+
+    assert not view.pagination_bar.save_button.isEnabled()
+
+    view.add_systems([ScheduleSystem(number=1, text="Schedule #1")])
+
+    assert view.pagination_bar.save_button.isEnabled()
+    with qtbot.waitSignal(view.save_requested):
+        qtbot.mouseClick(view.pagination_bar.save_button, Qt.MouseButton.LeftButton)
 
 
 def test_output_view_label_uses_known_total_count(qtbot: QtBot) -> None:
@@ -508,6 +535,39 @@ def test_calendar_refreshes_when_selected_schedule_changes(tmp_path, qtbot: QtBo
     assert len(window.calendar_view.findChildren(_DayCell)) == 31
     assert refreshed_cells[2].exam_text() == ""
     assert "Databases (10002)" in refreshed_cells[3].exam_text()
+
+
+def test_save_action_writes_current_visible_schedule(
+    tmp_path,
+    qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    destination = tmp_path / "exports" / "chosen_schedule"
+
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *args, **kwargs: (str(destination), "Text Files (*.txt)")),
+    )
+
+    window.output_view.add_systems(
+        [
+            _schedule_with_exam("Algorithms", 10001, date(2026, 1, 2)),
+            _schedule_with_exam("Databases", 10002, date(2026, 1, 3)),
+        ]
+    )
+    qtbot.mouseClick(window.output_view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.output_view.pagination_bar.save_button, Qt.MouseButton.LeftButton)
+
+    saved_path = destination.with_suffix(".txt")
+    assert saved_path.exists()
+    content = saved_path.read_text(encoding="utf-8")
+    assert "SELECTED EXAM SCHEDULE" in content
+    assert "Databases (10002) | 2026-01-03 | Dr. Ada" in content
+    assert "Algorithms (10001) | 2026-01-02 | Dr. Ada" not in content
+    assert not window._toast.isHidden()
 
 
 def test_calendar_label_without_course_id() -> None:

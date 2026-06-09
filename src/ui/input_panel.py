@@ -67,6 +67,7 @@ class InputPanel(QWidget):
             "Schedules": self._nav_button("Schedules"),
         }
         self.view_calendar_button = self.nav_tabs["Calendar"]
+        self.view_calendar_button.setEnabled(True)
         self.period_indexes_edit = QLineEdit()
         self.period_indexes_edit.setPlaceholderText("Optional, e.g. 0,1")
 
@@ -105,7 +106,7 @@ class InputPanel(QWidget):
         return self._scheduler_input_state.exam_periods
 
     def set_exam_calendar_available(self, available: bool) -> None:
-        self.view_calendar_button.setEnabled(available)
+        self.view_calendar_button.setEnabled(True)
 
     def _build_layout(self) -> None:
         root_layout = QVBoxLayout(self)

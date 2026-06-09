@@ -27,6 +27,7 @@ class OutputView(QWidget):
 
     back_requested = pyqtSignal()
     more_requested = pyqtSignal()
+    save_requested = pyqtSignal()
     selected_schedule_changed = pyqtSignal(object)
 
     def __init__(self, parent=None) -> None:
@@ -158,6 +159,7 @@ class OutputView(QWidget):
         self.pagination_bar.page_changed.connect(lambda _page: self._refresh_page())
         self.pagination_bar.more_requested.connect(self._request_more_systems)
         self.pagination_bar.future_page_requested.connect(self._request_schedule_page)
+        self.pagination_bar.save_requested.connect(self.save_requested.emit)
         self.back_button.clicked.connect(self.back_requested.emit)
 
     def _request_more_systems(self) -> None:
