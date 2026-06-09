@@ -475,3 +475,30 @@ def test_internal_data_ignored_when_cache_file_is_corrupted(tmp_path):
 
     # 4. Assert that the cache was bypassed safely without crashing the application
     assert tracker.called is True, "System crashed or didn't call parser when cache was corrupted!"
+
+def test_changed_source_files_are_detected_as_stale(tmp_path):
+    """
+    Acceptance Criteria:
+    - Compare current file metadata with the stored metadata.
+    - Treat changed source files as needing reload.
+    - Write a test confirming that changed source files are detected.
+    """
+    from src.services.internal_data_store import InternalDataStore
+    from src.services.file_loading_service import FileLoadingService
+
+    courses_file, exam_dates_file = _write_input_files(tmp_path)
+    cache_file = tmp_path / "test_cache_stale.json"
+    store = InternalDataStore(cache_file)
+    service = FileLoadingService(internal_store=store)
+
+    # 1. Initial run creates the cache file from the original source files
+    service.load_selected_files(courses_file, exam_dates_file)
+
+    # Verify the system knows the files have NOT changed yet
+    assert service.is_cache_stale(courses_file, exam_dates_file) is False
+
+    # 2. Simulate a user modifying the source file (changing its contents and hash)
+    courses_file.write_text("completely new content to change hash", encoding="utf-8")
+
+    # 3. Verify the system correctly detects the staleness (hash mismatch)
+    assert service.is_cache_stale(courses_file, exam_dates_file) is True
