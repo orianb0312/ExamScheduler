@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from src.models.academic import Course
 from src.services.file_loading_service import LoadedSchedulerInput, ProgramSummary
@@ -17,6 +18,31 @@ BASELINE_PROGRAM_NAMES: dict[str, str] = {
     "83115": "Electrical Engineering - Biomedical Engineering Track",
     "83182": "Electrical Engineering - Quantum Engineering Track",
 }
+
+
+class ProgramNameResolver(Protocol):
+    """Resolve display names for study-program identifiers."""
+
+    def display_name_for(self, program_id: str) -> str:
+        """Return the user-facing program name."""
+        ...
+
+
+class StaticProgramNameResolver:
+    """Resolver for the current Phase 2 program-name source."""
+
+    def __init__(
+        self,
+        program_names: dict[str, str] | None = None,
+    ) -> None:
+        # Phase 2 ships with a known set of program names. Keeping it behind a
+        # resolver lets a future data/config source replace it without touching
+        # the selected-program view model.
+        self._program_names = program_names or BASELINE_PROGRAM_NAMES
+
+    def display_name_for(self, program_id: str) -> str:
+        clean_pid = str(program_id).strip()
+        return self._program_names.get(clean_pid, f"Program {clean_pid}")
 
 
 @dataclass(frozen=True)
@@ -36,7 +62,15 @@ class CourseRow:
 class SelectedProgramsViewModel:
     """Resolve selected program IDs into display rows and course-detail rows."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        program_name_resolver: ProgramNameResolver | None = None,
+    ) -> None:
+        # Injecting the resolver keeps display naming separate from selection
+        # state and course filtering.
+        self._program_name_resolver = (
+            program_name_resolver or StaticProgramNameResolver()
+        )
         self._all_available_programs: dict[str, ProgramSummary] = {}
         self._all_courses: tuple[Course, ...] = ()
         self._selected_ids: list[str] = []
@@ -58,7 +92,7 @@ class SelectedProgramsViewModel:
     def get_selected_program_details(self) -> list[dict[str, str]]:
         details = []
         for pid in self._selected_ids:
-            resolved_name = BASELINE_PROGRAM_NAMES.get(pid, f"Program {pid}")
+            resolved_name = self._program_name_resolver.display_name_for(pid)
             details.append({"program_id": pid, "display_name": resolved_name})
         return details
 
@@ -86,8 +120,7 @@ class SelectedProgramsViewModel:
         return rows
 
     def get_program_display_name(self, program_id: str) -> str:
-        clean_pid = str(program_id).strip()
-        return BASELINE_PROGRAM_NAMES.get(clean_pid, f"Program {clean_pid}")
+        return self._program_name_resolver.display_name_for(program_id)
 
 
 def _try_parse_int(value: str) -> int | None:

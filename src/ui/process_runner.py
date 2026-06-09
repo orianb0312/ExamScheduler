@@ -9,12 +9,13 @@ from src.services.cli_run_service import (
 )
 
 try:
-    from PyQt6.QtCore import QObject, QProcess, pyqtSignal
+    from PyQt6.QtCore import QObject, QProcess, QTimer, pyqtSignal
 
     PYQT_AVAILABLE = True
 except ModuleNotFoundError:  # pragma: no cover - exercised only without PyQt6 installed
     PYQT_AVAILABLE = False
     QProcess = None
+    QTimer = None
 
     class QObject:  # type: ignore[no-redef]
         pass
@@ -32,6 +33,8 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only without PyQt6 i
 
 class ProcessRunner(QObject):
     """Run main.py externally and expose stdout/stderr through Qt signals."""
+
+    _FORCE_KILL_DELAY_MS = 500
 
     stdout_received = pyqtSignal(str)
     stderr_received = pyqtSignal(str)
@@ -71,7 +74,11 @@ class ProcessRunner(QObject):
     def cancel(self) -> None:
         if self._process.state() == QProcess.ProcessState.NotRunning:
             return
+        # Ask nicely first so the CLI can flush buffers and exit cleanly.
         self._process.terminate()
+        # Some Windows child processes ignore terminate while blocked, so keep
+        # the UI responsive by forcing shutdown shortly after.
+        QTimer.singleShot(self._FORCE_KILL_DELAY_MS, self._kill_if_still_running)
 
     def send_input_line(self, line: str) -> None:
         if self._process.state() == QProcess.ProcessState.NotRunning:
@@ -106,6 +113,11 @@ class ProcessRunner(QObject):
     def _handle_error(self, error) -> None:
         error_name = getattr(error, "name", str(error))
         self.process_error.emit(format_process_error(error_name))
+
+    def _kill_if_still_running(self) -> None:
+        if self._process.state() != QProcess.ProcessState.NotRunning:
+            # This is intentionally a last resort after terminate had a chance.
+            self._process.kill()
 
 
 def format_process_error(error_name: str) -> str:

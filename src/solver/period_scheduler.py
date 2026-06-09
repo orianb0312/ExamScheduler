@@ -5,6 +5,10 @@ from itertools import product
 from typing import Dict, Generator, List, Set
 
 from src.output.output_manager import TextOutputManager
+from src.output.schedule_text_formatter import (
+    PlainTextScheduleFormatter,
+    ScheduleTextFormatter,
+)
 from src.interfaces import ISchedulingRule
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
@@ -36,9 +40,16 @@ class Scheduler:
     - Stores assignments by course index so duplicate course IDs do not collide.
     """
 
-    def __init__(self, rules: List[ISchedulingRule], validate_full_schedules: bool = False):
+    def __init__(
+        self,
+        rules: List[ISchedulingRule],
+        validate_full_schedules: bool = False,
+        schedule_formatter: ScheduleTextFormatter | None = None,
+    ):
         self.rules = rules
         self.validate_full_schedules = validate_full_schedules
+        # Formatting is injected so the solver can stay focused on assignments.
+        self._formatter = schedule_formatter or PlainTextScheduleFormatter()
         self._course_keys: List[_CourseKey] = []
 
     def run_to_output(
@@ -73,8 +84,9 @@ class Scheduler:
         mode = "a" if append else "w"
         with open(full_path, mode, encoding="utf-8") as f:
             if write_header:
-                f.write("OFFICIAL UNIVERSITY MASTER EXAM SCHEDULE\n")
-                f.write("=" * 65 + "\n\n")
+                # The output layer owns this text; the scheduler only decides
+                # when a header is needed.
+                f.write(self._formatter.format_master_header())
 
             for combination in product(*component_solutions):
                 full_assignment: Dict[int, date] = {}
@@ -86,7 +98,16 @@ class Scheduler:
                     continue
 
                 total_schedules += 1
-                self._write_schedule(f, total_schedules, courses, period, full_assignment)
+                # Write through the formatter so future display changes do not
+                # require changing the backtracking/search code.
+                f.write(
+                    self._formatter.format_period_schedule(
+                        total_schedules,
+                        courses,
+                        period,
+                        full_assignment,
+                    )
+                )
 
         duration = time.perf_counter() - start_time
         print(
@@ -106,11 +127,9 @@ class Scheduler:
         mode = "a" if append else "w"
         with open(output_manager.get_full_path(), mode, encoding="utf-8") as f:
             if write_header:
-                f.write("OFFICIAL UNIVERSITY MASTER EXAM SCHEDULE\n")
-                f.write("=" * 65 + "\n\n")
-            f.write(f"=== SEMESTER: {period.semester.value} ===\n")
-            f.write(f"  [TERM: {period.term.value}]\n")
-            f.write("  EMPTY SCHEDULE: No exams have been scheduled for this period.\n\n")
+                f.write(self._formatter.format_master_header())
+            # Empty-period text follows the same boundary as normal schedules.
+            f.write(self._formatter.format_empty_period(period))
         return 0
 
     def _get_available_dates(self, period: ExamPeriod) -> List[date]:
@@ -262,26 +281,3 @@ class Scheduler:
                 return False
         return True
 
-    def _write_schedule(
-        self,
-        file,
-        schedule_number: int,
-        courses: List[Course],
-        period: ExamPeriod,
-        assignment: Dict[int, date],
-    ) -> None:
-        file.write(f"Schedule #{schedule_number}\n")
-        file.write(f"=== SEMESTER: {period.semester.value} ===\n")
-        file.write(f"  [TERM: {period.term.value}]\n")
-        file.write("  " + "-" * 40 + "\n")
-
-        sorted_items = sorted(
-            assignment.items(),
-            key=lambda item: (item[1], courses[item[0]].name.lower()),
-        )
-
-        for course_index, exam_date in sorted_items:
-            course = courses[course_index]
-            file.write(f"  {course.name} | {exam_date} | {course.instructor}\n")
-
-        file.write("\n" + "*" * 70 + "\n\n")

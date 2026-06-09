@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Dict, Generator, Iterable, Iterator, List, Optional, Sequence, Set
 
 from src.output.output_manager import TextOutputManager
+from src.output.schedule_text_formatter import (
+    PlainTextScheduleFormatter,
+    ScheduleTextFormatter,
+)
 from src.interfaces import ISchedulingRule
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
@@ -91,8 +95,15 @@ class CompleteSystemScheduler:
     a file. For very large products, pass max_systems when writing a sample.
     """
 
-    def __init__(self, rules: List[ISchedulingRule]):
+    def __init__(
+        self,
+        rules: List[ISchedulingRule],
+        schedule_formatter: ScheduleTextFormatter | None = None,
+    ):
         self.rules = rules
+        # The scheduler emits systems; the formatter decides how those systems
+        # look in text files or stdout.
+        self._formatter = schedule_formatter or PlainTextScheduleFormatter()
         self._course_keys: List[_CourseKey] = []
         self._write_batch_size = 2048
 
@@ -153,13 +164,13 @@ class CompleteSystemScheduler:
 
         written_count = 0
         with open(output_path, "w", encoding="utf-8") as file:
-            file.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
-            file.write("=" * 65 + "\n")
-            file.write(f"Total complete systems: {stream.complete_system_count:,}\n")
+            # Header text stays in the output layer, even though this method
+            # still owns the file-writing flow for backwards compatibility.
             file.write(
-                "Period schedule counts: "
-                + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
-                + "\n\n"
+                self._formatter.format_complete_header(
+                    stream.complete_system_count,
+                    stream.period_schedule_counts,
+                )
             )
 
             output_batch = []
@@ -176,9 +187,12 @@ class CompleteSystemScheduler:
 
             truncated = max_systems is not None and written_count < stream.complete_system_count
             if truncated:
+                # The wording is part of the output contract, not the counting logic.
                 file.write(
-                    f"\n... Stopped after writing {written_count:,} of "
-                    f"{stream.complete_system_count:,} complete systems ...\n"
+                    self._formatter.format_complete_truncation(
+                        written_count,
+                        stream.complete_system_count,
+                    )
                 )
 
         return CompleteSystemResult(
@@ -215,20 +229,16 @@ class CompleteSystemScheduler:
         written_count = 0
 
         with open(output_path, "w", encoding="utf-8") as file:
-            file.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
-            file.write("=" * 65 + "\n")
-            file.write(f"Total complete systems: {stream.complete_system_count:,}\n")
+            # Auto mode has a richer header, but the solver should not know how
+            # that header is phrased.
             file.write(
-                "Period course counts: "
-                + ", ".join(f"{count:,}" for count in stream.period_course_counts)
-                + "\n"
+                self._formatter.format_complete_header(
+                    stream.complete_system_count,
+                    stream.period_schedule_counts,
+                    period_course_counts=stream.period_course_counts,
+                    auto_limit_seconds=time_limit_seconds,
+                )
             )
-            file.write(
-                "Period schedule counts: "
-                + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
-                + "\n"
-            )
-            file.write(f"Auto time limit: {time_limit_seconds:.2f} seconds\n\n")
 
             output_batch = []
             systems = iter(stream.systems)
@@ -253,10 +263,13 @@ class CompleteSystemScheduler:
 
             truncated = written_count < stream.complete_system_count
             if truncated:
+                # Keep the user-facing time-limit message in the formatter.
                 file.write(
-                    f"\n... Auto limit wrote {written_count:,} of "
-                    f"{stream.complete_system_count:,} complete systems within "
-                    f"{time_limit_seconds:.2f} seconds ...\n"
+                    self._formatter.format_auto_truncation(
+                        written_count,
+                        stream.complete_system_count,
+                        time_limit_seconds,
+                    )
                 )
 
         return CompleteSystemResult(
@@ -500,7 +513,10 @@ class CompleteSystemScheduler:
 
             yield GeneratedCompleteSystem(
                 number=system_number,
-                text=self._format_complete_system(system_number, complete_system_blocks),
+                text=self._formatter.format_complete_system(
+                    system_number,
+                    complete_system_blocks,
+                ),
             )
 
     def _get_formatted_period_schedule(
@@ -511,8 +527,11 @@ class CompleteSystemScheduler:
     ) -> str:
         formatted = formatted_cache[schedule_index]
         if formatted is None:
-            formatted = self._format_period_schedule(
-                schedule_set,
+            # Period schedules repeat across many complete systems, so cache the
+            # formatted block once after the solver has found the assignment.
+            formatted = self._formatter.format_period_schedule_block(
+                schedule_set.period,
+                schedule_set.courses,
                 schedule_set.schedules[schedule_index],
             )
             formatted_cache[schedule_index] = formatted
@@ -525,69 +544,20 @@ class CompleteSystemScheduler:
             total *= schedule_set.count
         return total
 
-    def _format_complete_system(
-        self,
-        system_number: int,
-        period_blocks: Sequence[str],
-    ) -> str:
-        return (
-            f"Complete System #{system_number}\n"
-            + "".join(period_blocks)
-            + "\n"
-            + "*" * 70
-            + "\n\n"
-        )
-
-    def _format_period_schedule(
-        self,
-        schedule_set: PeriodScheduleSet,
-        assignment: Dict[int, date],
-    ) -> str:
-        lines = [
-            f"=== SEMESTER: {schedule_set.period.semester.value} ===\n",
-            f"  [TERM: {schedule_set.period.term.value}]\n",
-            "  " + "-" * 40 + "\n",
-        ]
-
-        if not assignment:
-            lines.append("  EMPTY PERIOD: No exams scheduled for this period.\n")
-            return "".join(lines)
-
-        sorted_items = sorted(
-            assignment.items(),
-            key=lambda item: (item[1], schedule_set.courses[item[0]].name.lower()),
-        )
-
-        for course_index, exam_date in sorted_items:
-            course = schedule_set.courses[course_index]
-            lines.append(f"  {course.name} | {exam_date} | {course.instructor}\n")
-
-        return "".join(lines)
-
     def _write_complete_system(
         self,
         file,
         system_number: int,
         complete_system: List[tuple[PeriodScheduleSet, Dict[int, date]]],
     ) -> None:
-        file.write(f"Complete System #{system_number}\n")
-
-        for schedule_set, assignment in complete_system:
-            file.write(f"=== SEMESTER: {schedule_set.period.semester.value} ===\n")
-            file.write(f"  [TERM: {schedule_set.period.term.value}]\n")
-            file.write("  " + "-" * 40 + "\n")
-
-            if not assignment:
-                file.write("  EMPTY PERIOD: No exams scheduled for this period.\n")
-                continue
-
-            sorted_items = sorted(
-                assignment.items(),
-                key=lambda item: (item[1], schedule_set.courses[item[0]].name.lower()),
+        # Older callers still use this helper, so route it through the same
+        # formatter instead of keeping a second copy of the text layout.
+        period_blocks = [
+            self._formatter.format_period_schedule_block(
+                schedule_set.period,
+                schedule_set.courses,
+                assignment,
             )
-
-            for course_index, exam_date in sorted_items:
-                course = schedule_set.courses[course_index]
-                file.write(f"  {course.name} | {exam_date} | {course.instructor}\n")
-
-        file.write("\n" + "*" * 70 + "\n\n")
+            for schedule_set, assignment in complete_system
+        ]
+        file.write(self._formatter.format_complete_system(system_number, period_blocks))

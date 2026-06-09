@@ -2,7 +2,10 @@ from unittest.mock import MagicMock
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QAbstractItemView
 from src.models.academic import Attendance, Exam, Project
-from src.services.selected_programs_service import SelectedProgramsViewModel
+from src.services.selected_programs_service import (
+    SelectedProgramsViewModel,
+    StaticProgramNameResolver,
+)
 from src.ui.selected_programs_panel import (
     SELECTED_PROGRAMS_TABLE_MIN_HEIGHT,
     SelectedProgramsPanel,
@@ -62,6 +65,20 @@ def test_view_model_fallback_mapping():
     assert details[0]["display_name"] == "Computer Engineering"
     assert details[1]["program_id"] == "83107"
     assert details[1]["display_name"] == "Data Engineering"
+
+
+def test_view_model_accepts_custom_program_name_resolver():
+    vm = SelectedProgramsViewModel(
+        StaticProgramNameResolver({"99999": "Future Engineering"})
+    )
+    vm.set_selected_program_ids(["99999"])
+
+    details = vm.get_selected_program_details()
+
+    assert details == [
+        {"program_id": "99999", "display_name": "Future Engineering"}
+    ]
+    assert vm.get_program_display_name("00000") == "Program 00000"
 
 
 def test_panel_display_update(qtbot):
