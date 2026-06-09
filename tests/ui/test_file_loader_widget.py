@@ -1,7 +1,7 @@
 import pytest
 from datetime import date
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel, QPushButton, QScrollArea
+from PyQt6.QtWidgets import QFrame, QLabel, QPushButton, QScrollArea, QSizePolicy
 
 from src.services.cli_run_service import build_cli_arguments
 from src.models.academic import Course, Exam, ProgramAffiliation
@@ -85,6 +85,19 @@ def test_input_panel_uses_dashboard_shell_layout(tmp_path, qtbot):
         for button in panel.findChildren(QPushButton)
         if button.objectName() in {"navTab", "navTabActive"}
     ] == ["Dashboard", "Programs", "Courses", "Calendar", "Schedules"]
+
+
+def test_input_panel_home_image_fills_lower_page_area(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+
+    image_panel = panel.findChild(QFrame, "homeImagePanel")
+
+    assert image_panel is not None
+    assert image_panel.minimumHeight() == 300
+    assert image_panel.maximumHeight() == 360
+    assert image_panel.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    assert image_panel.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Fixed
 
 
 def test_input_panel_shows_program_selection_limit_message(tmp_path, qtbot):

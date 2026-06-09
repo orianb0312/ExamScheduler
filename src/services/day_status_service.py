@@ -43,12 +43,6 @@ def update_period_dates(period: ExamPeriod, start_date: date, end_date: date) ->
 
     period.start_date = start_date
     period.end_date = end_date
-    # Keep only exclusions that still overlap the edited period range.
-    period.exclusions = _trim_exclusions_to_period(
-        period.exclusions,
-        start_date,
-        end_date,
-    )
 
 
 def iter_period_days(period: ExamPeriod) -> Iterable[date]:
@@ -90,22 +84,6 @@ def _restore_day_in_exclusions(
         if day < exclusion_end:
             updated.append(_make_exclusion(day + timedelta(days=1), exclusion_end))
 
-    return sorted(updated, key=_exclusion_sort_key)
-
-
-def _trim_exclusions_to_period(
-    exclusions: list[DateExclusion],
-    period_start: date,
-    period_end: date,
-) -> list[DateExclusion]:
-    updated: list[DateExclusion] = []
-    for exclusion in exclusions:
-        exclusion_end = exclusion.end_date or exclusion.start_date
-        overlap_start = max(exclusion.start_date, period_start)
-        overlap_end = min(exclusion_end, period_end)
-        if overlap_start > overlap_end:
-            continue
-        updated.append(_make_exclusion(overlap_start, overlap_end))
     return sorted(updated, key=_exclusion_sort_key)
 
 

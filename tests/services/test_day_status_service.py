@@ -87,7 +87,7 @@ def test_update_period_dates_rejects_invalid_range():
         update_period_dates(period, date(2026, 1, 5), date(2026, 1, 1))
 
 
-def test_update_period_dates_trims_exclusions_to_new_range():
+def test_update_period_dates_preserves_exclusions_outside_temporary_range():
     period = _period([
         DateExclusion(start_date=date(2026, 1, 1)),
         DateExclusion(start_date=date(2026, 1, 3), end_date=date(2026, 1, 5)),
@@ -96,8 +96,16 @@ def test_update_period_dates_trims_exclusions_to_new_range():
     update_period_dates(period, date(2026, 1, 4), date(2026, 1, 6))
 
     assert period.exclusions == [
-        DateExclusion(start_date=date(2026, 1, 4), end_date=date(2026, 1, 5)),
+        DateExclusion(start_date=date(2026, 1, 1)),
+        DateExclusion(start_date=date(2026, 1, 3), end_date=date(2026, 1, 5)),
     ]
+    assert not period.is_date_valid(date(2026, 1, 4))
+
+    update_period_dates(period, date(2026, 1, 1), date(2026, 1, 6))
+
+    assert not period.is_date_valid(date(2026, 1, 1))
+    assert not period.is_date_valid(date(2026, 1, 3))
+    assert not period.is_date_valid(date(2026, 1, 5))
 
 
 def test_format_exam_periods_writes_current_exclusion_state():

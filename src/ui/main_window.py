@@ -203,9 +203,7 @@ class MainWindow(QMainWindow):
         self,
         selected_period_index: int | None = None,
     ) -> None:
-        period_view_models = self._build_schedule_period_view_models(
-            self._selected_schedule
-        )
+        period_view_models = self._build_schedule_period_view_models(None)
         self.calendar_view.load_exam_periods(
             period_view_models,
             selected_period_index=selected_period_index,
@@ -464,15 +462,13 @@ class MainWindow(QMainWindow):
                     )
                     for exclusion in period.exclusions
                 ),
-                scheduled_exams=tuple(
-                    _to_scheduled_exam_view_model(exam)
-                    for exam in self._calendar_data_service.exams_for_period(
-                        schedule,
-                        period.semester.value,
-                        period.term.value,
-                        period.start_date,
-                        period.end_date,
-                    )
+                scheduled_exams=_scheduled_exam_view_models_for_period(
+                    self._calendar_data_service,
+                    schedule,
+                    period.semester.value,
+                    period.term.value,
+                    period.start_date,
+                    period.end_date,
                 ),
             )
             for period in self.input_panel.exam_periods
@@ -518,6 +514,29 @@ def _to_scheduled_exam_view_model(exam: ScheduleExamDisplay) -> ScheduledExamVie
         instructor=exam.instructor,
         program_ids=exam.program_ids,
         requirement_types=exam.requirement_types,
+    )
+
+
+def _scheduled_exam_view_models_for_period(
+    calendar_data_service: ScheduleCalendarDataService,
+    schedule: ScheduleSystem | None,
+    semester_label: str,
+    term_label: str,
+    start_date,
+    end_date,
+) -> tuple[ScheduledExamViewModel, ...]:
+    if schedule is None:
+        return ()
+
+    return tuple(
+        _to_scheduled_exam_view_model(exam)
+        for exam in calendar_data_service.exams_for_period(
+            schedule,
+            semester_label,
+            term_label,
+            start_date,
+            end_date,
+        )
     )
 
 

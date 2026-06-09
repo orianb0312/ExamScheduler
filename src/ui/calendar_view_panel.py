@@ -44,7 +44,7 @@ _WEEK_ROW_COUNT = 6
 _MAX_EXAMS_SHOWN_IN_CELL = 2
 _DATE_EDIT_WIDTH = 132
 _DATE_EDIT_HEIGHT = 34
-_INFO_ICON_PATH = Path(__file__).with_name("icons") / "img.png"
+_INFO_ICON_PATH = Path(__file__).with_name("assets") / "img.png"
 _INFO_ICON_SIZE = 18
 _CALENDAR_EDIT_HINT = (
     "To exclude or restore a specific day, click the cube of the desired day."

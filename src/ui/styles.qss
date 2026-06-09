@@ -8,6 +8,7 @@ QWidget {
 
 QLabel {
     color: #f1f3f5;
+    background: transparent;
 }
 
 QLabel#screenTitle {
@@ -356,6 +357,10 @@ QWidget#cardPanel {
     border-radius: 6px;
 }
 
+QWidget#cardPanel QWidget {
+    background: transparent;
+}
+
 QWidget#cardPanel QLabel#sectionTitle,
 QWidget#cardPanel QLabel#sectionTitleLabel {
     font-size: 16px;
@@ -462,4 +467,9 @@ QScrollBar::handle:horizontal {
 QScrollBar::handle:vertical:hover,
 QScrollBar::handle:horizontal:hover {
     background: #737b89;
+}
+
+QFrame#homeImagePanel {
+    background: transparent;
+    margin-top: 6px;
 }

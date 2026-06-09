@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QIntValidator
+from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QIntValidator, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -162,7 +163,7 @@ class InputPanel(QWidget):
 
         content_layout.addWidget(self._build_page_header())
         content_layout.addLayout(self._build_program_configuration_layout())
-        content_layout.addStretch(1)
+        content_layout.addWidget(self._build_home_image(), 1)
 
         scroll_area.setWidget(content)
         return scroll_area
@@ -202,6 +203,10 @@ class InputPanel(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
         return header
+
+    def _build_home_image(self) -> QWidget:
+        image_path = Path(__file__).with_name("assets") / "exam_scheduler_logo.png"
+        return _HomeImagePanel(image_path)
 
     def _build_program_configuration_layout(self) -> QHBoxLayout:
         layout = QHBoxLayout()
@@ -440,3 +445,50 @@ class InputPanel(QWidget):
             button.setObjectName("navTabActive" if label == active_label else "navTab")
             button.style().unpolish(button)
             button.style().polish(button)
+
+
+class _HomeImagePanel(QFrame):
+    """Responsive lower-page image panel that keeps branding polished."""
+
+    _MAX_IMAGE_WIDTH = 1040
+    _MAX_IMAGE_HEIGHT = 320
+
+    def __init__(self, image_path: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("homeImagePanel")
+        self.setMinimumHeight(300)
+        self.setMaximumHeight(360)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        self._pixmap = QPixmap(str(image_path))
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self._pixmap.isNull():
+            return
+
+        target = self.contentsRect()
+        if target.isEmpty():
+            return
+
+        available = QSize(
+            min(target.width(), self._MAX_IMAGE_WIDTH),
+            min(target.height(), self._MAX_IMAGE_HEIGHT),
+        )
+        scaled = self._pixmap.scaled(
+            available,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        destination = QRect(
+            target.x() + max(0, (target.width() - scaled.width()) // 2),
+            target.y() + max(0, (target.height() - scaled.height()) // 2),
+            scaled.width(),
+            scaled.height(),
+        )
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawPixmap(destination, scaled)

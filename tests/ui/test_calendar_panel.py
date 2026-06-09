@@ -681,8 +681,8 @@ def test_calendar_date_fields_edit_selected_period_only(tmp_path, qtbot: QtBot) 
     assert editor.period_selector.currentIndex() == 1
 
 
-def test_calendar_refreshes_when_selected_schedule_changes(tmp_path, qtbot: QtBot) -> None:
-    """Ensure that switching current schedules forces a complete re-render of calendar cells."""
+def test_calendar_page_does_not_show_selected_schedule_exams(tmp_path, qtbot: QtBot) -> None:
+    """The editable Calendar tab shows period availability, not generated results."""
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
     loaded_data = LoadedSchedulerInput(
@@ -709,18 +709,45 @@ def test_calendar_refreshes_when_selected_schedule_changes(tmp_path, qtbot: QtBo
 
     first_cells = _calendar_cells_by_day(window.calendar_view)
     assert len(window.calendar_view.findChildren(_DayCell)) == 31
-    assert "Algorithms (10001)" in first_cells[2].exam_text()
+    assert first_cells[2].exam_text() == ""
 
     # Swap to second schedule configuration containing different courses/dates
     window._set_selected_schedule(
         _schedule_with_exam("Databases", 10002, date(2026, 1, 3))
     )
 
-    # UI must refresh and display the updated dataset accurately
+    # Generated exam labels belong on the output/results calendar only.
     refreshed_cells = _calendar_cells_by_day(window.calendar_view)
     assert len(window.calendar_view.findChildren(_DayCell)) == 31
     assert refreshed_cells[2].exam_text() == ""
-    assert "Databases (10002)" in refreshed_cells[3].exam_text()
+    assert refreshed_cells[3].exam_text() == ""
+
+
+def test_output_page_still_shows_selected_schedule_exams(tmp_path, qtbot: QtBot) -> None:
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    loaded_data = LoadedSchedulerInput(
+        courses=(),
+        exam_periods=(
+            ExamPeriod(
+                semester=Semester.FALL,
+                term=Term.ALEPH,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 5),
+            ),
+        ),
+        programs=(),
+    )
+
+    window.input_panel.notify_data_loaded(loaded_data)
+    window.input_panel.set_data_load_success(0, 1, 0)
+    window.output_view.add_systems([
+        _schedule_with_exam("Algorithms", 10001, date(2026, 1, 2))
+    ])
+
+    cells = _calendar_cells_by_day(window.output_view)
+
+    assert "Algorithms (10001)" in cells[2].exam_text()
 
 
 def test_save_action_writes_current_visible_schedule(
