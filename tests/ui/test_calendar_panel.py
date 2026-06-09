@@ -129,7 +129,7 @@ def test_month_grid_displays_exam_inside_matching_day_cell(qtbot: QtBot) -> None
 
 def test_period_section_header_and_legend(qtbot: QtBot, simple_period: ExamPeriodViewModel) -> None:
     """Check that the period view component properly displays header information and calendar legends."""
-    section = _PeriodSection(simple_period)
+    section = _PeriodSection(0, simple_period)
     qtbot.addWidget(section)
 
     texts = [lbl.text() for lbl in section.findChildren(QLabel)]
@@ -155,6 +155,29 @@ def test_calendar_view_loading_and_layout(qtbot: QtBot, simple_period: ExamPerio
     assert len(view.findChildren(_MonthGrid)) == 2
 
 
+def test_calendar_view_explains_day_toggle_interaction(qtbot: QtBot) -> None:
+    """Keep the edit hint visible where users choose days on the calendar."""
+    view = CalendarView()
+    qtbot.addWidget(view)
+    editor = view.period_date_editor
+
+    assert "click the cube of the desired day" in editor._instruction_label.text()
+    assert editor._instruction_icon_label.pixmap() is not None
+    assert not editor._instruction_icon_label.pixmap().isNull()
+
+
+def test_calendar_date_fields_have_room_to_breathe(qtbot: QtBot) -> None:
+    """Keep the date boxes large enough to read and click comfortably."""
+    view = CalendarView()
+    qtbot.addWidget(view)
+
+    editor = view.period_date_editor
+    assert editor.start_date_edit.minimumWidth() >= 132
+    assert editor.end_date_edit.minimumWidth() >= 132
+    assert editor.start_date_edit.minimumHeight() >= 34
+    assert editor.end_date_edit.minimumHeight() >= 34
+
+
 def test_main_window_keeps_calendar_and_output_screens_separate(tmp_path, qtbot: QtBot) -> None:
     """Ensure MainWindow manages separate instances for editing (CalendarView) and viewing (OutputView)."""
     window = MainWindow(project_root=tmp_path)
@@ -163,6 +186,67 @@ def test_main_window_keeps_calendar_and_output_screens_separate(tmp_path, qtbot:
     assert isinstance(window.calendar_view, CalendarView)
     assert isinstance(window.output_view, OutputView)
     assert window.calendar_view is not window.output_view
+    assert window.calendar_view is window.input_panel.calendar_view
+
+
+def test_calendar_tab_stays_inside_fixed_input_menu(tmp_path, qtbot: QtBot) -> None:
+    """Calendar navigation should keep the top input menu in place."""
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    loaded_data = LoadedSchedulerInput(
+        courses=(),
+        exam_periods=(
+            ExamPeriod(
+                semester=Semester.FALL,
+                term=Term.ALEPH,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 3),
+            ),
+        ),
+        programs=(),
+    )
+
+    window.input_panel.notify_data_loaded(loaded_data)
+    window.input_panel.set_data_load_success(0, 1, 0)
+    qtbot.mouseClick(window.input_panel.view_calendar_button, Qt.MouseButton.LeftButton)
+
+    assert window._stack.currentWidget() is window.input_panel
+    assert window.input_panel.is_calendar_page_visible()
+    assert window.input_panel.nav_tabs["Calendar"].objectName() == "navTabActive"
+    assert window.input_panel.nav_tabs["Programs"].isEnabled()
+    assert window.calendar_view._back_button.isHidden()
+
+    qtbot.mouseClick(window.input_panel.nav_tabs["Programs"], Qt.MouseButton.LeftButton)
+
+    assert window._stack.currentWidget() is window.input_panel
+    assert not window.input_panel.is_calendar_page_visible()
+    assert window.input_panel.nav_tabs["Programs"].objectName() == "navTabActive"
+
+
+def test_output_calendar_cells_are_preview_only(qtbot: QtBot) -> None:
+    """Ensure generated schedule calendars do not act like the editable Calendar tab."""
+    view = OutputView()
+    qtbot.addWidget(view)
+    clicked_days: list[tuple[int, date]] = []
+    period = ExamPeriodViewModel(
+        semester_label="FALL",
+        term_label="Aleph",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 3),
+    )
+
+    view.calendar_body.day_clicked.connect(
+        lambda period_index, day: clicked_days.append((period_index, day))
+    )
+    view.set_schedule_calendar((period,))
+
+    cells = _calendar_cells_by_day(view)
+    assert "#244d3a" in cells[2].styleSheet()
+
+    # Output calendars are previews; day changes belong to the Calendar screen.
+    qtbot.mouseClick(cells[2], Qt.MouseButton.LeftButton)
+
+    assert clicked_days == []
 
 
 def test_generate_schedules_starts_process_runner_boundary(tmp_path, qtbot: QtBot) -> None:
@@ -388,8 +472,8 @@ def test_output_view_page_ruler_keeps_large_numbers_readable(qtbot: QtBot) -> No
         assert button.minimumWidth() >= button.fontMetrics().horizontalAdvance(button.text())
 
 
-def test_calendar_button_opens_day_editor_and_updates_status(tmp_path, qtbot: QtBot) -> None:
-    """Test the complete UI workflow of loading data, launching day editor, and toggling exclusions."""
+def test_calendar_cell_click_toggles_day_status(tmp_path, qtbot: QtBot) -> None:
+    """Test the complete UI workflow of opening the calendar and toggling cells directly."""
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
     loaded_data = LoadedSchedulerInput(
@@ -413,29 +497,61 @@ def test_calendar_button_opens_day_editor_and_updates_status(tmp_path, qtbot: Qt
     # Click view calendar to switch view screens
     qtbot.mouseClick(window.input_panel.view_calendar_button, Qt.MouseButton.LeftButton)
 
-    # Verify correct stack navigation and side editor activation
-    assert window._stack.currentWidget() is window.calendar_view
-    assert not window.calendar_view.day_editor.isHidden()
-    assert window.calendar_view.day_editor.day_table.rowCount() == 3
+    # Verify correct stack navigation and direct calendar-cell editing.
+    assert window._stack.currentWidget() is window.input_panel
+    assert window.input_panel.is_calendar_page_visible()
+    cells = _calendar_cells_by_day(window.calendar_view)
+    assert "#244d3a" in cells[2].styleSheet()
 
-    # Select a row and simulate hitting the 'Exclude' button
-    window.calendar_view.day_editor.day_table.selectRow(1)
-    qtbot.mouseClick(
-        window.calendar_view.day_editor.exclude_button,
-        Qt.MouseButton.LeftButton,
+    qtbot.mouseClick(cells[2], Qt.MouseButton.LeftButton)
+
+    assert not window.input_panel.exam_periods[0].is_date_valid(date(2026, 1, 2))
+    cells = _calendar_cells_by_day(window.calendar_view)
+    assert "#5a2f3c" in cells[2].styleSheet()
+
+    qtbot.mouseClick(cells[2], Qt.MouseButton.LeftButton)
+
+    assert window.input_panel.exam_periods[0].is_date_valid(date(2026, 1, 2))
+    cells = _calendar_cells_by_day(window.calendar_view)
+    assert "#244d3a" in cells[2].styleSheet()
+
+
+def test_calendar_day_toggle_repaints_without_rebuilding_calendar(tmp_path, qtbot: QtBot) -> None:
+    """A day click should flip the cube colour without rebuilding the calendar widget tree."""
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    loaded_data = LoadedSchedulerInput(
+        courses=(),
+        exam_periods=(
+            ExamPeriod(
+                semester=Semester.FALL,
+                term=Term.ALEPH,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 31),
+            ),
+        ),
+        programs=(),
     )
-    assert window.calendar_view.day_editor.day_table.item(1, 1).text() == "Excluded"
 
-    # Simulate hitting the 'Restore' button to reverse the exclusion
-    qtbot.mouseClick(
-        window.calendar_view.day_editor.restore_button,
-        Qt.MouseButton.LeftButton,
-    )
-    assert window.calendar_view.day_editor.day_table.item(1, 1).text() == "Available"
+    window.input_panel.notify_data_loaded(loaded_data)
+    window.input_panel.set_data_load_success(0, 1, 0)
+    qtbot.mouseClick(window.input_panel.view_calendar_button, Qt.MouseButton.LeftButton)
+
+    cells = _calendar_cells_by_day(window.calendar_view)
+    original_cell = cells[2]
+    original_grids = window.calendar_view.findChildren(_MonthGrid)
+
+    # The old behaviour rebuilt the whole calendar here, which made the saved cell stale.
+    qtbot.mouseClick(original_cell, Qt.MouseButton.LeftButton)
+
+    assert not window.input_panel.exam_periods[0].is_date_valid(date(2026, 1, 2))
+    assert "#5a2f3c" in original_cell.styleSheet()
+    assert _calendar_cells_by_day(window.calendar_view)[2] is original_cell
+    assert window.calendar_view.findChildren(_MonthGrid) == original_grids
 
 
-def test_calendar_date_fields_update_period_range(tmp_path, qtbot: QtBot) -> None:
-    """Verify that shifting start or end date widgets reactively reshapes data structures and tables."""
+def test_calendar_ignores_clicks_outside_period(tmp_path, qtbot: QtBot) -> None:
+    """Verify that only green/red in-period cells can toggle exclusion state."""
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
     loaded_data = LoadedSchedulerInput(
@@ -455,17 +571,83 @@ def test_calendar_date_fields_update_period_range(tmp_path, qtbot: QtBot) -> Non
     window.input_panel.set_data_load_success(0, 1, 0)
     qtbot.mouseClick(window.input_panel.view_calendar_button, Qt.MouseButton.LeftButton)
 
-    # Changing the calendar-screen date fields should update the shared scheduler state.
-    window.calendar_view.day_editor.end_date_edit.setDate(QDate(2026, 1, 4))
+    cells = _calendar_cells_by_day(window.calendar_view)
+    assert "#2b303a" in cells[4].styleSheet()
+
+    qtbot.mouseClick(cells[4], Qt.MouseButton.LeftButton)
+
+    assert window.input_panel.exam_periods[0].exclusions == []
+
+
+def test_calendar_date_fields_update_period_range(tmp_path, qtbot: QtBot) -> None:
+    """Verify that Calendar-screen date fields reshape the selected exam period."""
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    loaded_data = LoadedSchedulerInput(
+        courses=(),
+        exam_periods=(
+            ExamPeriod(
+                semester=Semester.FALL,
+                term=Term.ALEPH,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 3),
+            ),
+        ),
+        programs=(),
+    )
+
+    window.input_panel.notify_data_loaded(loaded_data)
+    window.input_panel.set_data_load_success(0, 1, 0)
+    qtbot.mouseClick(window.input_panel.view_calendar_button, Qt.MouseButton.LeftButton)
+
+    editor = window.calendar_view.period_date_editor
+    editor.end_date_edit.setDate(QDate(2026, 1, 4))
 
     assert window.input_panel.exam_periods[0].end_date == date(2026, 1, 4)
-    assert window.calendar_view.day_editor.day_table.rowCount() == 4
+    assert "#244d3a" in _calendar_cells_by_day(window.calendar_view)[4].styleSheet()
 
-    # Push forward the starting boundary date
-    window.calendar_view.day_editor.start_date_edit.setDate(QDate(2026, 1, 2))
+    editor.start_date_edit.setDate(QDate(2026, 1, 2))
 
     assert window.input_panel.exam_periods[0].start_date == date(2026, 1, 2)
-    assert window.calendar_view.day_editor.day_table.rowCount() == 3
+    cells = _calendar_cells_by_day(window.calendar_view)
+    assert "#2b303a" in cells[1].styleSheet()
+    assert "#244d3a" in cells[2].styleSheet()
+
+
+def test_calendar_date_fields_edit_selected_period_only(tmp_path, qtbot: QtBot) -> None:
+    """Keep boundary edits scoped to the semester/term chosen in the selector."""
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    loaded_data = LoadedSchedulerInput(
+        courses=(),
+        exam_periods=(
+            ExamPeriod(
+                semester=Semester.FALL,
+                term=Term.ALEPH,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 3),
+            ),
+            ExamPeriod(
+                semester=Semester.SPRING,
+                term=Term.BET,
+                start_date=date(2026, 5, 1),
+                end_date=date(2026, 5, 3),
+            ),
+        ),
+        programs=(),
+    )
+
+    window.input_panel.notify_data_loaded(loaded_data)
+    window.input_panel.set_data_load_success(0, 2, 0)
+    qtbot.mouseClick(window.input_panel.view_calendar_button, Qt.MouseButton.LeftButton)
+
+    editor = window.calendar_view.period_date_editor
+    editor.period_selector.setCurrentIndex(1)
+    editor.start_date_edit.setDate(QDate(2026, 5, 2))
+
+    assert window.input_panel.exam_periods[0].start_date == date(2026, 1, 1)
+    assert window.input_panel.exam_periods[1].start_date == date(2026, 5, 2)
+    assert editor.period_selector.currentIndex() == 1
 
 
 def test_calendar_refreshes_when_selected_schedule_changes(tmp_path, qtbot: QtBot) -> None:

@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import calendar
 from datetime import date
+from pathlib import Path
 from typing import Sequence
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QDate, Qt, pyqtSignal
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
+    QComboBox,
+    QDateEdit,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -19,7 +23,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.ui.exam_calendar_day_panel import ExamCalendarDayPanel
 from src.ui.view_models import ExamPeriodViewModel, ScheduledExamViewModel
 
 _COLOR_VALID = "#244d3a"
@@ -39,6 +42,13 @@ _DAY_CELL_HEIGHT = 92
 _MONTH_GRID_COLUMNS = 2
 _WEEK_ROW_COUNT = 6
 _MAX_EXAMS_SHOWN_IN_CELL = 2
+_DATE_EDIT_WIDTH = 132
+_DATE_EDIT_HEIGHT = 34
+_INFO_ICON_PATH = Path(__file__).with_name("icons") / "img.png"
+_INFO_ICON_SIZE = 18
+_CALENDAR_EDIT_HINT = (
+    "To exclude or restore a specific day, click the cube of the desired day."
+)
 
 
 class _EmptyDayCell(QFrame):
@@ -59,11 +69,15 @@ class _EmptyDayCell(QFrame):
 class _DayCell(QFrame):
     """Single cell in the calendar grid."""
 
+    clicked = pyqtSignal(object)
+
     def __init__(
         self,
         day_number: int | None,
         bg_color: str,
         exams: Sequence[ScheduledExamViewModel] = (),
+        day_date: date | None = None,
+        is_togglable: bool = False,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -71,7 +85,12 @@ class _DayCell(QFrame):
         self.setMinimumSize(_DAY_CELL_WIDTH, _DAY_CELL_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._day_number = day_number
+        # Only real, editable dates get stored here; filler cells and output previews stay passive.
+        self._day_date = day_date
+        self._is_togglable = is_togglable
         self._exams = tuple(exams)
+        if self._is_togglable:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._apply_style(bg_color)
         self._build()
 
@@ -81,6 +100,11 @@ class _DayCell(QFrame):
     def exam_text(self) -> str:
         compact = len(self._exams) > 1
         return "\n".join(_exam_cell_text(exam, compact=compact) for exam in self._exams)
+
+    def set_exclusion_state(self, is_excluded: bool) -> None:
+        # Toggling availability should only repaint the square; exam labels stay untouched.
+        color = _COLOR_EXCLUDED if is_excluded else _COLOR_VALID
+        self._apply_style(color)
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -121,6 +145,19 @@ class _DayCell(QFrame):
 
         layout.addStretch()
 
+    def mouseReleaseEvent(self, event) -> None:
+        # Treat a normal left-click as a request, then let MainWindow decide exclude vs restore.
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._is_togglable
+            and self._day_date is not None
+        ):
+            self.clicked.emit(self._day_date)
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
+
     def _apply_style(self, bg_color: str) -> None:
         border_color = _border_for_cell(bg_color)
         text_color = _COLOR_MUTED_TEXT if bg_color == _COLOR_OUT_OF_PERIOD else _COLOR_CELL_TEXT
@@ -141,13 +178,24 @@ class _MonthGrid(QWidget):
     """
 
     _DAY_HEADERS = ("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa")
+    day_clicked = pyqtSignal(object)
 
-    def __init__(self, year: int, month: int, period: ExamPeriodViewModel, parent=None) -> None:
+    def __init__(
+        self,
+        year: int,
+        month: int,
+        period: ExamPeriodViewModel,
+        is_editable: bool = False,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("calendarMonthGrid")
         self._year = year
         self._month = month
         self._period = period
+        self._is_editable = is_editable
+        # Editable cells are kept by date so one click can repaint one cell without rebuilding the month.
+        self._day_cells_by_date: dict[date, _DayCell] = {}
         self._build()
         # Six week rows plus header/title spacing keeps adjacent month grids aligned.
         self.setMinimumHeight(6 * _DAY_CELL_HEIGHT + 22 + 28 + 24)
@@ -194,7 +242,19 @@ class _MonthGrid(QWidget):
 
         for day in range(1, days_in_month + 1):
             d = date(self._year, self._month, day)
-            cell = _DayCell(day, self._color_for(d), self._period.exams_on(d))
+            is_in_period = self._period.is_date_in_period(d)
+            # The same month grid is reused by output previews, so editability stays opt-in.
+            is_togglable = self._is_editable and is_in_period
+            cell = _DayCell(
+                day,
+                self._color_for(d),
+                self._period.exams_on(d),
+                day_date=d if is_togglable else None,
+                is_togglable=is_togglable,
+            )
+            if is_togglable:
+                self._day_cells_by_date[d] = cell
+                cell.clicked.connect(self.day_clicked.emit)
             grid.addWidget(cell, row, col)
             col += 1
             if col == 7:
@@ -213,10 +273,20 @@ class _MonthGrid(QWidget):
 
         root.addLayout(grid)
 
+    def update_day_status(self, day: date, is_excluded: bool) -> bool:
+        # Only editable, in-period days are indexed here; everything else should stay passive.
+        cell = self._day_cells_by_date.get(day)
+        if cell is None:
+            return False
+
+        cell.set_exclusion_state(is_excluded)
+        return True
+
     def _color_for(self, d: date) -> str:
-        if d == date.today():
-            return _COLOR_TODAY
         if not self._period.is_date_in_period(d):
+            # Inside a period, green/red must win so the toggle state is always visible.
+            if d == date.today():
+                return _COLOR_TODAY
             return _COLOR_OUT_OF_PERIOD
         if self._period.is_date_excluded(d):
             return _COLOR_EXCLUDED
@@ -226,11 +296,20 @@ class _MonthGrid(QWidget):
 class _PeriodCalendar(QWidget):
     """Renders all months that overlap with a single ExamPeriodViewModel."""
 
-    def __init__(self, period: ExamPeriodViewModel, parent=None) -> None:
+    day_clicked = pyqtSignal(object)
+
+    def __init__(
+        self,
+        period: ExamPeriodViewModel,
+        is_editable: bool = False,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("periodCalendar")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._period = period
+        self._is_editable = is_editable
+        self._month_grids: list[_MonthGrid] = []
         self._build()
 
     def _build(self) -> None:
@@ -241,14 +320,24 @@ class _PeriodCalendar(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         for index, (year, month) in enumerate(self._months_in_range()):
-            grid = _MonthGrid(year, month, self._period)
+            grid = _MonthGrid(year, month, self._period, is_editable=self._is_editable)
             grid.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            # Bubble the date upward without teaching the month grid about period indexes.
+            grid.day_clicked.connect(self.day_clicked.emit)
+            self._month_grids.append(grid)
             row = index // _MONTH_GRID_COLUMNS
             column = index % _MONTH_GRID_COLUMNS
             layout.addWidget(grid, row, column)
 
         for column in range(_MONTH_GRID_COLUMNS):
             layout.setColumnStretch(column, 1)
+
+    def update_day_status(self, day: date, is_excluded: bool) -> bool:
+        # A period may span several months, so ask each month until the matching square is found.
+        for grid in self._month_grids:
+            if grid.update_day_status(day, is_excluded):
+                return True
+        return False
 
     def _months_in_range(self) -> list[tuple[int, int]]:
         start = self._period.start_date
@@ -267,11 +356,21 @@ class _PeriodCalendar(QWidget):
 class _PeriodSection(QWidget):
     """Header + legend + month grids for a single ExamPeriodViewModel."""
 
-    def __init__(self, period: ExamPeriodViewModel, parent=None) -> None:
+    day_clicked = pyqtSignal(int, object)
+
+    def __init__(
+        self,
+        period_index: int,
+        period: ExamPeriodViewModel,
+        is_editable: bool = False,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("calendarPeriodSection")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._period_index = period_index
         self._period = period
+        self._is_editable = is_editable
         self._build()
 
     def _build(self) -> None:
@@ -288,12 +387,20 @@ class _PeriodSection(QWidget):
         root.addWidget(header)
         root.addWidget(self._build_legend())
 
-        root.addWidget(_PeriodCalendar(self._period))
+        self._calendar_widget = _PeriodCalendar(self._period, is_editable=self._is_editable)
+        self._calendar_widget.day_clicked.connect(
+            # Add the period index at this boundary; lower widgets only know about dates.
+            lambda day: self.day_clicked.emit(self._period_index, day)
+        )
+        root.addWidget(self._calendar_widget)
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setObjectName("calendarDivider")
         root.addWidget(line)
+
+    def update_day_status(self, day: date, is_excluded: bool) -> bool:
+        return self._calendar_widget.update_day_status(day, is_excluded)
 
     @staticmethod
     def _build_legend() -> QWidget:
@@ -327,9 +434,18 @@ class _PeriodSection(QWidget):
 class CalendarPeriodList(QWidget):
     """Reusable calendar body for screens that need to show exam periods."""
 
-    def __init__(self, empty_text: str, parent=None) -> None:
+    day_clicked = pyqtSignal(int, object)
+
+    def __init__(
+        self,
+        empty_text: str,
+        is_editable: bool = False,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
+        self._is_editable = is_editable
         self._empty_text = empty_text
+        self._period_sections: dict[int, _PeriodSection] = {}
         self._content_layout = QVBoxLayout(self)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
         self._content_layout.setSpacing(16)
@@ -361,12 +477,27 @@ class CalendarPeriodList(QWidget):
             self._content_layout.addStretch(1)
             return
 
-        for period in periods:
-            self._content_layout.addWidget(_PeriodSection(period))
+        for period_index, period in enumerate(periods):
+            section = _PeriodSection(
+                period_index,
+                period,
+                is_editable=self._is_editable,
+            )
+            section.day_clicked.connect(self.day_clicked.emit)
+            self._period_sections[period_index] = section
+            self._content_layout.addWidget(section)
 
         self._content_layout.addStretch()
 
+    def update_day_status(self, period_index: int, day: date, is_excluded: bool) -> bool:
+        # Period indexes come from the currently loaded list, the same list the user is seeing.
+        section = self._period_sections.get(period_index)
+        if section is None:
+            return False
+        return section.update_day_status(day, is_excluded)
+
     def _clear_content(self) -> None:
+        self._period_sections.clear()
         while self._content_layout.count():
             item = self._content_layout.takeAt(0)
             if item.widget():
@@ -375,6 +506,155 @@ class CalendarPeriodList(QWidget):
                 widget.hide()
                 widget.setParent(None)
                 widget.deleteLater()
+
+
+class _PeriodDateRangeEditor(QWidget):
+    """Small editor for the loaded exam-period boundaries."""
+
+    period_dates_changed = pyqtSignal(int, object, object)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._periods: tuple[ExamPeriodViewModel, ...] = ()
+        self._syncing_date_fields = False
+
+        self.title_label = QLabel("Exam Period Dates")
+        self.title_label.setObjectName("sectionTitleLabel")
+        self.period_selector = QComboBox()
+        self.period_selector.setObjectName("examPeriodSelector")
+        self.start_date_edit = _date_edit("periodStartDateEdit")
+        self.end_date_edit = _date_edit("periodEndDateEdit")
+
+        self._build_ui()
+        self._connect_signals()
+        self._set_enabled(False)
+
+    def set_periods(
+        self,
+        periods: Sequence[ExamPeriodViewModel],
+        selected_period_index: int | None = None,
+    ) -> None:
+        self._periods = tuple(periods)
+        self._populate_period_selector(selected_period_index)
+        self._sync_date_fields(self._current_period())
+        self._set_enabled(bool(self._periods))
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.addWidget(self.title_label)
+        header.addWidget(self._build_instruction_panel(), 1)
+        header.addStretch(1)
+        header.addWidget(self.period_selector)
+        root.addLayout(header)
+
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.addWidget(QLabel("Start Date"))
+        controls.addWidget(self.start_date_edit)
+        controls.addWidget(QLabel("End Date"))
+        controls.addWidget(self.end_date_edit)
+        controls.addStretch(1)
+        root.addLayout(controls)
+
+    def _connect_signals(self) -> None:
+        self.period_selector.currentIndexChanged.connect(
+            lambda _index: self._sync_date_fields(self._current_period())
+        )
+        self.start_date_edit.dateChanged.connect(lambda _date: self._emit_dates_changed())
+        self.end_date_edit.dateChanged.connect(lambda _date: self._emit_dates_changed())
+
+    def _populate_period_selector(self, selected_period_index: int | None) -> None:
+        self.period_selector.blockSignals(True)
+        try:
+            self.period_selector.clear()
+            for index, period in enumerate(self._periods):
+                self.period_selector.addItem(_period_label(period), index)
+
+            if not self._periods:
+                return
+
+            target_index = selected_period_index or 0
+            if target_index < 0 or target_index >= len(self._periods):
+                target_index = 0
+            self.period_selector.setCurrentIndex(target_index)
+        finally:
+            self.period_selector.blockSignals(False)
+
+    def _sync_date_fields(self, period: ExamPeriodViewModel | None) -> None:
+        self._syncing_date_fields = True
+        try:
+            if period is not None:
+                self.start_date_edit.setDate(_date_to_qdate(period.start_date))
+                self.end_date_edit.setDate(_date_to_qdate(period.end_date))
+        finally:
+            self._syncing_date_fields = False
+
+    def _emit_dates_changed(self) -> None:
+        if self._syncing_date_fields:
+            return
+
+        period_index = self.period_selector.currentData()
+        if period_index is None:
+            return
+
+        # Keep Qt's date type inside the widget and send plain Python dates outward.
+        self.period_dates_changed.emit(
+            int(period_index),
+            _qdate_to_date(self.start_date_edit.date()),
+            _qdate_to_date(self.end_date_edit.date()),
+        )
+
+    def _current_period(self) -> ExamPeriodViewModel | None:
+        period_index = self.period_selector.currentData()
+        if period_index is None:
+            return None
+        try:
+            return self._periods[int(period_index)]
+        except IndexError:
+            return None
+
+    def _set_enabled(self, enabled: bool) -> None:
+        self.period_selector.setEnabled(enabled)
+        self.start_date_edit.setEnabled(enabled)
+        self.end_date_edit.setEnabled(enabled)
+
+    def _build_instruction_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setObjectName("calendarInstructionPanel")
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(8)
+
+        self._instruction_icon_label = QLabel()
+        self._instruction_icon_label.setObjectName("calendarInstructionIcon")
+        self._instruction_icon_label.setFixedSize(24, 24)
+        self._instruction_icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        pixmap = QPixmap(str(_INFO_ICON_PATH))
+        if pixmap.isNull():
+            self._instruction_icon_label.setText("i")
+        else:
+            self._instruction_icon_label.setPixmap(
+                pixmap.scaled(
+                    _INFO_ICON_SIZE,
+                    _INFO_ICON_SIZE,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+
+        self._instruction_label = QLabel(_CALENDAR_EDIT_HINT)
+        self._instruction_label.setObjectName("calendarInstructionLabel")
+        self._instruction_label.setWordWrap(False)
+
+        layout.addWidget(self._instruction_icon_label)
+        layout.addWidget(self._instruction_label, 1)
+        return panel
 
 
 class CalendarView(QWidget):
@@ -388,36 +668,24 @@ class CalendarView(QWidget):
     """
 
     back_requested = pyqtSignal()
-    exclude_day_requested = pyqtSignal(int, object)
-    restore_day_requested = pyqtSignal(int, object)
+    day_clicked = pyqtSignal(int, object)
     period_dates_changed = pyqtSignal(int, object, object)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, show_back_button: bool = True) -> None:
         super().__init__(parent)
+        self._show_back_button = show_back_button
         self.setObjectName("calendarView")
         self._build_ui()
 
     def load_exam_periods(
         self,
         periods: Sequence[ExamPeriodViewModel],
-        editable_periods: Sequence[object] | None = None,
         selected_period_index: int | None = None,
-        selected_day=None,
     ) -> None:
         """Populate (or refresh) the calendar with the given view models."""
-        if editable_periods:
-            self._day_editor_card.setVisible(True)
-            self.day_editor.setVisible(True)
-            self.day_editor.set_periods(
-                editable_periods,
-                selected_period_index=selected_period_index,
-                selected_day=selected_day,
-            )
-        else:
-            self._day_editor_card.setVisible(False)
-            self.day_editor.setVisible(False)
-
+        self.period_date_editor.set_periods(periods, selected_period_index)
         self._calendar_periods.load_periods(periods)
+        # Full reloads are for changed ranges or schedules; simple day toggles repaint in place.
         self._scroll_area.verticalScrollBar().setValue(0)
 
         if not periods:
@@ -428,6 +696,9 @@ class CalendarView(QWidget):
         self._status_label.setText(
             f"{total} exam period{'s' if total != 1 else ''} loaded"
         )
+
+    def update_day_status(self, period_index: int, day: date, is_excluded: bool) -> bool:
+        return self._calendar_periods.update_day_status(period_index, day, is_excluded)
 
     def clear(self) -> None:
         self._calendar_periods.load_periods(())
@@ -446,7 +717,10 @@ class CalendarView(QWidget):
         self._back_button.clicked.connect(self.back_requested.emit)
         header.addWidget(title)
         header.addStretch()
-        header.addWidget(self._back_button)
+        if self._show_back_button:
+            header.addWidget(self._back_button)
+        else:
+            self._back_button.setVisible(False)
         root.addLayout(header)
 
         self._status_label = QLabel("Ready")
@@ -454,24 +728,11 @@ class CalendarView(QWidget):
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         root.addWidget(self._status_label)
 
-        self.day_editor = ExamCalendarDayPanel()
-        self.day_editor.setVisible(False)
-        self.day_editor.exclude_day_requested.connect(
-            lambda period_index, day: self.exclude_day_requested.emit(period_index, day)
+        self.period_date_editor = _PeriodDateRangeEditor()
+        self.period_date_editor.period_dates_changed.connect(
+            self.period_dates_changed.emit
         )
-        self.day_editor.restore_day_requested.connect(
-            lambda period_index, day: self.restore_day_requested.emit(period_index, day)
-        )
-        self.day_editor.period_dates_changed.connect(
-            lambda period_index, start_date, end_date: self.period_dates_changed.emit(
-                period_index,
-                start_date,
-                end_date,
-            )
-        )
-        self._day_editor_card = _calendar_card(self.day_editor)
-        self._day_editor_card.setVisible(False)
-        root.addWidget(self._day_editor_card)
+        root.addWidget(_calendar_card(self.period_date_editor))
 
         self._scroll_area = QScrollArea()
         self._scroll_area.setObjectName("calendarScroll")
@@ -479,8 +740,13 @@ class CalendarView(QWidget):
         self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        self._calendar_periods = CalendarPeriodList("No exam periods loaded yet.")
+        self._calendar_periods = CalendarPeriodList(
+            "No exam periods loaded yet.",
+            is_editable=True,
+        )
         self._calendar_periods.setObjectName("calendarContent")
+        # CalendarView exposes one screen-level signal instead of leaking the widget tree.
+        self._calendar_periods.day_clicked.connect(self.day_clicked.emit)
         self._scroll_area.setWidget(self._calendar_periods)
         root.addWidget(self._scroll_area)
 
@@ -532,3 +798,29 @@ def _exam_tooltip(exam: ScheduledExamViewModel) -> str:
     if exam.requirement_types:
         lines.append("Requirements: " + ", ".join(exam.requirement_types))
     return "\n".join(lines)
+
+
+def _period_label(period: ExamPeriodViewModel) -> str:
+    return (
+        f"{period.semester_label} / {period.term_label} "
+        f"({period.start_date:%d-%m-%Y} - {period.end_date:%d-%m-%Y})"
+    )
+
+
+def _date_edit(object_name: str) -> QDateEdit:
+    edit = QDateEdit()
+    edit.setObjectName(object_name)
+    edit.setCalendarPopup(True)
+    edit.setDisplayFormat("dd-MM-yyyy")
+    edit.setMinimumWidth(_DATE_EDIT_WIDTH)
+    edit.setMinimumHeight(_DATE_EDIT_HEIGHT)
+    return edit
+
+
+def _date_to_qdate(value: date) -> QDate:
+    return QDate(value.year, value.month, value.day)
+
+
+def _qdate_to_date(value: QDate) -> date:
+    return date(value.year(), value.month(), value.day())
+

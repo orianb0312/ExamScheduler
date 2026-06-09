@@ -380,6 +380,28 @@ QLabel#calendarLegendLabel {
     color: #c6ccd5;
 }
 
+QWidget#calendarInstructionPanel {
+    color: #d7e8ff;
+    background: #26344f;
+    border: 1px solid #496896;
+    border-radius: 4px;
+}
+
+QLabel#calendarInstructionLabel {
+    color: #d7e8ff;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+QLabel#calendarInstructionIcon {
+    color: #26344f;
+    background: #d7e8ff;
+    border: 1px solid #9fc2ef;
+    border-radius: 4px;
+    font-weight: 700;
+}
+
 QLabel#calendarPlaceholderLabel {
     color: #dcecff;
     background: #24324b;

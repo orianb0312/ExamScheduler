@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -25,7 +26,7 @@ from src.services.cli_run_service import (
 )
 from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.scheduler_input_state import SchedulerInputState
-from src.ui.exam_calendar_day_panel import ExamCalendarDayPanel
+from src.ui.calendar_view_panel import CalendarView
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.program_selection_widget import MAX_SELECTED_PROGRAMS, ProgramSelectionWidget
 from src.ui.selected_programs_panel import SelectedProgramsPanel
@@ -60,13 +61,14 @@ class InputPanel(QWidget):
         self.file_loader.set_courses_path(self.course_file_edit.text())
         self.file_loader.set_exam_dates_path(self.dates_file_edit.text())
         self.nav_tabs = {
-            "Dashboard": self._nav_button("Dashboard"),
+            "Dashboard": self._nav_button("Dashboard", enabled=False),
             "Programs": self._nav_button("Programs", active=True),
-            "Courses": self._nav_button("Courses"),
-            "Calendar": self._nav_button("Calendar"),
-            "Schedules": self._nav_button("Schedules"),
+            "Courses": self._nav_button("Courses", enabled=False),
+            "Calendar": self._nav_button("Calendar", enabled=False),
+            "Schedules": self._nav_button("Schedules", enabled=False),
         }
         self.view_calendar_button = self.nav_tabs["Calendar"]
+        self.calendar_view = CalendarView(show_back_button=False)
         self.period_indexes_edit = QLineEdit()
         self.period_indexes_edit.setPlaceholderText("Optional, e.g. 0,1")
 
@@ -90,7 +92,6 @@ class InputPanel(QWidget):
         self.program_selection_message.setObjectName("programSelectionMessage")
         self.program_selection_message.setVisible(False)
 
-        self.calendar_day_panel = ExamCalendarDayPanel()
         self.selected_programs_panel = SelectedProgramsPanel()
 
         self._build_layout()
@@ -107,6 +108,17 @@ class InputPanel(QWidget):
     def set_exam_calendar_available(self, available: bool) -> None:
         self.view_calendar_button.setEnabled(available)
 
+    def show_program_page(self) -> None:
+        self._content_stack.setCurrentWidget(self._program_page)
+        self._set_active_nav("Programs")
+
+    def show_calendar_page(self) -> None:
+        self._content_stack.setCurrentWidget(self.calendar_view)
+        self._set_active_nav("Calendar")
+
+    def is_calendar_page_visible(self) -> bool:
+        return self._content_stack.currentWidget() is self.calendar_view
+
     def _build_layout(self) -> None:
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -114,6 +126,23 @@ class InputPanel(QWidget):
 
         root_layout.addWidget(self._build_top_navigation())
 
+        self._content_stack = QStackedWidget()
+        self._program_page = self._build_program_page()
+        self._content_stack.addWidget(self._program_page)
+        # Calendar lives inside the input shell so the top menu does not jump between pages.
+        self._content_stack.addWidget(self.calendar_view)
+        root_layout.addWidget(self._content_stack, 1)
+
+        self.run_button.setFixedWidth(220)
+        self.run_button.setMinimumHeight(36)
+
+        run_action_layout = QHBoxLayout()
+        run_action_layout.setContentsMargins(28, 14, 28, 18)
+        run_action_layout.addStretch(1)
+        run_action_layout.addWidget(self.run_button)
+        root_layout.addLayout(run_action_layout)
+
+    def _build_program_page(self) -> QScrollArea:
         # Keep the main content scrollable so the submit button stays visible.
         scroll_area = QScrollArea()
         scroll_area.setObjectName("inputPanelScrollArea")
@@ -127,20 +156,10 @@ class InputPanel(QWidget):
 
         content_layout.addWidget(self._build_page_header())
         content_layout.addLayout(self._build_program_configuration_layout())
-        content_layout.addWidget(self._section_card(self.calendar_day_panel))
         content_layout.addStretch(1)
 
         scroll_area.setWidget(content)
-        root_layout.addWidget(scroll_area, 1)
-
-        self.run_button.setFixedWidth(220)
-        self.run_button.setMinimumHeight(36)
-
-        run_action_layout = QHBoxLayout()
-        run_action_layout.setContentsMargins(28, 14, 28, 18)
-        run_action_layout.addStretch(1)
-        run_action_layout.addWidget(self.run_button)
-        root_layout.addLayout(run_action_layout)
+        return scroll_area
 
     def _build_top_navigation(self) -> QWidget:
         # This is visual navigation for the new shell; routing can be added later.
@@ -247,13 +266,11 @@ class InputPanel(QWidget):
         self.program_selector.limitMessageChanged.connect(self._set_program_selection_message)
         self.run_button.clicked.connect(self._emit_run_requested)
         self.cancel_button.clicked.connect(self.cancel_requested.emit)
+        self.nav_tabs["Programs"].clicked.connect(self.show_program_page)
         self.view_calendar_button.clicked.connect(self.view_calendar_requested.emit)
         self.selected_programs_panel.program_detail_requested.connect(
             self._open_program_courses
         )
-        self.calendar_day_panel.exclude_day_requested.connect(self._exclude_calendar_day)
-        self.calendar_day_panel.restore_day_requested.connect(self._restore_calendar_day)
-        self.calendar_day_panel.period_dates_changed.connect(self._update_period_dates)
 
     def set_data_load_success(
             self,
@@ -274,7 +291,6 @@ class InputPanel(QWidget):
         self.selected_programs_vm.update_available_programs(loaded_data)
         self._scheduler_input_state.set_courses(loaded_data.courses)
         self._scheduler_input_state.set_exam_periods(loaded_data.exam_periods)
-        self.calendar_day_panel.set_periods(self._scheduler_input_state.exam_periods)
         self.set_exam_calendar_available(bool(self._scheduler_input_state.exam_periods))
 
         current_selected = self.program_selector.get_selected_program_ids()
@@ -325,32 +341,22 @@ class InputPanel(QWidget):
             )
 
     def exclude_calendar_day(self, period_index: int, day) -> None:
-        # Keep both calendar screens in sync through the same state object.
+        # Calendar edits go through the same state object used to build scheduler input.
         self._exclude_calendar_day(period_index, day)
 
     def restore_calendar_day(self, period_index: int, day) -> None:
-        # Keep both calendar screens in sync through the same state object.
+        # Restoring a date is the same state change as removing an exclusion from the file data.
         self._restore_calendar_day(period_index, day)
 
     def update_calendar_period_dates(self, period_index: int, start_date, end_date) -> None:
-        # MainWindow uses this when the separate calendar screen edits a period range.
+        # Date edits reshape the period, so the calendar must be rebuilt after this succeeds.
         self._set_period_dates(period_index, start_date, end_date)
 
     def _exclude_calendar_day(self, period_index: int, day) -> None:
         self._scheduler_input_state.exclude_day(period_index, day)
-        self.calendar_day_panel.set_periods(
-            self._scheduler_input_state.exam_periods,
-            selected_period_index=period_index,
-            selected_day=day,
-        )
 
     def _restore_calendar_day(self, period_index: int, day) -> None:
         self._scheduler_input_state.restore_day(period_index, day)
-        self.calendar_day_panel.set_periods(
-            self._scheduler_input_state.exam_periods,
-            selected_period_index=period_index,
-            selected_day=day,
-        )
 
     def _update_period_dates(self, period_index: int, start_date, end_date) -> None:
         try:
@@ -358,20 +364,11 @@ class InputPanel(QWidget):
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid exam period dates", str(exc))
 
-            self.calendar_day_panel.set_periods(
-                self._scheduler_input_state.exam_periods,
-                selected_period_index=period_index,
-            )
-
     def _set_period_dates(self, period_index: int, start_date, end_date) -> None:
         self._scheduler_input_state.update_period_dates(
             period_index,
             start_date,
             end_date,
-        )
-        self.calendar_day_panel.set_periods(
-            self._scheduler_input_state.exam_periods,
-            selected_period_index=period_index,
         )
 
     def _handle_data_load_requested(
@@ -421,9 +418,19 @@ class InputPanel(QWidget):
         return edit
 
     @staticmethod
-    def _nav_button(label: str, active: bool = False) -> QPushButton:
+    def _nav_button(
+        label: str,
+        active: bool = False,
+        enabled: bool = True,
+    ) -> QPushButton:
         button = QPushButton(label)
         button.setObjectName("navTabActive" if active else "navTab")
         button.setFlat(True)
-        button.setEnabled(active)
+        button.setEnabled(enabled)
         return button
+
+    def _set_active_nav(self, active_label: str) -> None:
+        for label, button in self.nav_tabs.items():
+            button.setObjectName("navTabActive" if label == active_label else "navTab")
+            button.style().unpolish(button)
+            button.style().polish(button)
