@@ -13,6 +13,7 @@ from src.models.scheduling import ExamPeriod
 from src.parser.course_factory import build_courses_from_json
 from src.parser.file_parser import parse_catalog_text, parse_periods_text
 from src.parser.period_factory import build_periods_from_json
+from src.services.internal_data_store import InternalDataSnapshot, InternalDataStore
 
 
 class FileLoadingError(ValueError):
@@ -159,8 +160,13 @@ class ExistingFileParserAdapter:
 class FileLoadingService:
     """Receive UI-selected paths, load parser data, and keep it in memory."""
 
-    def __init__(self, parser_adapter: FileParserAdapter | None = None) -> None:
+    def __init__(
+        self,
+        parser_adapter: FileParserAdapter | None = None,
+        internal_store: InternalDataStore | None = None,
+    ) -> None:
         self._parser_adapter = parser_adapter or ExistingFileParserAdapter()
+        self._internal_store = internal_store or InternalDataStore.default()
         self._loaded_data: LoadedSchedulerInput | None = None
 
     @property
@@ -179,10 +185,7 @@ class FileLoadingService:
         course_path = _require_existing_file(courses_file, "Courses file")
         dates_path = _require_existing_file(exam_dates_file, "Exam dates file")
 
-        try:
-            incoming_data = self._parser_adapter.parse_files(course_path, dates_path)
-        except (OSError, KeyError, ValueError) as exc:
-            raise FileLoadingError(f"Could not load selected files: {exc}") from exc
+        incoming_data = self._load_incoming_data(course_path, dates_path)
 
         existing_data = self._loaded_data
         existing_courses = existing_data.courses if existing_data is not None else ()
@@ -217,6 +220,32 @@ class FileLoadingService:
 
     def clear(self) -> None:
         self._loaded_data = None
+
+    def _load_incoming_data(
+        self,
+        course_path: Path,
+        dates_path: Path,
+    ) -> LoadedSchedulerInput:
+        cached_data = self._internal_store.load_if_current(course_path, dates_path)
+        if cached_data is not None:
+            return _loaded_input_from_snapshot(cached_data)
+
+        try:
+            incoming_data = self._parser_adapter.parse_files(course_path, dates_path)
+        except (OSError, KeyError, ValueError) as exc:
+            raise FileLoadingError(f"Could not load selected files: {exc}") from exc
+
+        try:
+            self._internal_store.save(
+                course_path,
+                dates_path,
+                incoming_data.courses,
+                incoming_data.exam_periods,
+            )
+        except OSError as exc:
+            raise FileLoadingError(f"Could not save internal data: {exc}") from exc
+
+        return incoming_data
 
 
 def _require_existing_file(path: str | Path, label: str) -> Path:
@@ -262,6 +291,14 @@ def _summarize_programs(courses: tuple[Course, ...]) -> tuple[ProgramSummary, ..
     return tuple(
         ProgramSummary(program_id=program_id, course_count=counts[program_id])
         for program_id in sorted(counts)
+    )
+
+
+def _loaded_input_from_snapshot(snapshot: InternalDataSnapshot) -> LoadedSchedulerInput:
+    return LoadedSchedulerInput(
+        courses=snapshot.courses,
+        exam_periods=snapshot.exam_periods,
+        programs=_summarize_programs(snapshot.courses),
     )
 
 

@@ -11,6 +11,7 @@ __pycache__/
 .idea/
 /output/
 /outputs/
+/.exam_scheduler_cache/
 /test_master_output/
 build/
 develop-eggs/

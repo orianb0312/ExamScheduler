@@ -19,16 +19,3 @@ Dr. Erez Scheiner
 83101,1,FALL,Obligatory
 83102,1,FALL,Obligatory
 Exam
-$$$$
-Data Structures
-83101
-Dr. Gal Amram
-83101,2,FALL,Obligatory
-83108,2,FALL,Obligatory
-Exam
-$$$$
-Digital Systems
-83120
-Prof. Weiss
-83102,1,FALL,Obligatory
-Exam
