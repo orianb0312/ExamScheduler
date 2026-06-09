@@ -108,12 +108,28 @@ class MainWindow(QMainWindow):
         self.input_panel.update_program_list(default_baseline)
 
     def _load_default_files_if_available(self) -> None:
-        courses_path = Path(self.input_panel.file_loader.get_courses_path())
-        exam_dates_path = Path(self.input_panel.file_loader.get_exam_dates_path())
+        # First, try to recover the last used paths from the internal data cache
+        last_paths = self._file_loading_service.get_last_source_paths()
+        courses_path = None
+        exam_dates_path = None
+        if last_paths:
+            # Verify the cached paths actually still exist on the computer
+            if last_paths[0].is_file() and last_paths[1].is_file():
+                courses_path, exam_dates_path = last_paths
+                # Populate the UI text fields so the user sees the paths from their last session
+                self.input_panel.file_loader.set_courses_path(str(courses_path))
+                self.input_panel.file_loader.set_exam_dates_path(str(exam_dates_path))
 
+            # If we didn't get valid paths from the cache, fallback to UI defaults
+        if not courses_path or not exam_dates_path:
+            courses_path = Path(self.input_panel.file_loader.get_courses_path())
+            exam_dates_path = Path(self.input_panel.file_loader.get_exam_dates_path())
+
+        # If either path is invalid or missing, abort the auto-load process
         if not courses_path.is_file() or not exam_dates_path.is_file():
             return
-
+        # Check if the files have changed since the last time they were saved
+        is_stale = self._file_loading_service.is_cache_stale(courses_path, exam_dates_path)
         try:
             result = self._file_loading_service.load_selected_files(
                 courses_path,
@@ -129,6 +145,14 @@ class MainWindow(QMainWindow):
         self.input_panel.set_exam_calendar_available(True)
         self.input_panel.notify_data_loaded(loaded_data)
         self._load_exam_period_calendar()
+        # Notify the user clearly if a stale state was detected and resolved
+        if is_stale:
+            QMessageBox.information(
+                self,
+                "Data Reloaded",
+                "The source files were modified since your last session.\n"
+                "The application has automatically reloaded the newest data."
+            )
 
     def _load_selected_files(
         self,
