@@ -101,6 +101,11 @@ class InputPanel(QWidget):
     def set_running(self, running: bool) -> None:
         self.run_button.setEnabled(not running)
         self.cancel_button.setEnabled(running)
+        # Update the button text to serve as a clear, non-blocking progress indicator
+        if running:
+            self.run_button.setText("Generating Schedules...")
+        else:
+            self.run_button.setText("Generate Schedules")
 
     @property
     def exam_periods(self):
