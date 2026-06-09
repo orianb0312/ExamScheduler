@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Tuple, Any, Dict, TextIO
 
 from src.output.output_manager import TextOutputManager
+from src.output.schedule_text_formatter import PlainTextScheduleFormatter
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
 from src.parser.IParser import IParser
@@ -471,20 +472,14 @@ def _run_complete_stream_workflow(
 
 
 def _write_stream_summary(stream_output: TextIO, stream, time_limit_seconds: float | None) -> None:
-    stream_output.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
-    stream_output.write("=" * 65 + "\n")
-    stream_output.write(f"Total complete systems: {stream.complete_system_count:,}\n")
+    # Streaming and file output share the same header format so the UI parser
+    # sees one stable protocol regardless of how schedules are produced.
     stream_output.write(
-        "Period course counts: "
-        + ", ".join(f"{count:,}" for count in stream.period_course_counts)
-        + "\n"
+        PlainTextScheduleFormatter().format_complete_header(
+            stream.complete_system_count,
+            stream.period_schedule_counts,
+            period_course_counts=stream.period_course_counts,
+            auto_limit_seconds=time_limit_seconds,
+        )
     )
-    stream_output.write(
-        "Period schedule counts: "
-        + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
-        + "\n"
-    )
-    if time_limit_seconds is not None:
-        stream_output.write(f"Auto time limit: {time_limit_seconds:.2f} seconds\n")
-    stream_output.write("\n")
     stream_output.flush()
