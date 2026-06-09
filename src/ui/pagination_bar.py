@@ -41,7 +41,9 @@ class PaginationBar(QWidget):
         self.page_ruler_layout = QHBoxLayout(self.page_ruler)
         self.page_ruler_layout.setContentsMargins(0, 0, 0, 0)
         self.page_ruler_layout.setSpacing(4)
-        for _ in range(PAGE_RULER_VISIBLE_NUMBERS):
+        self.leading_ellipsis_label = QLabel("...")
+        self.leading_ellipsis_label.setObjectName("pageRulerEllipsis")
+        for index in range(PAGE_RULER_VISIBLE_NUMBERS + 1):
             button = QPushButton("")
             button.setObjectName("pageRulerButton")
             button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
@@ -51,6 +53,8 @@ class PaginationBar(QWidget):
             )
             self._page_buttons.append(button)
             self.page_ruler_layout.addWidget(button)
+            if index == 0:
+                self.page_ruler_layout.addWidget(self.leading_ellipsis_label)
         self.ellipsis_label = QLabel("...")
         self.ellipsis_label.setObjectName("pageRulerEllipsis")
         self.page_ruler_layout.addWidget(self.ellipsis_label)
@@ -162,16 +166,20 @@ class PaginationBar(QWidget):
         if self._page_count == 0:
             for button in self._page_buttons:
                 self._set_page_button(button, page_number=0, active=False)
+            self.leading_ellipsis_label.hide()
             self.ellipsis_label.hide()
             self._set_page_button(self.last_page_button, page_number=0, active=False)
             return
 
         # Student note: showing millions of buttons would freeze the screen,
-        # so the ruler shows the current page, two next pages, and the last page.
+        # so the ruler keeps page 1, then shows the current page area and the tail.
         display_page_count = self._display_page_count()
         window_start = self._current_page
         window_end = min(window_start + PAGE_RULER_VISIBLE_NUMBERS - 1, display_page_count)
-        page_numbers = list(range(window_start, window_end + 1))
+        page_numbers = _unique_pages([1, *range(window_start, window_end + 1)])
+        self.leading_ellipsis_label.setVisible(
+            len(page_numbers) > 1 and page_numbers[1] > 2
+        )
 
         for index, button in enumerate(self._page_buttons):
             page_number = page_numbers[index] if index < len(page_numbers) else 0
@@ -218,3 +226,11 @@ class PaginationBar(QWidget):
         button.setObjectName("pageRulerButtonActive" if active else "pageRulerButton")
         button.style().unpolish(button)
         button.style().polish(button)
+
+
+def _unique_pages(page_numbers) -> list[int]:
+    unique_pages: list[int] = []
+    for page_number in page_numbers:
+        if page_number not in unique_pages:
+            unique_pages.append(page_number)
+    return unique_pages

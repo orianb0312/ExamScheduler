@@ -322,6 +322,34 @@ QPushButton#navTabActive {
     border-bottom: 2px solid #7ed3ff;
 }
 
+QFrame#toastNotification {
+    background: #24324b;
+    border: 1px solid #5d83bd;
+    border-radius: 18px;
+}
+
+QLabel#toastMessage {
+    background: transparent;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+QPushButton#toastCloseButton {
+    background: transparent;
+    color: #dcecff;
+    border: none;
+    border-radius: 11px;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0;
+}
+
+QPushButton#toastCloseButton:hover {
+    background: #334763;
+    color: #ffffff;
+}
+
 QWidget#cardPanel {
     background: #252b38;
     border: 1px solid #495467;
@@ -353,8 +381,13 @@ QLabel#calendarLegendLabel {
 }
 
 QLabel#calendarPlaceholderLabel {
-    color: #8f98a8;
+    color: #dcecff;
+    background: #24324b;
+    border: 1px solid #4d6f9f;
+    border-radius: 14px;
+    padding: 14px 22px;
     font-size: 13px;
+    font-weight: 500;
 }
 
 QWidget#calendarPeriodSection {

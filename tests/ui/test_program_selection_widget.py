@@ -70,6 +70,28 @@ def test_selecting_one_program_records_only_that_program(combo_box):
     assert combo_box.get_selected_items() == ["83101"]
 
 
+def test_clicking_program_text_toggles_that_program(combo_box, qtbot):
+    combo_box.add_programs(["83101", "83102", "83103"])
+    first_item = combo_box.item(0)
+    text_click_position = combo_box.visualItemRect(first_item).center()
+
+    qtbot.mouseClick(
+        combo_box.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=text_click_position,
+    )
+
+    assert combo_box.get_selected_items() == ["83101"]
+
+    qtbot.mouseClick(
+        combo_box.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=text_click_position,
+    )
+
+    assert combo_box.get_selected_items() == []
+
+
 def test_selection_count_signal_tracks_choices_out_of_five(combo_box):
     counts = []
     combo_box.selectionCountChanged.connect(
@@ -118,6 +140,25 @@ def test_trying_to_select_a_sixth_program_keeps_selection_at_five(combo_box):
     assert combo_box.get_selected_items() == ["83101", "83102", "83103", "83104", "83105"]
     assert combo_box.item(5).checkState() == Qt.CheckState.Unchecked
     assert messages[-1] == LIMIT_MESSAGE
+
+
+def test_clicking_disabled_program_text_keeps_selection_at_five(combo_box, qtbot):
+    combo_box.add_programs(["83101", "83102", "83103", "83104", "83105", "83106"])
+
+    for index in range(MAX_SELECTED_PROGRAMS):
+        combo_box.item(index).setCheckState(Qt.CheckState.Checked)
+
+    disabled_item = combo_box.item(5)
+    text_click_position = combo_box.visualItemRect(disabled_item).center()
+
+    qtbot.mouseClick(
+        combo_box.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=text_click_position,
+    )
+
+    assert combo_box.get_selected_items() == ["83101", "83102", "83103", "83104", "83105"]
+    assert disabled_item.checkState() == Qt.CheckState.Unchecked
 
 
 def test_deselecting_one_program_reenables_remaining_choices(combo_box):

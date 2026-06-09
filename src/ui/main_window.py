@@ -26,10 +26,17 @@ from src.ui.calendar_view import OutputView
 from src.ui.calendar_view_panel import CalendarView as ExamCalendarView
 from src.ui.input_panel import InputPanel
 from src.ui.process_runner import ProcessRunner
+from src.ui.toast_notification import ToastNotification
 from src.ui.view_models import (
     ExamPeriodViewModel,
     ExclusionViewModel,
     ScheduledExamViewModel,
+)
+
+
+NO_EXAM_SCHEDULES_MESSAGE = (
+    "No exam schedules were generated for the selected programs. "
+    "Check that the selected courses include exam assessments."
 )
 
 
@@ -58,6 +65,7 @@ class MainWindow(QMainWindow):
         self._file_loading_service = FileLoadingService()
         self._active_run_config: CliRunConfig | None = None
         self._selected_schedule: ScheduleSystem | None = None
+        self._stay_on_input_after_lazy_stop = False
 
         self.input_panel = InputPanel(project_root=project_root)
         self.calendar_view = ExamCalendarView()
@@ -65,6 +73,7 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
 
         self._build_layout()
+        self._toast = ToastNotification(self)
         self._connect_signals()
         self._load_stylesheet()
 
@@ -223,11 +232,13 @@ class MainWindow(QMainWindow):
 
     def _start_cli_run(self, config: CliRunConfig) -> None:
         self._active_run_config = config
+        self._stay_on_input_after_lazy_stop = False
         self._refresh_output_adapter(self.loaded_input_data)
         self._parser.reset()
         self.output_view.clear()
         self.output_view.set_more_available(False)
-        self._show_output_screen()
+        if config.mode == "complete-count":
+            self._show_output_screen()
         self._runner.start(config)
 
     def _handle_started(self) -> None:
@@ -239,14 +250,20 @@ class MainWindow(QMainWindow):
         if schedule_total is not None:
             self.output_view.set_schedule_total(schedule_total)
 
-        systems = self._output_adapter.convert(self._parser.feed(text))
+        systems = _systems_with_scheduled_exams(
+            self._output_adapter.convert(self._parser.feed(text))
+        )
         self.output_view.add_systems(systems)
+
+        if systems:
+            self._show_output_screen()
 
         if (
             systems
             and self._active_run_config is not None
             and self._active_run_config.lazy_schedules
         ):
+            self._show_output_screen()
             self.output_view.set_stream_progress(self.output_view.cache.system_count)
             self.output_view.set_more_available(True)
         elif not _looks_like_schedule_output(text):
@@ -256,16 +273,31 @@ class MainWindow(QMainWindow):
         self.output_view.append_log(text)
 
     def _handle_finished(self, exit_code: int, status: str) -> None:
-        self.output_view.add_systems(self._output_adapter.convert(self._parser.flush()))
+        self.output_view.add_systems(
+            _systems_with_scheduled_exams(
+                self._output_adapter.convert(self._parser.flush())
+            )
+        )
         self.input_panel.set_running(False)
         self.output_view.set_more_available(False)
+        if self._stay_on_input_after_lazy_stop:
+            self._stay_on_input_after_lazy_stop = False
+            self.output_view.set_finished(exit_code, status)
+            return
+
         if exit_code == 0:
             self.output_view.set_finished(exit_code, status)
             self._load_generated_output_file()
+            if self._should_show_empty_schedule_message():
+                self._show_no_exam_schedules_toast()
+                return
+            if self.output_view.cache.system_count:
+                self._show_output_screen()
             if self.output_view.schedule_total is None and self.output_view.cache.system_count:
                 self.output_view.set_schedule_total(self.output_view.cache.system_count)
             return
 
+        self._show_output_screen()
         self.output_view.set_error(
             f"Scheduler process exited with code {exit_code} ({status})."
         )
@@ -273,6 +305,12 @@ class MainWindow(QMainWindow):
     def _handle_error(self, message: str) -> None:
         self.input_panel.set_running(False)
         self.output_view.set_more_available(False)
+        if self._stay_on_input_after_lazy_stop:
+            self._stay_on_input_after_lazy_stop = False
+            self.output_view.set_error(message)
+            return
+
+        self._show_output_screen()
         self.output_view.set_error(message)
 
     def _request_next_schedule_batch(self) -> None:
@@ -300,14 +338,34 @@ class MainWindow(QMainWindow):
             with open(output_path, encoding="utf-8") as file:
                 while chunk := file.read(64 * 1024):
                     self.output_view.add_systems(
-                        self._output_adapter.convert(parser.feed(chunk))
+                        _systems_with_scheduled_exams(
+                            self._output_adapter.convert(parser.feed(chunk))
+                        )
                     )
         except OSError as exc:
             self.output_view.set_error(f"Could not load output file: {exc}")
             return
 
-        self.output_view.add_systems(self._output_adapter.convert(parser.flush()))
-        self.output_view.set_schedule_total(self.output_view.cache.system_count)
+        self.output_view.add_systems(
+            _systems_with_scheduled_exams(
+                self._output_adapter.convert(parser.flush())
+            )
+        )
+        if self.output_view.cache.system_count:
+            self.output_view.set_schedule_total(self.output_view.cache.system_count)
+
+    def _should_show_empty_schedule_message(self) -> bool:
+        config = self._active_run_config
+        return (
+            config is not None
+            and config.mode != "complete-count"
+            and self.output_view.cache.system_count == 0
+        )
+
+    def _show_no_exam_schedules_toast(self) -> None:
+        self.output_view.clear()
+        self._stack.setCurrentWidget(self.input_panel)
+        self._toast.show_message(NO_EXAM_SCHEDULES_MESSAGE)
 
     def _refresh_output_adapter(self, loaded_data: LoadedSchedulerInput | None) -> None:
         courses = loaded_data.courses if loaded_data is not None else ()
@@ -360,6 +418,7 @@ class MainWindow(QMainWindow):
             and self._active_run_config.lazy_schedules
             and self._runner.is_running()
         ):
+            self._stay_on_input_after_lazy_stop = True
             self._runner.send_input_line(LAZY_STOP_COMMAND)
         self._stack.setCurrentWidget(self.input_panel)
 
@@ -369,6 +428,11 @@ class MainWindow(QMainWindow):
 
     def _show_output_screen(self) -> None:
         self._stack.setCurrentWidget(self.output_view)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "_toast"):
+            self._toast.reposition()
 
     def _load_stylesheet(self) -> None:
         stylesheet_path = Path(__file__).with_name("styles.qss")
@@ -395,3 +459,13 @@ def _looks_like_schedule_output(text: str) -> bool:
         or "=== SEMESTER:" in text
         or "[TERM:" in text
     )
+
+
+def _systems_with_scheduled_exams(
+    systems: list[ScheduleSystem],
+) -> list[ScheduleSystem]:
+    return [
+        system
+        for system in systems
+        if any(period.exams for period in system.periods)
+    ]

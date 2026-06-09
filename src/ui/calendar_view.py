@@ -19,6 +19,9 @@ from src.ui.ui_cache import ScheduleCache, ScheduleSystem
 from src.ui.view_models import ExamPeriodViewModel
 
 
+DEFAULT_EMPTY_SCHEDULE_TEXT = "No possible schedule is available yet."
+
+
 class OutputView(QWidget):
     """Show one generated schedule at a time as a calendar."""
 
@@ -42,9 +45,7 @@ class OutputView(QWidget):
         self.back_button = QPushButton("Back to Input")
         self.schedule_label = QLabel("No schedule selected")
         self.schedule_label.setObjectName("paneTitle")
-        self.calendar_body = CalendarPeriodList(
-            "No possible schedule is available yet."
-        )
+        self.calendar_body = CalendarPeriodList(DEFAULT_EMPTY_SCHEDULE_TEXT)
         self.calendar_body.setObjectName("calendarContent")
 
         self._build_layout()
@@ -54,6 +55,7 @@ class OutputView(QWidget):
     def clear(self) -> None:
         self.cache.clear()
         self.schedule_label.setText("No schedule selected")
+        self.calendar_body.set_empty_text(DEFAULT_EMPTY_SCHEDULE_TEXT)
         self.calendar_body.load_periods(())
         self._set_selected_schedule(None)
         self._pending_more_page = None
@@ -77,6 +79,16 @@ class OutputView(QWidget):
 
     def set_error(self, message: str) -> None:
         self.status_label.setText(f"Error: {message}")
+
+    def set_empty_result(self, message: str) -> None:
+        self.cache.clear()
+        self._set_selected_schedule(None)
+        self._pending_more_page = None
+        self._schedule_total = None
+        self.pagination_bar.reset()
+        self.schedule_label.setText("No schedule selected")
+        self.calendar_body.set_empty_text(message)
+        self.calendar_body.load_periods(())
 
     def append_log(self, text: str) -> None:
         if text:

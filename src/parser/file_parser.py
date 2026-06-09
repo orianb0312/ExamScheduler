@@ -53,6 +53,7 @@ RECORD_SEPARATOR = "$$$$"
 
 def split_records(text: str) -> list[str]:
     """Split raw file text into individual record blocks using '$$$$' as separator."""
+    text = text.lstrip("\ufeff")
     parts = text.split(RECORD_SEPARATOR)
     return [p.strip() for p in parts if p.strip()]
 
@@ -68,6 +69,12 @@ def parse_program_line(line: str) -> dict:
 
     if not PROGRAM_NUMBER_PATTERN.match(number):
         raise ValueError(f"Invalid program number (must be 5 digits): '{number}'")
+    # The SRS limits selectable study programs to the official program list.
+    if number not in VALID_PROGRAM_NUMBERS:
+        raise ValueError(
+            f"Unknown program number '{number}'. "
+            f"Valid options: {sorted(VALID_PROGRAM_NUMBERS)}"
+        )
     if year not in VALID_YEARS:
         raise ValueError(f"Invalid year (must be 1-4): '{year}'")
     if semester not in VALID_SEMESTERS:
@@ -265,7 +272,11 @@ def parse_user_selection(text: str) -> list[str]:
         If the selection is empty, contains more than 5 programs,
         or contains an unrecognised program number.
     """
-    numbers = [t.strip() for t in text.strip().split(",") if t.strip()]
+    numbers = [
+        t.strip().lstrip("\ufeff")
+        for t in text.strip().split(",")
+        if t.strip()
+    ]
 
     if not numbers:
         raise ValueError("User selection file is empty – at least one program required.")
@@ -318,13 +329,13 @@ class FileParser(IParser):
         if missing:
             raise KeyError(f"Missing required config keys: {missing}")
 
-        with open(config["course_file"], encoding="utf-8") as fh:
+        with open(config["course_file"], encoding="utf-8-sig") as fh:
             courses = parse_catalog_text(fh.read())
 
-        with open(config["dates_file"], encoding="utf-8") as fh:
+        with open(config["dates_file"], encoding="utf-8-sig") as fh:
             periods = parse_periods_text(fh.read())
 
-        with open(config["user_file"], encoding="utf-8") as fh:
+        with open(config["user_file"], encoding="utf-8-sig") as fh:
             selection = parse_user_selection(fh.read())
 
         return json.dumps(

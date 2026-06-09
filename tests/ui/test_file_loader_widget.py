@@ -4,7 +4,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel, QPushButton, QScrollArea
 
 from src.services.cli_run_service import build_cli_arguments
+from src.models.academic import Course, Exam, ProgramAffiliation
 from src.models.enums import Semester, Term
+from src.models.enums import RequirementType
 from src.models.scheduling import ExamPeriod
 from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.program_selection_policy import (
@@ -146,6 +148,45 @@ def test_input_panel_passes_selected_programs_to_scheduler_config(tmp_path, qtbo
     assert config.user_file is not None
     assert args[user_file_index] == str(config.user_file)
     assert config.user_file.read_text(encoding="utf-8") == "83101, 83108"
+
+
+def test_input_panel_passes_loaded_courses_to_scheduler_config(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+    course = Course(
+        course_id=77777,
+        name="Dynamic Program Exam",
+        instructor="Dr. Runtime",
+        evaluation=Exam(),
+        affiliations=[
+            ProgramAffiliation(
+                program_id=83108,
+                year=2,
+                semester=Semester.SUMMER,
+                requirement_type=RequirementType.OBLIGATORY,
+            )
+        ],
+    )
+    panel.replace_program_list(["83108"])
+    panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+    panel.notify_data_loaded(
+        LoadedSchedulerInput(
+            courses=(course,),
+            exam_periods=(),
+            programs=(),
+        )
+    )
+
+    with qtbot.waitSignal(panel.run_requested, timeout=1000) as blocker:
+        qtbot.mouseClick(panel.run_button, Qt.MouseButton.LeftButton)
+
+    config = blocker.args[0]
+
+    assert config.course_file is not None
+    assert config.course_file.name == "ui_courses.txt"
+    assert "83108,2,SUMM,Obligatory" in config.course_file.read_text(encoding="utf-8")
+    assert config.user_file is not None
+    assert config.user_file.read_text(encoding="utf-8") == "83108"
 
 
 def test_input_panel_passes_excluded_day_state_to_scheduler_config(tmp_path, qtbot):

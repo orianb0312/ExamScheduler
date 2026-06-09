@@ -335,14 +335,30 @@ class CalendarPeriodList(QWidget):
         self._content_layout.setSpacing(16)
         self._content_layout.addStretch()
 
+    def set_empty_text(self, text: str) -> None:
+        self._empty_text = text
+
     def load_periods(self, periods: Sequence[ExamPeriodViewModel]) -> None:
         self._clear_content()
 
         if not periods:
             placeholder = QLabel(self._empty_text)
             placeholder.setObjectName("calendarPlaceholderLabel")
+            placeholder.setWordWrap(True)
+            placeholder.setMaximumWidth(680)
+            placeholder.setMinimumHeight(76)
+            placeholder.setSizePolicy(
+                QSizePolicy.Policy.Preferred,
+                QSizePolicy.Policy.Minimum,
+            )
             placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._content_layout.addWidget(placeholder)
+            self._content_layout.addStretch(1)
+            self._content_layout.addWidget(
+                placeholder,
+                0,
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+            )
+            self._content_layout.addStretch(1)
             return
 
         for period in periods:

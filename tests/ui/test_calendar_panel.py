@@ -9,6 +9,7 @@ from pytestqt.qtbot import QtBot
 
 from src.models.enums import Semester, Term
 from src.models.scheduling import ExamPeriod
+from src.process_protocol import LAZY_STOP_COMMAND
 from src.services.cli_run_service import CliRunConfig
 from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.schedule_output_service import (
@@ -18,7 +19,7 @@ from src.services.schedule_output_service import (
 )
 from src.ui.calendar_view import OutputView
 from src.ui.calendar_view_panel import CalendarView, _DayCell, _MonthGrid, _PeriodSection
-from src.ui.main_window import MainWindow
+from src.ui.main_window import MainWindow, NO_EXAM_SCHEDULES_MESSAGE
 from src.ui.view_models import (
     ExamPeriodViewModel,
     ExclusionViewModel,
@@ -185,9 +186,43 @@ def test_generate_schedules_starts_process_runner_boundary(tmp_path, qtbot: QtBo
     runner = created_runners[0]
     assert runner.started_config is not None
     assert runner.started_config.lazy_schedules is True
-    assert window._stack.currentWidget() is window.output_view
+    assert window._stack.currentWidget() is window.input_panel
     assert not window.input_panel.run_button.isEnabled()
     assert window.input_panel.program_selector.isEnabled()
+
+
+def test_back_from_output_stays_on_input_after_lazy_process_finishes(
+    tmp_path,
+    qtbot: QtBot,
+) -> None:
+    created_runners: list[_FakeProcessRunner] = []
+
+    def create_runner(parent) -> _FakeProcessRunner:
+        runner = _FakeProcessRunner(parent)
+        created_runners.append(runner)
+        return runner
+
+    window = MainWindow(
+        project_root=tmp_path,
+        process_runner_factory=create_runner,
+    )
+    qtbot.addWidget(window)
+    window.input_panel.replace_program_list(["83101"])
+    window.input_panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+
+    qtbot.mouseClick(window.input_panel.run_button, Qt.MouseButton.LeftButton)
+    runner = created_runners[0]
+    window.output_view.add_systems([
+        _schedule_with_exam("Algorithms", 10001, date(2026, 1, 2))
+    ])
+    window._show_output_screen()
+
+    qtbot.mouseClick(window.output_view.back_button, Qt.MouseButton.LeftButton)
+    runner.running = False
+    window._handle_finished(0, "NormalExit")
+
+    assert runner.sent_lines == [LAZY_STOP_COMMAND]
+    assert window._stack.currentWidget() is window.input_panel
 
 
 def test_output_view_selected_schedule_follows_visible_page(qtbot: QtBot) -> None:
@@ -258,6 +293,7 @@ def test_output_view_page_ruler_click_selects_schedule(qtbot: QtBot) -> None:
     ])
 
     assert _page_ruler_texts(view) == ["1", "2", "3", "12"]
+    assert view.pagination_bar.leading_ellipsis_label.isHidden()
     assert not view.pagination_bar.ellipsis_label.isHidden()
 
     qtbot.mouseClick(_page_ruler_buttons(view)[2], Qt.MouseButton.LeftButton)
@@ -266,7 +302,8 @@ def test_output_view_page_ruler_click_selects_schedule(qtbot: QtBot) -> None:
     assert view.selected_schedule is not None
     assert view.selected_schedule.number == 3
     assert view.schedule_label.text() == "3 of 12 schedules"
-    assert _page_ruler_texts(view) == ["3", "4", "5", "12"]
+    assert _page_ruler_texts(view) == ["1", "3", "4", "5", "12"]
+    assert not view.pagination_bar.leading_ellipsis_label.isHidden()
 
 
 def test_output_view_page_ruler_slides_on_next_clicks(qtbot: QtBot) -> None:
@@ -282,7 +319,8 @@ def test_output_view_page_ruler_slides_on_next_clicks(qtbot: QtBot) -> None:
         qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
 
     assert view.pagination_bar.current_page == 4
-    assert _page_ruler_texts(view) == ["4", "5", "6", "12"]
+    assert _page_ruler_texts(view) == ["1", "4", "5", "6", "12"]
+    assert not view.pagination_bar.leading_ellipsis_label.isHidden()
     assert not view.pagination_bar.ellipsis_label.isHidden()
     assert view.schedule_label.text() == "4 of 12 schedules"
 
@@ -290,7 +328,8 @@ def test_output_view_page_ruler_slides_on_next_clicks(qtbot: QtBot) -> None:
         qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
 
     assert view.pagination_bar.current_page == 11
-    assert _page_ruler_texts(view) == ["11", "12"]
+    assert _page_ruler_texts(view) == ["1", "11", "12"]
+    assert not view.pagination_bar.leading_ellipsis_label.isHidden()
     assert view.pagination_bar.ellipsis_label.isHidden()
 
 
@@ -307,7 +346,8 @@ def test_output_view_page_ruler_keeps_last_generated_page_visible(qtbot: QtBot) 
     qtbot.mouseClick(view.pagination_bar.last_page_button, Qt.MouseButton.LeftButton)
 
     assert view.pagination_bar.current_page == 1000
-    assert _page_ruler_texts(view) == ["1000", "1001", "1002", "1999"]
+    assert _page_ruler_texts(view) == ["1", "1000", "1001", "1002", "1999"]
+    assert not view.pagination_bar.leading_ellipsis_label.isHidden()
     assert not view.pagination_bar.ellipsis_label.isHidden()
 
 
@@ -322,11 +362,13 @@ def test_output_view_page_ruler_updates_lookahead_on_each_page_skip(qtbot: QtBot
     view.set_more_available(True)
 
     assert _page_ruler_texts(view) == ["1", "2", "3", "1000"]
+    assert view.pagination_bar.leading_ellipsis_label.isHidden()
 
     qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
 
     assert view.pagination_bar.current_page == 2
-    assert _page_ruler_texts(view) == ["2", "3", "4", "1001"]
+    assert _page_ruler_texts(view) == ["1", "2", "3", "4", "1001"]
+    assert view.pagination_bar.leading_ellipsis_label.isHidden()
 
 
 def test_output_view_page_ruler_keeps_large_numbers_readable(qtbot: QtBot) -> None:
@@ -339,7 +381,8 @@ def test_output_view_page_ruler_keeps_large_numbers_readable(qtbot: QtBot) -> No
     ])
     view.pagination_bar.set_current_page(1003)
 
-    assert _page_ruler_texts(view) == ["1003", "1004", "1005", "2003"]
+    assert _page_ruler_texts(view) == ["1", "1003", "1004", "1005", "2003"]
+    assert not view.pagination_bar.leading_ellipsis_label.isHidden()
     assert not view.pagination_bar.ellipsis_label.isHidden()
     for button in _page_ruler_buttons(view):
         assert button.minimumWidth() >= button.fontMetrics().horizontalAdvance(button.text())
@@ -611,6 +654,52 @@ def test_finished_run_loads_generated_output_file_into_output_view(tmp_path, qtb
     assert len(window.output_view.findChildren(_DayCell)) == 31
     assert second_schedule_cells[1].exam_text() == ""
     assert "Course B" in second_schedule_cells[2].exam_text()
+
+
+def test_finished_run_with_only_empty_systems_shows_no_schedule_message(
+    tmp_path,
+    qtbot: QtBot,
+) -> None:
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    window.input_panel.notify_data_loaded(
+        LoadedSchedulerInput(
+            courses=(),
+            exam_periods=(
+                ExamPeriod(
+                    semester=Semester.FALL,
+                    term=Term.ALEPH,
+                    start_date=date(2026, 1, 1),
+                    end_date=date(2026, 1, 3),
+                ),
+            ),
+            programs=(),
+        )
+    )
+    window._active_run_config = CliRunConfig(
+        project_root=tmp_path,
+        mode="auto",
+        stream_schedules=True,
+        lazy_schedules=True,
+    )
+
+    window._handle_stdout(
+        "Complete systems: 1\n"
+        "Complete System #1\n"
+        "=== SEMESTER: FALL ===\n"
+        "  [TERM: Aleph]\n"
+    )
+    window._handle_finished(0, "NormalExit")
+
+    assert window.output_view.cache.system_count == 0
+    assert window.output_view.selected_schedule is None
+    assert window._stack.currentWidget() is window.input_panel
+    assert not window._toast.isHidden()
+    assert window._toast.message_label.text() == NO_EXAM_SCHEDULES_MESSAGE
+    assert not _calendar_cells_by_day(window.output_view)
+
+    window._toast.close_button.click()
+    qtbot.waitUntil(window._toast.isHidden, timeout=1000)
 
 
 def _calendar_cells_by_day(view) -> dict[int, _DayCell]:

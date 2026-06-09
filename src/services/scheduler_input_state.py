@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
+from src.models.academic import Attendance, Course, Exam, Project
 from src.models.scheduling import ExamPeriod
 from src.services.day_status_service import (
     copy_exam_period,
@@ -21,6 +22,7 @@ class SchedulerInputState:
     def __init__(self, runtime_dir: Path) -> None:
         self._runtime_dir = runtime_dir
         self._selected_program_ids: tuple[str, ...] = ()
+        self._courses: tuple[Course, ...] = ()
         self._exam_periods: tuple[ExamPeriod, ...] = ()
 
     @property
@@ -33,6 +35,9 @@ class SchedulerInputState:
 
     def set_selected_programs(self, program_ids: Sequence[str]) -> None:
         self._selected_program_ids = tuple(str(program_id) for program_id in program_ids)
+
+    def set_courses(self, courses: Sequence[Course]) -> None:
+        self._courses = tuple(courses)
 
     def set_exam_periods(self, periods: Sequence[ExamPeriod]) -> None:
         self._exam_periods = tuple(copy_exam_period(period) for period in periods)
@@ -55,6 +60,18 @@ class SchedulerInputState:
         programs_file.write_text(", ".join(self._selected_program_ids), encoding="utf-8")
         return programs_file
 
+    def write_courses_file(self) -> Path | None:
+        if not self._courses:
+            return None
+
+        self._runtime_dir.mkdir(parents=True, exist_ok=True)
+        courses_file = self._runtime_dir / "ui_courses.txt"
+        courses_file.write_text(
+            format_courses(self._courses),
+            encoding="utf-8",
+        )
+        return courses_file
+
     def write_exam_dates_file(self) -> Path | None:
         if not self._exam_periods:
             return None
@@ -74,3 +91,40 @@ class SchedulerInputState:
             return self._exam_periods[period_index]
         except IndexError as exc:
             raise ValueError(f"Unknown exam period index: {period_index}") from exc
+
+
+def format_courses(courses: Sequence[Course]) -> str:
+    blocks: list[str] = []
+    for course in courses:
+        lines = [
+            "$$$$",
+            str(course.name),
+            str(course.course_id),
+            str(course.instructor),
+        ]
+        for affiliation in course.affiliations:
+            lines.append(
+                ",".join(
+                    [
+                        str(affiliation.program_id),
+                        str(affiliation.year),
+                        str(affiliation.semester.value),
+                        str(affiliation.requirement_type.value),
+                    ]
+                )
+            )
+        lines.append(_evaluation_name(course))
+        blocks.append("\n".join(lines))
+
+    return "\n".join(blocks) + ("\n" if blocks else "")
+
+
+def _evaluation_name(course: Course) -> str:
+    evaluation = course.evaluation
+    if isinstance(evaluation, Exam):
+        return "Exam"
+    if isinstance(evaluation, Project):
+        return "Project"
+    if isinstance(evaluation, Attendance):
+        return "Attendance"
+    raise ValueError(f"Unsupported evaluation type: {type(evaluation).__name__}")

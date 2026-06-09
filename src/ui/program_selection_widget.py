@@ -78,6 +78,20 @@ class ProgramSelectionWidget(QListWidget):
         item.setCheckState(Qt.CheckState.Unchecked)
         return item
 
+    def mouseReleaseEvent(self, event):
+        item = self.itemAt(event.position().toPoint())
+        previous_state = item.checkState() if item is not None else None
+
+        super().mouseReleaseEvent(event)
+
+        if item is None or not _item_is_enabled(item):
+            return
+
+        # Student note: Qt already toggles real checkbox clicks, so only row/text
+        # clicks need this manual toggle.
+        if item.checkState() == previous_state:
+            item.setCheckState(_opposite_check_state(item.checkState()))
+
     def get_selected_items(self) -> list[str]:
         """Returns a list of all currently checked program identifiers."""
         return [
@@ -142,3 +156,15 @@ class ProgramSelectionWidget(QListWidget):
         """Extracts the unique program identifier stored inside the custom user data role."""
         value = item.data(PROGRAM_ID_ROLE)
         return str(value) if value is not None else item.text()
+
+
+def _item_is_enabled(item: QListWidgetItem) -> bool:
+    return bool(item.flags() & Qt.ItemFlag.ItemIsEnabled)
+
+
+def _opposite_check_state(state: Qt.CheckState) -> Qt.CheckState:
+    return (
+        Qt.CheckState.Unchecked
+        if state == Qt.CheckState.Checked
+        else Qt.CheckState.Checked
+    )

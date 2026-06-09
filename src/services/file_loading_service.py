@@ -10,6 +10,7 @@ from typing import Protocol
 
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
+from src.parser.IParser import VALID_PROGRAM_NUMBERS
 from src.parser.course_factory import build_courses_from_json
 from src.parser.file_parser import parse_catalog_text, parse_periods_text
 from src.parser.period_factory import build_periods_from_json
@@ -228,12 +229,16 @@ class FileLoadingService:
     ) -> LoadedSchedulerInput:
         cached_data = self._internal_store.load_if_current(course_path, dates_path)
         if cached_data is not None:
-            return _loaded_input_from_snapshot(cached_data)
+            loaded_data = _loaded_input_from_snapshot(cached_data)
+            _validate_supported_program_ids(loaded_data)
+            return loaded_data
 
         try:
             incoming_data = self._parser_adapter.parse_files(course_path, dates_path)
         except (OSError, KeyError, ValueError) as exc:
             raise FileLoadingError(f"Could not load selected files: {exc}") from exc
+
+        _validate_supported_program_ids(incoming_data)
 
         try:
             self._internal_store.save(
@@ -291,6 +296,27 @@ def _summarize_programs(courses: tuple[Course, ...]) -> tuple[ProgramSummary, ..
     return tuple(
         ProgramSummary(program_id=program_id, course_count=counts[program_id])
         for program_id in sorted(counts)
+    )
+
+
+def _validate_supported_program_ids(loaded_data: LoadedSchedulerInput) -> None:
+    invalid_ids = sorted(
+        {
+            str(affiliation.program_id)
+            for course in loaded_data.courses
+            for affiliation in course.affiliations
+            if str(affiliation.program_id) not in VALID_PROGRAM_NUMBERS
+        }
+    )
+    if not invalid_ids:
+        return
+
+    # Cached data may come from an older run, so we check it before the UI can use it.
+    valid_options = ", ".join(sorted(VALID_PROGRAM_NUMBERS))
+    invalid_options = ", ".join(invalid_ids)
+    raise FileLoadingError(
+        "Courses file contains unknown program number(s): "
+        f"{invalid_options}. Valid options: {valid_options}."
     )
 
 

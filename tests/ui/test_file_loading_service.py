@@ -281,6 +281,36 @@ def test_service_reports_missing_files_clearly(tmp_path):
         FileLoadingService().load_selected_files(courses_file, missing_dates_file)
 
 
+def test_service_rejects_unknown_program_ids_and_keeps_loaded_data(tmp_path):
+    initial_courses_file, initial_dates_file = _write_input_files(tmp_path)
+    invalid_courses_text = """$$$$
+Manual New Program Course
+77777
+Dr. UI Tester
+99999,1,FALL,Elective
+Exam
+"""
+    invalid_courses_file, invalid_dates_file = _write_input_files(
+        tmp_path,
+        invalid_courses_text,
+        SUPPLEMENTAL_EXAM_DATES_TEXT,
+        suffix="_invalid_program",
+    )
+    service = FileLoadingService()
+    initial_result = service.load_selected_files(initial_courses_file, initial_dates_file)
+
+    with pytest.raises(FileLoadingError, match="Unknown program number"):
+        service.load_selected_files(
+            invalid_courses_file,
+            invalid_dates_file,
+            DataLoadMode.UPDATE,
+            DataLoadMode.UPDATE,
+        )
+
+    assert service.loaded_data is initial_result.loaded_data
+    assert [program.program_id for program in service.loaded_data.programs] == [83101, 83102]
+
+
 def test_main_window_loads_file_loader_selection_into_memory(tmp_path, qtbot):
     courses_file, exam_dates_file = _write_input_files(tmp_path)
     window = MainWindow(project_root=tmp_path)
@@ -313,7 +343,7 @@ def test_main_window_default_startup_load_does_not_show_success_message(tmp_path
     assert window.input_panel.file_loader.error_label.text() == ""
 
 
-def test_main_window_update_keeps_existing_program_choices(tmp_path, qtbot):
+def test_main_window_update_rejects_unknown_program_ids_and_keeps_existing_choices(tmp_path, qtbot):
     courses_text = """$$$$
 Manual New Program Course
 77777
@@ -347,8 +377,10 @@ Exam
         for index in range(window.input_panel.program_selector.count())
     ]
 
-    assert set(initial_programs) <= set(updated_programs)
-    assert "99999" in updated_programs
+    assert updated_programs == initial_programs
+    assert window.loaded_input_data is None
+    assert "Unknown program number" in window.input_panel.file_loader.error_label.text()
+    assert "99999" in window.input_panel.file_loader.error_label.text()
 
 
 def test_main_window_displays_program_name_and_identifier_after_load(tmp_path, qtbot):

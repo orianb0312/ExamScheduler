@@ -272,6 +272,7 @@ class InputPanel(QWidget):
     def notify_data_loaded(self, loaded_data: LoadedSchedulerInput) -> None:
 
         self.selected_programs_vm.update_available_programs(loaded_data)
+        self._scheduler_input_state.set_courses(loaded_data.courses)
         self._scheduler_input_state.set_exam_periods(loaded_data.exam_periods)
         self.calendar_day_panel.set_periods(self._scheduler_input_state.exam_periods)
         self.set_exam_calendar_available(bool(self._scheduler_input_state.exam_periods))
