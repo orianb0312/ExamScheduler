@@ -252,6 +252,16 @@ class FileLoadingService:
 
         return incoming_data
 
+    def get_last_source_paths(self) -> tuple[Path, Path] | None:
+        """Ask the internal store for the last successfully loaded file paths."""
+        # Delegate the path extraction to the internal data store layer
+        return self._internal_store.get_last_source_paths()
+
+    def is_cache_stale(self, courses_file: str | Path, exam_dates_file: str | Path) -> bool:
+        """Check if the internal data is outdated compared to the current files."""
+        # Delegate the staleness check to the internal data store layer
+        return self._internal_store.is_cache_stale(courses_file, exam_dates_file)
+
 
 def _require_existing_file(path: str | Path, label: str) -> Path:
     candidate = Path(path)
@@ -426,7 +436,3 @@ def _period_key(period: ExamPeriod) -> tuple[str, str]:
     return period.semester.value, period.term.value
 
 
-def get_last_source_paths(self) -> tuple[Path, Path] | None:
-    """Ask the internal store for the last successfully loaded file paths."""
-    # Delegate the path extraction to the internal data store layer
-    return self._internal_store.get_last_source_paths()
