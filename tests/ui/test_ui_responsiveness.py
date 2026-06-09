@@ -197,3 +197,32 @@ def test_ui_post_process_file_loading_responsiveness(tmp_path, qtbot):
     elapsed_time = time.perf_counter() - start_time
 
     assert elapsed_time < 1.0, f"Process finish handling blocked the UI for {elapsed_time:.2f}s"
+
+def test_ui_shows_processing_indicator_when_process_is_active(tmp_path, qtbot):
+    """
+    Requirement Verification:
+    - Add a simple loading indicator, status label, or progress message.
+    - Show the indicator when QProcess starts.
+    - Hide or update the indicator when QProcess finishes.
+    """
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    # 1. Before execution, the action button must display its default idle text
+    assert window.input_panel.run_button.text() == "Generate Schedules"
+    assert window.output_view.status_label.text() == "Ready"
+
+    # 2. Simulate the process starting (triggering the QProcess active signals)
+    window._handle_started()
+
+    # Verify that the loading indicators instantly change to notify the user
+    assert window.input_panel.run_button.text() == "Generating Schedules..."
+    assert window.input_panel.run_button.isEnabled() is False
+    assert window.output_view.status_label.text() == "Running..."
+
+    # 3. Simulate the process finishing execution successfully
+    window._handle_finished(0, "NormalExit")
+
+    # Verify that indicators are updated/hidden and button control returns to normal idle state
+    assert window.input_panel.run_button.text() == "Generate Schedules"
+    assert window.input_panel.run_button.isEnabled() is True
