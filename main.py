@@ -1,5 +1,6 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -7,7 +8,10 @@ from src.parser.IParser import IParser
 from src.parser.file_parser import FileParser
 from src.workflow import (
     run_complete_auto_workflow,
+    run_complete_auto_stream_workflow,
     run_complete_count_workflow,
+    run_complete_lazy_stream_workflow,
+    run_complete_write_stream_workflow,
     run_complete_write_workflow,
     run_v1_workflow,
 )
@@ -60,6 +64,16 @@ def parse_args() -> argparse.Namespace:
         default=30.0,
         help="Time limit in seconds for auto mode.",
     )
+    parser.add_argument(
+        "--stream-schedules",
+        action="store_true",
+        help="Stream complete schedule systems to stdout for the desktop UI.",
+    )
+    parser.add_argument(
+        "--lazy-schedules",
+        action="store_true",
+        help="Generate the first schedule page, then wait for NEXT commands on stdin.",
+    )
 
     # Optional manual file overrides from the CLI - passed as kwargs to the workflow
     parser.add_argument("--course-file", type=Path, default=None)
@@ -110,6 +124,31 @@ def main() -> int:
         return 0
 
     if args.mode == "complete-write":
+        if args.lazy_schedules:
+            run_complete_lazy_stream_workflow(
+                output_config=args.output_config,
+                period_indexes=args.period_index,
+                max_systems=args.max_systems,
+                input_stream=sys.stdin,
+                output_stream=sys.stdout,
+                progress_stream=sys.stderr,
+                parser=parser,
+                **cli_overrides,
+            )
+            return 0
+
+        if args.stream_schedules:
+            run_complete_write_stream_workflow(
+                output_config=args.output_config,
+                period_indexes=args.period_index,
+                max_systems=args.max_systems,
+                output_stream=sys.stdout,
+                progress_stream=sys.stderr,
+                parser=parser,
+                **cli_overrides,
+            )
+            return 0
+
         result = run_complete_write_workflow(
             output_config=args.output_config,
             period_indexes=args.period_index,
@@ -121,6 +160,30 @@ def main() -> int:
         return 0
 
     # Fallback to auto mode
+    if args.lazy_schedules:
+        run_complete_lazy_stream_workflow(
+            output_config=args.output_config,
+            period_indexes=args.period_index,
+            input_stream=sys.stdin,
+            output_stream=sys.stdout,
+            progress_stream=sys.stderr,
+            parser=parser,
+            **cli_overrides,
+        )
+        return 0
+
+    if args.stream_schedules:
+        run_complete_auto_stream_workflow(
+            output_config=args.output_config,
+            period_indexes=args.period_index,
+            time_limit_seconds=args.time_limit,
+            output_stream=sys.stdout,
+            progress_stream=sys.stderr,
+            parser=parser,
+            **cli_overrides,
+        )
+        return 0
+
     result = run_complete_auto_workflow(
         output_config=args.output_config,
         period_indexes=args.period_index,

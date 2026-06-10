@@ -16,6 +16,7 @@ def test_split_records():
     text = f"{RECORD_SEPARATOR}\nRec 1\n{RECORD_SEPARATOR}\nRec 2\n{RECORD_SEPARATOR}"
     assert split_records(text) == ["Rec 1", "Rec 2"]
     assert split_records("") == []
+    assert split_records(f"\ufeff{RECORD_SEPARATOR}\nRec 1") == ["Rec 1"]
 
 def test_parse_program_line():
     # Sanity
@@ -24,6 +25,8 @@ def test_parse_program_line():
     # Negative
     with pytest.raises(ValueError):
         parse_program_line("83101,5,WINT,Wrong") # Invalid year/semester
+    with pytest.raises(ValueError):
+        parse_program_line("99999,1,FALL,Obligatory")
 
 # ===========================================================================
 # 2. Record Parsing (Courses & Dates)
@@ -64,12 +67,15 @@ def test_valid_program_numbers():
 
 def test_parse_user_selection():
     assert parse_user_selection("83101, 83102") == ["83101", "83102"]
+    assert parse_user_selection("\ufeff83101") == ["83101"]
     # Boundary: 5 is OK, 6 is not
     parse_user_selection("83101, 83102, 83103, 83104, 83105")
     with pytest.raises(ValueError):
         parse_user_selection("83101, 83102, 83103, 83104, 83105, 83107")
     with pytest.raises(ValueError):
         parse_user_selection("83101, 83101")
+    with pytest.raises(ValueError):
+        parse_user_selection("99999")
 
 # ===========================================================================
 # 4. High-Level Integration (FileParser)
