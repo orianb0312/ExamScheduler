@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -28,6 +27,7 @@ from src.services.cli_run_service import (
 from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.scheduler_input_state import SchedulerInputState
 from src.ui.calendar_view_panel import CalendarView
+from src.ui.constraint_settings_widget import ConstraintSettingsWidget
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.program_selection_widget import MAX_SELECTED_PROGRAMS, ProgramSelectionWidget
 from src.ui.selected_programs_panel import SelectedProgramsPanel
@@ -66,11 +66,14 @@ class InputPanel(QWidget):
             "Programs": self._nav_button("Programs", active=True),
             "Courses": self._nav_button("Courses", enabled=False),
             "Calendar": self._nav_button("Calendar", enabled=False),
+            "Settings": self._nav_button("Settings"),
             "Schedules": self._nav_button("Schedules", enabled=False),
         }
         self.view_calendar_button = self.nav_tabs["Calendar"]
         self.view_calendar_button.setEnabled(True)
+        self.settings_button = self.nav_tabs["Settings"]
         self.calendar_view = CalendarView(show_back_button=False)
+        self.constraint_settings = ConstraintSettingsWidget()
         self.period_indexes_edit = QLineEdit()
         self.period_indexes_edit.setPlaceholderText("Optional, e.g. 0,1")
 
@@ -126,6 +129,27 @@ class InputPanel(QWidget):
     def is_calendar_page_visible(self) -> bool:
         return self._content_stack.currentWidget() is self.calendar_view
 
+    def show_settings_page(self) -> None:
+        self._content_stack.setCurrentWidget(self.constraint_settings)
+        self._set_active_nav("Settings")
+
+    def is_settings_page_visible(self) -> bool:
+        return self._content_stack.currentWidget() is self.constraint_settings
+
+    @property
+    def constraint_parameters(self) -> dict[str, int]:
+        """The current enabled-and-valid constraint values held in the state.
+
+        Mirrors how selected programs are exposed: the UI streams every change
+        into the state, so this always reflects the latest valid selection.
+        """
+        return self._scheduler_input_state.constraints
+
+    def _store_constraint_parameters(self, parameters: dict) -> None:
+        # Every valid change flows straight into the state, exactly like the
+        # program selector. The runtime file is written later, at generate time.
+        self._scheduler_input_state.set_constraints(parameters)
+
     def _build_layout(self) -> None:
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -138,6 +162,8 @@ class InputPanel(QWidget):
         self._content_stack.addWidget(self._program_page)
         # Calendar lives inside the input shell so the top menu does not jump between pages.
         self._content_stack.addWidget(self.calendar_view)
+        # Settings shares the same shell so the top navigation stays consistent.
+        self._content_stack.addWidget(self.constraint_settings)
         root_layout.addWidget(self._content_stack, 1)
 
         self.run_button.setFixedWidth(220)
@@ -279,6 +305,8 @@ class InputPanel(QWidget):
         self.cancel_button.clicked.connect(self.cancel_requested.emit)
         self.nav_tabs["Programs"].clicked.connect(self.show_program_page)
         self.view_calendar_button.clicked.connect(self.view_calendar_requested.emit)
+        self.settings_button.clicked.connect(self.show_settings_page)
+        self.constraint_settings.settings_changed.connect(self._store_constraint_parameters)
         self.selected_programs_panel.program_detail_requested.connect(
             self._open_program_courses
         )

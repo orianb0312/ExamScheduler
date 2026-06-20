@@ -84,7 +84,7 @@ def test_input_panel_uses_dashboard_shell_layout(tmp_path, qtbot):
         button.text()
         for button in panel.findChildren(QPushButton)
         if button.objectName() in {"navTab", "navTabActive"}
-    ] == ["Dashboard", "Programs", "Courses", "Calendar", "Schedules"]
+    ] == ["Dashboard", "Programs", "Courses", "Calendar", "Settings", "Schedules"]
 
 
 def test_input_panel_home_image_fills_lower_page_area(tmp_path, qtbot):
