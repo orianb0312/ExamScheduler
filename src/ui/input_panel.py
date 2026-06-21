@@ -24,6 +24,10 @@ from src.services.cli_run_service import (
     SchedulerRunConfigBuilder,
     SchedulerRunForm,
 )
+from src.services.constraint_settings_policy import (
+    CONSTRAINTS_BY_KEY,
+    ConstraintValidation,
+)
 from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.scheduler_input_state import SchedulerInputState
 from src.ui.calendar_view_panel import CalendarView
@@ -427,12 +431,31 @@ class InputPanel(QWidget):
         )
 
     def _emit_run_requested(self) -> None:
+        # Constraint errors are part of the run form, so check them before building files.
+        if not self._validate_constraints_before_run():
+            return
         try:
             config = self._build_config()
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid input", str(exc))
             return
         self.run_requested.emit(config)
+
+    def _validate_constraints_before_run(self) -> bool:
+        validation = self.constraint_settings.validate()
+        if validation.is_valid:
+            return True
+
+        # Invalid enabled constraints must stop generation instead of being
+        # quietly dropped from the runtime file.
+        self.show_settings_page()
+        title, message = _format_constraint_validation_warning(validation)
+        QMessageBox.warning(
+            self,
+            title,
+            message,
+        )
+        return False
 
     def _build_config(self) -> CliRunConfig:
         return self._run_config_builder.build(
@@ -520,3 +543,46 @@ class _HomeImagePanel(QFrame):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         painter.drawPixmap(destination, scaled)
+
+
+def _format_constraint_validation_warning(
+    validation: ConstraintValidation,
+) -> tuple[str, str]:
+    # Turn policy-level errors into messages a scheduler user can act on.
+    problems = [
+        _format_constraint_problem(result.key, result.error)
+        for result in validation.results
+        if result.error is not None
+    ]
+
+    # A single bad field gets a direct sentence instead of a bulky list.
+    if len(problems) == 1:
+        return (
+            "Invalid constraint value",
+            f"{problems[0]} Fix it before generating schedules.",
+        )
+
+    # Several bad fields are shown together so the user can fix them in one visit.
+    return (
+        "Invalid constraint values",
+        "Fix these constraint settings before generating schedules:\n\n"
+        + "\n".join(f"- {problem}" for problem in problems),
+    )
+
+
+def _format_constraint_problem(key: str, error: str | None) -> str:
+    # Use the friendly title from the shared constraint definition.
+    definition = CONSTRAINTS_BY_KEY.get(key)
+    title = definition.title if definition else key
+    clean_error = (error or "Invalid value.").strip().rstrip(".")
+
+    # Keep required-value errors short and specific.
+    if clean_error == "A value is required when this constraint is enabled":
+        return f'The value in "{title}" is required.'
+
+    # The policy already knows whether the value must be positive or non-negative.
+    if clean_error.startswith("Value must be "):
+        requirement = clean_error.removeprefix("Value must be ")
+        return f'The value in "{title}" must be {requirement}.'
+
+    return f'The value in "{title}" is invalid: {clean_error}.'

@@ -2,9 +2,12 @@ import json
 from io import StringIO
 from pathlib import Path
 
+import pytest
+
 from src.workflow import (
     run_complete_auto_stream_workflow,
     run_complete_lazy_stream_workflow,
+    run_complete_count_workflow,
     run_v1_workflow,
 )
 
@@ -258,3 +261,85 @@ def test_run_complete_lazy_stream_workflow_waits_for_next_command(tmp_path):
     assert second_page_result.written_system_count == 2
     assert "Complete System #1" in second_page_stdout.getvalue()
     assert "Complete System #2" in second_page_stdout.getvalue()
+
+
+def test_workflow_rejects_invalid_constraints_file_override(tmp_path):
+    course_file = tmp_path / "courses.txt"
+    dates_file = tmp_path / "dates.txt"
+    user_file = tmp_path / "programs.txt"
+    constraints_file = tmp_path / "constraints.txt"
+    output_config = tmp_path / "config.json"
+
+    course_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "Fall Exam",
+                "10001",
+                "Dr. Fall",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dates_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "FALL,Aleph",
+                "01-01-2026, 02-01-2026",
+                "02-01-2026 Blocked",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_file.write_text("83101", encoding="utf-8")
+    constraints_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "min_days_between_mandatory",
+                "-",
+                "$$$$",
+                "min_days_between_any",
+                "-",
+                "$$$$",
+                "max_elective_conflicts",
+                "0",
+                "$$$$",
+                "min_days_before_last_mandatory",
+                "-",
+                "$$$$",
+                "max_exams_per_day",
+                "0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_config.write_text(
+        json.dumps(
+            {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(course_file),
+                    "dates_file": str(dates_file),
+                    "user_file": str(user_file),
+                },
+                "output_settings": {
+                    "base_directory": str(tmp_path / "output"),
+                    "master_filename": "workflow_schedule",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="max_exams_per_day"):
+        run_complete_count_workflow(
+            output_config=output_config,
+            course_file=course_file,
+            dates_file=dates_file,
+            user_file=user_file,
+            constraints_file=constraints_file,
+        )

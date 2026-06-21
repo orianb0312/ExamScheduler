@@ -1,7 +1,7 @@
 import pytest
 from datetime import date
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFrame, QLabel, QPushButton, QScrollArea, QSizePolicy
+from PyQt6.QtWidgets import QFrame, QLabel, QMessageBox, QPushButton, QScrollArea, QSizePolicy
 
 from src.services.cli_run_service import build_cli_arguments
 from src.models.academic import Course, Exam, ProgramAffiliation
@@ -9,11 +9,12 @@ from src.models.enums import Semester, Term
 from src.models.enums import RequirementType
 from src.models.scheduling import ExamPeriod
 from src.services.file_loading_service import LoadedSchedulerInput
+from src.services.constraint_settings_policy import DEFAULT_CONSTRAINT_SETTINGS_POLICY
 from src.services.program_selection_policy import (
     DEFAULT_PROGRAM_SELECTION_POLICY,
 )
 from src.ui.file_loader_widget import FileLoaderWidget
-from src.ui.input_panel import InputPanel
+from src.ui.input_panel import InputPanel, _format_constraint_validation_warning
 from src.ui.program_selection_widget import LIMIT_MESSAGE, MAX_SELECTED_PROGRAMS
 
 
@@ -161,6 +162,72 @@ def test_input_panel_passes_selected_programs_to_scheduler_config(tmp_path, qtbo
     assert config.user_file is not None
     assert args[user_file_index] == str(config.user_file)
     assert config.user_file.read_text(encoding="utf-8") == "83101, 83108"
+
+
+def test_input_panel_blocks_generation_when_constraint_settings_are_invalid(
+    tmp_path,
+    qtbot,
+    monkeypatch,
+):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+    panel.replace_program_list(["83101"])
+    panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+
+    warnings: list[tuple[str, str]] = []
+
+    def fake_warning(*args, **_kwargs):
+        warnings.append((args[1], args[2]))
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(QMessageBox, "warning", fake_warning)
+
+    # Zero is invalid here because this is one of the positive-integer constraints.
+    panel.constraint_settings.set_constraint(
+        "min_days_between_mandatory",
+        enabled=True,
+        value="0",
+    )
+    emitted_configs: list = []
+    panel.run_requested.connect(emitted_configs.append)
+
+    qtbot.mouseClick(panel.run_button, Qt.MouseButton.LeftButton)
+
+    assert emitted_configs == []
+    assert warnings == [
+        (
+            "Invalid constraint value",
+            (
+                'The value in "Minimum days between mandatory exams" must be '
+                "a positive whole number. Fix it before generating schedules."
+            ),
+        )
+    ]
+    assert panel.is_settings_page_visible()
+
+
+def test_constraint_warning_names_each_invalid_setting():
+    # Build policy errors directly so the message formatter can be tested without a modal.
+    validation = DEFAULT_CONSTRAINT_SETTINGS_POLICY.validate_all(
+        {
+            "min_days_between_mandatory": (True, "0"),
+            "min_days_between_any": (True, ""),
+            "max_elective_conflicts": (True, "-1"),
+        }
+    )
+
+    title, message = _format_constraint_validation_warning(validation)
+
+    assert title == "Invalid constraint values"
+    assert (
+        '- The value in "Minimum days between mandatory exams" must be '
+        "a positive whole number."
+    ) in message
+    assert '- The value in "Minimum days between any two exams" is required.' in message
+    assert (
+        '- The value in "Maximum elective conflicts" must be '
+        "zero or a positive whole number."
+    ) in message
 
 
 def test_input_panel_passes_loaded_courses_to_scheduler_config(tmp_path, qtbot):
