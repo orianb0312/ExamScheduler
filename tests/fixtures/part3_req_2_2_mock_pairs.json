@@ -1,0 +1,134 @@
+[
+  {
+    "case_id": "mandatory_mandatory_exact_k",
+    "pair_type": "mandatory-mandatory",
+    "program_id": 83101,
+    "year": 2,
+    "semester": "FALL",
+    "left_course": {
+      "course_id": 92201,
+      "name": "Signals A",
+      "requirement_type": "Obligatory"
+    },
+    "right_course": {
+      "course_id": 92202,
+      "name": "Systems A",
+      "requirement_type": "Obligatory"
+    },
+    "left_date": "2026-01-10",
+    "right_date": "2026-01-12",
+    "k": 2,
+    "expected_allowed": true,
+    "reason": "The exams are exactly k days apart, so the minimum-distance rule is satisfied."
+  },
+  {
+    "case_id": "mandatory_mandatory_under_k",
+    "pair_type": "mandatory-mandatory",
+    "program_id": 83101,
+    "year": 2,
+    "semester": "FALL",
+    "left_course": {
+      "course_id": 92203,
+      "name": "Signals B",
+      "requirement_type": "Obligatory"
+    },
+    "right_course": {
+      "course_id": 92204,
+      "name": "Systems B",
+      "requirement_type": "Obligatory"
+    },
+    "left_date": "2026-01-10",
+    "right_date": "2026-01-11",
+    "k": 2,
+    "expected_allowed": false,
+    "reason": "The exams are one day apart, which is less than k."
+  },
+  {
+    "case_id": "mandatory_elective_exact_k",
+    "pair_type": "mandatory-elective",
+    "program_id": 83101,
+    "year": 2,
+    "semester": "FALL",
+    "left_course": {
+      "course_id": 92205,
+      "name": "Networks Core",
+      "requirement_type": "Obligatory"
+    },
+    "right_course": {
+      "course_id": 92206,
+      "name": "Networks Lab",
+      "requirement_type": "Elective"
+    },
+    "left_date": "2026-01-13",
+    "right_date": "2026-01-15",
+    "k": 2,
+    "expected_allowed": true,
+    "reason": "Req 2.2 applies to mixed mandatory/elective pairs, and this pair meets the boundary."
+  },
+  {
+    "case_id": "mandatory_elective_under_k",
+    "pair_type": "mandatory-elective",
+    "program_id": 83101,
+    "year": 2,
+    "semester": "FALL",
+    "left_course": {
+      "course_id": 92207,
+      "name": "Networks Core B",
+      "requirement_type": "Obligatory"
+    },
+    "right_course": {
+      "course_id": 92208,
+      "name": "Networks Lab B",
+      "requirement_type": "Elective"
+    },
+    "left_date": "2026-01-13",
+    "right_date": "2026-01-14",
+    "k": 2,
+    "expected_allowed": false,
+    "reason": "Mixed pairs are still any two exams, and this pair is below the minimum distance."
+  },
+  {
+    "case_id": "elective_elective_exact_k",
+    "pair_type": "elective-elective",
+    "program_id": 83101,
+    "year": 2,
+    "semester": "FALL",
+    "left_course": {
+      "course_id": 92209,
+      "name": "Robotics Topics",
+      "requirement_type": "Elective"
+    },
+    "right_course": {
+      "course_id": 92210,
+      "name": "Vision Topics",
+      "requirement_type": "Elective"
+    },
+    "left_date": "2026-01-16",
+    "right_date": "2026-01-18",
+    "k": 2,
+    "expected_allowed": true,
+    "reason": "Two elective exams still fall under Req 2.2, and the exact k-day boundary is allowed."
+  },
+  {
+    "case_id": "elective_elective_under_k",
+    "pair_type": "elective-elective",
+    "program_id": 83101,
+    "year": 2,
+    "semester": "FALL",
+    "left_course": {
+      "course_id": 92211,
+      "name": "Robotics Topics B",
+      "requirement_type": "Elective"
+    },
+    "right_course": {
+      "course_id": 92212,
+      "name": "Vision Topics B",
+      "requirement_type": "Elective"
+    },
+    "left_date": "2026-01-16",
+    "right_date": "2026-01-17",
+    "k": 2,
+    "expected_allowed": false,
+    "reason": "Elective-elective pairs are covered by Req 2.2 and must still be at least k days apart."
+  }
+]
