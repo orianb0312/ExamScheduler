@@ -83,6 +83,45 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def run_cli() -> int:
+    """Run the CLI entry point and convert failures into readable messages."""
+    try:
+        return main()
+    except SystemExit:
+        # Let argparse keep its standard help and validation behavior.
+        raise
+    except KeyboardInterrupt:
+        print("Error: Scheduling was cancelled.", file=sys.stderr)
+        return 130
+    except Exception as exc:
+        print(f"Error: {_format_cli_error(exc)}", file=sys.stderr)
+        return 1
+
+
+def _format_cli_error(exc: Exception) -> str:
+    if isinstance(exc, FileNotFoundError):
+        missing_path = exc.filename or str(exc)
+        return f"Required file was not found: {missing_path}"
+
+    if isinstance(exc, json.JSONDecodeError):
+        return (
+            "Invalid JSON configuration: "
+            f"{exc.msg} at line {exc.lineno}, column {exc.colno}."
+        )
+
+    if isinstance(exc, KeyError):
+        return f"Missing required input: {exc}"
+
+    if isinstance(exc, OSError):
+        return f"File system error: {exc}"
+
+    message = str(exc).strip()
+    if message:
+        return message
+
+    return exc.__class__.__name__
+
+
 def main() -> int:
     args = parse_args()
 
@@ -226,4 +265,4 @@ def _print_complete_result(result) -> None:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_cli())

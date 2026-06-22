@@ -1,9 +1,11 @@
+import struct
+import tempfile
 import time
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from datetime import date, timedelta
-from itertools import product
 from pathlib import Path
-from typing import Dict, Generator, Iterable, Iterator, List, Optional, Sequence, Set
+from typing import Dict, Generator, Iterable, Iterator, List, Optional, Protocol, Sequence, Set
 
 from src.output.output_manager import TextOutputManager
 from src.interfaces import ISchedulingRule
@@ -12,6 +14,10 @@ from src.models.scheduling import ExamPeriod
 
 
 DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE = 1000
+DEFAULT_ASSIGNMENT_STORE_MEMORY_LIMIT_BYTES = 8 * 1024 * 1024
+DEFAULT_FORMAT_CACHE_SIZE = 4096
+DEFAULT_OUTPUT_BATCH_CHAR_LIMIT = 16 * 1024 * 1024
+DEFAULT_OUTPUT_BUFFER_BYTES = 16 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -23,11 +29,366 @@ class _CourseKey:
         return getattr(self.course, name)
 
 
+class ScheduleSource(Protocol):
+    def __len__(self) -> int:
+        ...
+
+    def __getitem__(self, index: int) -> Dict[int, date]:
+        ...
+
+
+class CountOnlyScheduleSource:
+    """Schedule source used by count mode when assignments do not need storage."""
+
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    def __len__(self) -> int:
+        return self._count
+
+    def __getitem__(self, index: int) -> Dict[int, date]:
+        raise RuntimeError("Count-only schedule source cannot return assignments.")
+
+
+class DiskAssignmentStore:
+    """Fixed-width, spooled binary storage for component assignments."""
+
+    def __init__(
+        self,
+        course_indices: Sequence[int],
+        date_to_id: Dict[date, int],
+        id_to_date: Sequence[date],
+        memory_limit_bytes: int = DEFAULT_ASSIGNMENT_STORE_MEMORY_LIMIT_BYTES,
+    ) -> None:
+        self._count = 0
+        self._course_indices = tuple(course_indices)
+        self._date_to_id = date_to_id
+        self._id_to_date = list(id_to_date)
+        self._memory_limit_bytes = memory_limit_bytes
+        self._num_courses = len(self._course_indices)
+        self._buffer = bytearray()
+        self._file = None
+
+        self._record_format = ""
+        self._record_size = 0
+        self._single_byte_record = False
+        if self._num_courses:
+            date_id_format = self._date_id_format(len(self._id_to_date))
+            self._record_format = f"<{self._num_courses}{date_id_format}"
+            self._record_size = struct.calcsize(self._record_format)
+            self._single_byte_record = (
+                self._num_courses == 1
+                and date_id_format == "B"
+            )
+
+    @property
+    def course_indices(self) -> tuple[int, ...]:
+        return self._course_indices
+
+    def append(self, assignment: Dict[int, date]) -> None:
+        if not self._num_courses:
+            self._count += 1
+            return
+
+        date_ids = (
+            self._date_to_id[assignment[course_index]]
+            for course_index in self._course_indices
+        )
+        self._append_record(struct.pack(self._record_format, *date_ids))
+        self._count += 1
+
+    def __len__(self) -> int:
+        return self._count
+
+    def __getitem__(self, index: int) -> Dict[int, date]:
+        if index < 0:
+            index += self._count
+        if index < 0 or index >= self._count:
+            raise IndexError("Store index out of range")
+        if not self._num_courses:
+            return {}
+
+        date_ids = self._read_date_ids(index)
+        return {
+            course_index: self._id_to_date[date_ids[position]]
+            for position, course_index in enumerate(self._course_indices)
+        }
+
+    def items_at(self, index: int) -> tuple[tuple[int, date], ...]:
+        if index < 0:
+            index += self._count
+        if index < 0 or index >= self._count:
+            raise IndexError("Store index out of range")
+        if not self._num_courses:
+            return ()
+        if self._single_byte_record:
+            return ((
+                self._course_indices[0],
+                self._id_to_date[self._read_single_date_id(index)],
+            ),)
+
+        date_ids = self._read_date_ids(index)
+        return tuple(
+            (course_index, self._id_to_date[date_ids[position]])
+            for position, course_index in enumerate(self._course_indices)
+        )
+
+    def append_items_at(self, index: int, target: List[tuple[int, date]]) -> None:
+        if index < 0:
+            index += self._count
+        if index < 0 or index >= self._count:
+            raise IndexError("Store index out of range")
+        if not self._num_courses:
+            return
+        if self._single_byte_record:
+            target.append(
+                (
+                    self._course_indices[0],
+                    self._id_to_date[self._read_single_date_id(index)],
+                )
+            )
+            return
+
+        date_ids = self._read_date_ids(index)
+        for position, course_index in enumerate(self._course_indices):
+            target.append((course_index, self._id_to_date[date_ids[position]]))
+
+    def __iter__(self) -> Iterator[Dict[int, date]]:
+        if not self._num_courses:
+            for _ in range(self._count):
+                yield {}
+            return
+
+        for _ in range(self._count):
+            date_ids = self._read_date_ids(_)
+            yield {
+                course_index: self._id_to_date[date_ids[position]]
+                for position, course_index in enumerate(self._course_indices)
+            }
+
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+        self._buffer.clear()
+
+    def _append_record(self, record: bytes) -> None:
+        if (
+            self._file is None
+            and len(self._buffer) + len(record) <= self._memory_limit_bytes
+        ):
+            self._buffer.extend(record)
+            return
+
+        if self._file is None:
+            self._file = tempfile.TemporaryFile(mode="w+b")
+            self._file.write(self._buffer)
+            self._buffer.clear()
+
+        self._file.seek(0, 2)
+        self._file.write(record)
+
+    def _read_date_ids(self, index: int) -> tuple[int, ...]:
+        start = index * self._record_size
+        if self._file is None:
+            return struct.unpack_from(self._record_format, self._buffer, start)
+
+        self._file.seek(start)
+        raw_bytes = self._file.read(self._record_size)
+        if len(raw_bytes) != self._record_size:
+            raise IndexError("Store index could not be read")
+        return struct.unpack(self._record_format, raw_bytes)
+
+    def _read_single_date_id(self, index: int) -> int:
+        if self._file is None:
+            return self._buffer[index]
+
+        self._file.seek(index)
+        raw_byte = self._file.read(1)
+        if len(raw_byte) != 1:
+            raise IndexError("Store index could not be read")
+        return raw_byte[0]
+
+    @staticmethod
+    def _date_id_format(date_count: int) -> str:
+        max_id = max(0, date_count - 1)
+        if max_id <= 0xFF:
+            return "B"
+        if max_id <= 0xFFFF:
+            return "H"
+        if max_id <= 0xFFFFFFFF:
+            return "I"
+        return "Q"
+
+
+class ComponentBackedScheduleSource:
+    """Period schedule source backed by component stores and index products."""
+
+    def __init__(self, component_stores: Sequence[DiskAssignmentStore]) -> None:
+        self._component_stores = list(component_stores)
+        self._component_counts = [
+            len(component_store) for component_store in self._component_stores
+        ]
+        self._count = _product_counts(self._component_counts)
+
+    def __len__(self) -> int:
+        return self._count
+
+    def __getitem__(self, index: int) -> Dict[int, date]:
+        if index < 0:
+            index += self._count
+        if index < 0 or index >= self._count:
+            raise IndexError("Schedule index out of range")
+        if not self._component_stores:
+            return {}
+
+        component_indexes = _flat_index_to_product_indexes(
+            index,
+            self._component_counts,
+        )
+        return self._merge_component_assignments(component_indexes)
+
+    def items_at(self, index: int) -> List[tuple[int, date]]:
+        if index < 0:
+            index += self._count
+        if index < 0 or index >= self._count:
+            raise IndexError("Schedule index out of range")
+        if not self._component_stores:
+            return []
+
+        component_indexes = _flat_index_to_product_indexes(
+            index,
+            self._component_counts,
+        )
+        items: List[tuple[int, date]] = []
+        for component_store, component_index in zip(
+            self._component_stores,
+            component_indexes,
+        ):
+            component_store.append_items_at(component_index, items)
+        return items
+
+    def __iter__(self) -> Iterator[Dict[int, date]]:
+        for component_indexes in _iter_index_product_counts(self._component_counts):
+            yield self._merge_component_assignments(component_indexes)
+
+    def close(self) -> None:
+        for component_store in self._component_stores:
+            component_store.close()
+
+    def _merge_component_assignments(
+        self,
+        component_indexes: Sequence[int],
+    ) -> Dict[int, date]:
+        full_assignment: Dict[int, date] = {}
+        for component_store, component_index in zip(
+            self._component_stores,
+            component_indexes,
+        ):
+            full_assignment.update(component_store[component_index])
+        return full_assignment
+
+
+class BoundedFormatCache:
+    """Small LRU cache for formatted period schedule blocks."""
+
+    def __init__(self, max_items: int = DEFAULT_FORMAT_CACHE_SIZE) -> None:
+        self._max_items = max(0, max_items)
+        self._items: OrderedDict[int, str] = OrderedDict()
+
+    def get(self, index: int) -> Optional[str]:
+        try:
+            value = self._items.pop(index)
+        except KeyError:
+            return None
+        self._items[index] = value
+        return value
+
+    def set(self, index: int, value: str) -> None:
+        if self._max_items == 0:
+            return
+        self._items[index] = value
+        self._items.move_to_end(index)
+        if len(self._items) > self._max_items:
+            self._items.popitem(last=False)
+
+
+def _product_counts(counts: Iterable[int]) -> int:
+    total = 1
+    for count in counts:
+        total *= count
+    return total
+
+
+def _flat_index_to_product_indexes(index: int, counts: Sequence[int]) -> List[int]:
+    indexes = [0] * len(counts)
+    for position in range(len(counts) - 1, -1, -1):
+        count = counts[position]
+        indexes[position] = index % count
+        index //= count
+    return indexes
+
+
+def _iter_index_product_counts(counts: Sequence[int]) -> Iterator[List[int]]:
+    if not counts:
+        yield []
+        return
+    if any(count == 0 for count in counts):
+        return
+
+    indexes = [0] * len(counts)
+    while True:
+        yield list(indexes)
+
+        for position in range(len(indexes) - 1, -1, -1):
+            indexes[position] += 1
+            if indexes[position] < counts[position]:
+                break
+            indexes[position] = 0
+        else:
+            return
+
+
 @dataclass(frozen=True)
 class PeriodScheduleSet:
     period: ExamPeriod
     courses: List[Course]
-    schedules: List[Dict[int, date]]
+    schedules: ScheduleSource
+    header: str = field(init=False)
+    course_sort_keys: tuple[str, ...] = field(init=False)
+    course_line_prefixes: tuple[str, ...] = field(init=False)
+    course_line_suffixes: tuple[str, ...] = field(init=False)
+    course_line_caches: tuple[dict[date, str], ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "header",
+            (
+                f"=== SEMESTER: {self.period.semester.value} ===\n"
+                f"  [TERM: {self.period.term.value}]\n"
+                "  " + "-" * 40 + "\n"
+            ),
+        )
+        object.__setattr__(
+            self,
+            "course_sort_keys",
+            tuple(course.name.lower() for course in self.courses),
+        )
+        object.__setattr__(
+            self,
+            "course_line_prefixes",
+            tuple(f"  {course.name} | " for course in self.courses),
+        )
+        object.__setattr__(
+            self,
+            "course_line_suffixes",
+            tuple(f" | {course.instructor}\n" for course in self.courses),
+        )
+        object.__setattr__(
+            self,
+            "course_line_caches",
+            tuple({} for _course in self.courses),
+        )
 
     @property
     def count(self) -> int:
@@ -58,6 +419,7 @@ class CompleteSystemStream:
     period_schedule_counts: List[int]
     complete_system_count: int
     systems: Iterator[GeneratedCompleteSystem]
+    _schedule_sets: Sequence[PeriodScheduleSet] = ()
 
     def iter_batches(
         self,
@@ -67,14 +429,27 @@ class CompleteSystemStream:
             raise ValueError("batch_size must be greater than zero")
 
         batch: List[GeneratedCompleteSystem] = []
-        for system in self.systems:
-            batch.append(system)
-            if len(batch) >= batch_size:
-                yield batch
-                batch = []
+        try:
+            for system in self.systems:
+                batch.append(system)
+                if len(batch) >= batch_size:
+                    yield batch
+                    batch = []
 
-        if batch:
-            yield batch
+            if batch:
+                yield batch
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        close_systems = getattr(self.systems, "close", None)
+        if close_systems is not None:
+            close_systems()
+
+        for schedule_set in self._schedule_sets:
+            close_schedules = getattr(schedule_set.schedules, "close", None)
+            if close_schedules is not None:
+                close_schedules()
 
 
 class CompleteSystemScheduler:
@@ -94,14 +469,20 @@ class CompleteSystemScheduler:
     def __init__(self, rules: List[ISchedulingRule]):
         self.rules = rules
         self._course_keys: List[_CourseKey] = []
-        self._write_batch_size = 2048
+        self._write_batch_size = 8192
+        self._format_cache_size = DEFAULT_FORMAT_CACHE_SIZE
+        self._output_batch_char_limit = DEFAULT_OUTPUT_BATCH_CHAR_LIMIT
+        self._output_buffer_bytes = DEFAULT_OUTPUT_BUFFER_BYTES
 
     def count_complete_systems(
         self,
         period_course_sets: Sequence[tuple[ExamPeriod, List[Course]]],
     ) -> CompleteSystemResult:
         started_at = time.perf_counter()
-        schedule_sets = self._build_period_schedule_sets(period_course_sets)
+        schedule_sets = self._build_period_schedule_sets(
+            period_course_sets,
+            materialize_schedules=False,
+        )
         complete_count = self._product_count(schedule_sets)
 
         return CompleteSystemResult(
@@ -134,6 +515,7 @@ class CompleteSystemScheduler:
             period_schedule_counts=[schedule_set.count for schedule_set in schedule_sets],
             complete_system_count=complete_count,
             systems=systems,
+            _schedule_sets=schedule_sets,
         )
 
     def write_complete_systems(
@@ -152,34 +534,48 @@ class CompleteSystemScheduler:
         output_path = output_manager.get_full_path()
 
         written_count = 0
-        with open(output_path, "w", encoding="utf-8") as file:
-            file.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
-            file.write("=" * 65 + "\n")
-            file.write(f"Total complete systems: {stream.complete_system_count:,}\n")
-            file.write(
-                "Period schedule counts: "
-                + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
-                + "\n\n"
-            )
-
-            output_batch = []
-            for system in stream.systems:
-                written_count = system.number
-                output_batch.append(system.text)
-
-                if len(output_batch) >= self._write_batch_size:
-                    file.write("".join(output_batch))
-                    output_batch.clear()
-
-            if output_batch:
-                file.write("".join(output_batch))
-
-            truncated = max_systems is not None and written_count < stream.complete_system_count
-            if truncated:
+        try:
+            with open(
+                output_path,
+                "w",
+                encoding="utf-8",
+                buffering=self._output_buffer_bytes,
+            ) as file:
+                file.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
+                file.write("=" * 65 + "\n")
+                file.write(f"Total complete systems: {stream.complete_system_count:,}\n")
                 file.write(
-                    f"\n... Stopped after writing {written_count:,} of "
-                    f"{stream.complete_system_count:,} complete systems ...\n"
+                    "Period schedule counts: "
+                    + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
+                    + "\n\n"
                 )
+
+                output_batch = []
+                output_batch_chars = 0
+                for system in stream.systems:
+                    written_count = system.number
+                    output_batch.append(system.text)
+                    output_batch_chars += len(system.text)
+
+                    if (
+                        len(output_batch) >= self._write_batch_size
+                        or output_batch_chars >= self._output_batch_char_limit
+                    ):
+                        file.write("".join(output_batch))
+                        output_batch.clear()
+                        output_batch_chars = 0
+
+                if output_batch:
+                    file.write("".join(output_batch))
+
+                truncated = max_systems is not None and written_count < stream.complete_system_count
+                if truncated:
+                    file.write(
+                        f"\n... Stopped after writing {written_count:,} of "
+                        f"{stream.complete_system_count:,} complete systems ...\n"
+                    )
+        finally:
+            stream.close()
 
         return CompleteSystemResult(
             output_path=output_path,
@@ -214,50 +610,64 @@ class CompleteSystemScheduler:
         deadline = started_at + max(0.0, time_limit_seconds - safety_margin_seconds)
         written_count = 0
 
-        with open(output_path, "w", encoding="utf-8") as file:
-            file.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
-            file.write("=" * 65 + "\n")
-            file.write(f"Total complete systems: {stream.complete_system_count:,}\n")
-            file.write(
-                "Period course counts: "
-                + ", ".join(f"{count:,}" for count in stream.period_course_counts)
-                + "\n"
-            )
-            file.write(
-                "Period schedule counts: "
-                + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
-                + "\n"
-            )
-            file.write(f"Auto time limit: {time_limit_seconds:.2f} seconds\n\n")
-
-            output_batch = []
-            systems = iter(stream.systems)
-            while True:
-                if time.perf_counter() >= deadline:
-                    break
-
-                try:
-                    system = next(systems)
-                except StopIteration:
-                    break
-
-                written_count = system.number
-                output_batch.append(system.text)
-
-                if len(output_batch) >= self._write_batch_size:
-                    file.write("".join(output_batch))
-                    output_batch.clear()
-
-            if output_batch:
-                file.write("".join(output_batch))
-
-            truncated = written_count < stream.complete_system_count
-            if truncated:
+        try:
+            with open(
+                output_path,
+                "w",
+                encoding="utf-8",
+                buffering=self._output_buffer_bytes,
+            ) as file:
+                file.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
+                file.write("=" * 65 + "\n")
+                file.write(f"Total complete systems: {stream.complete_system_count:,}\n")
                 file.write(
-                    f"\n... Auto limit wrote {written_count:,} of "
-                    f"{stream.complete_system_count:,} complete systems within "
-                    f"{time_limit_seconds:.2f} seconds ...\n"
+                    "Period course counts: "
+                    + ", ".join(f"{count:,}" for count in stream.period_course_counts)
+                    + "\n"
                 )
+                file.write(
+                    "Period schedule counts: "
+                    + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
+                    + "\n"
+                )
+                file.write(f"Auto time limit: {time_limit_seconds:.2f} seconds\n\n")
+
+                output_batch = []
+                output_batch_chars = 0
+                systems = iter(stream.systems)
+                while True:
+                    if time.perf_counter() >= deadline:
+                        break
+
+                    try:
+                        system = next(systems)
+                    except StopIteration:
+                        break
+
+                    written_count = system.number
+                    output_batch.append(system.text)
+                    output_batch_chars += len(system.text)
+
+                    if (
+                        len(output_batch) >= self._write_batch_size
+                        or output_batch_chars >= self._output_batch_char_limit
+                    ):
+                        file.write("".join(output_batch))
+                        output_batch.clear()
+                        output_batch_chars = 0
+
+                if output_batch:
+                    file.write("".join(output_batch))
+
+                truncated = written_count < stream.complete_system_count
+                if truncated:
+                    file.write(
+                        f"\n... Auto limit wrote {written_count:,} of "
+                        f"{stream.complete_system_count:,} complete systems within "
+                        f"{time_limit_seconds:.2f} seconds ...\n"
+                    )
+        finally:
+            stream.close()
 
         return CompleteSystemResult(
             output_path=output_path,
@@ -273,43 +683,102 @@ class CompleteSystemScheduler:
     def _build_period_schedule_sets(
         self,
         period_course_sets: Sequence[tuple[ExamPeriod, List[Course]]],
+        materialize_schedules: bool = True,
     ) -> List[PeriodScheduleSet]:
         return [
             PeriodScheduleSet(
                 period=period,
                 courses=courses,
-                schedules=self._solve_period(courses, period),
+                schedules=self._solve_period(
+                    courses,
+                    period,
+                    materialize_schedules=materialize_schedules,
+                ),
             )
             for period, courses in period_course_sets
         ]
 
-    def _solve_period(self, courses: List[Course], period: ExamPeriod) -> List[Dict[int, date]]:
+    def _solve_period(
+        self,
+        courses: List[Course],
+        period: ExamPeriod,
+        materialize_schedules: bool = True,
+    ) -> ScheduleSource:
         if not courses:
-            return [{}]
+            if materialize_schedules:
+                return [{}]
+            return CountOnlyScheduleSource(1)
 
         self._course_keys = [_CourseKey(index, course) for index, course in enumerate(courses)]
         available_dates = self._get_available_dates(period)
         if not available_dates:
-            return []
+            if materialize_schedules:
+                return []
+            return CountOnlyScheduleSource(0)
 
         conflict_graph = self._build_conflict_graph(courses)
         components = self._get_connected_components(courses, conflict_graph)
 
-        component_solutions = []
+        if not materialize_schedules:
+            return CountOnlyScheduleSource(
+                self._count_period_schedules(
+                    components,
+                    available_dates,
+                    conflict_graph,
+                )
+            )
+
+        date_to_id = {exam_date: index for index, exam_date in enumerate(available_dates)}
+        component_stores: List[DiskAssignmentStore] = []
+
         for component in components:
-            solutions = list(self._solve_component(component, available_dates, conflict_graph))
-            if not solutions:
-                return []
-            component_solutions.append(solutions)
+            component_store = DiskAssignmentStore(
+                component,
+                date_to_id,
+                available_dates,
+            )
 
-        period_schedules = []
-        for combination in product(*component_solutions):
-            full_assignment = {}
-            for partial_assignment in combination:
-                full_assignment.update(partial_assignment)
-            period_schedules.append(full_assignment)
+            try:
+                for solution in self._solve_component(
+                    component,
+                    available_dates,
+                    conflict_graph,
+                ):
+                    component_store.append(solution)
 
-        return period_schedules
+                if len(component_store) == 0:
+                    component_store.close()
+                    self._close_schedule_sources(component_stores)
+                    return []
+
+                component_stores.append(component_store)
+            except Exception:
+                component_store.close()
+                self._close_schedule_sources(component_stores)
+                raise
+
+        return ComponentBackedScheduleSource(component_stores)
+
+    def _count_period_schedules(
+        self,
+        components: Sequence[List[int]],
+        available_dates: List[date],
+        conflict_graph: Dict[int, Set[int]],
+    ) -> int:
+        total = 1
+        for component in components:
+            component_count = sum(
+                1
+                for _solution in self._solve_component(
+                    component,
+                    available_dates,
+                    conflict_graph,
+                )
+            )
+            if component_count == 0:
+                return 0
+            total *= component_count
+        return total
 
     def _get_available_dates(self, period: ExamPeriod) -> List[date]:
         available = []
@@ -453,26 +922,39 @@ class CompleteSystemScheduler:
         self,
         schedule_sets: List[PeriodScheduleSet],
     ) -> Iterable[List[tuple[PeriodScheduleSet, Dict[int, date]]]]:
-        for combination in product(*(schedule_set.schedules for schedule_set in schedule_sets)):
+        schedule_counts = [schedule_set.count for schedule_set in schedule_sets]
+
+        for schedule_indexes in _iter_index_product_counts(schedule_counts):
             yield [
-                (schedule_set, period_schedule)
-                for schedule_set, period_schedule in zip(schedule_sets, combination)
+                (schedule_set, schedule_set.schedules[schedule_index])
+                for schedule_set, schedule_index in zip(schedule_sets, schedule_indexes)
             ]
 
     def _build_formatted_schedule_caches(
         self,
         schedule_sets: List[PeriodScheduleSet],
-    ) -> List[List[Optional[str]]]:
-        return [[None] * schedule_set.count for schedule_set in schedule_sets]
+    ) -> List[BoundedFormatCache]:
+        last_schedule_index = len(schedule_sets) - 1
+        return [
+            BoundedFormatCache(
+                0
+                if (
+                    index == last_schedule_index
+                    and schedule_set.count > self._format_cache_size
+                )
+                else min(self._format_cache_size, schedule_set.count)
+            )
+            for index, schedule_set in enumerate(schedule_sets)
+        ]
 
     def _iter_formatted_complete_systems(
         self,
         schedule_sets: List[PeriodScheduleSet],
-        formatted_caches: List[List[Optional[str]]],
+        formatted_caches: List[BoundedFormatCache],
     ) -> Iterable[List[str]]:
-        schedule_index_ranges = [range(schedule_set.count) for schedule_set in schedule_sets]
+        schedule_counts = [schedule_set.count for schedule_set in schedule_sets]
 
-        for schedule_indexes in product(*schedule_index_ranges):
+        for schedule_indexes in _iter_index_product_counts(schedule_counts):
             yield [
                 self._get_formatted_period_schedule(
                     schedule_sets[period_index],
@@ -485,37 +967,47 @@ class CompleteSystemScheduler:
     def _iter_generated_complete_systems(
         self,
         schedule_sets: List[PeriodScheduleSet],
-        formatted_caches: List[List[Optional[str]]],
+        formatted_caches: List[BoundedFormatCache],
         max_systems: Optional[int] = None,
     ) -> Iterator[GeneratedCompleteSystem]:
-        if max_systems is not None and max_systems <= 0:
-            return
+        try:
+            if max_systems is not None and max_systems <= 0:
+                return
 
-        for system_number, complete_system_blocks in enumerate(
-            self._iter_formatted_complete_systems(schedule_sets, formatted_caches),
-            start=1,
-        ):
-            if max_systems is not None and system_number > max_systems:
-                break
+            for system_number, complete_system_blocks in enumerate(
+                self._iter_formatted_complete_systems(schedule_sets, formatted_caches),
+                start=1,
+            ):
+                yield GeneratedCompleteSystem(
+                    number=system_number,
+                    text=self._format_complete_system(system_number, complete_system_blocks),
+                )
 
-            yield GeneratedCompleteSystem(
-                number=system_number,
-                text=self._format_complete_system(system_number, complete_system_blocks),
-            )
+                if max_systems is not None and system_number >= max_systems:
+                    break
+        finally:
+            self._close_schedule_sets(schedule_sets)
 
     def _get_formatted_period_schedule(
         self,
         schedule_set: PeriodScheduleSet,
-        formatted_cache: List[Optional[str]],
+        formatted_cache: BoundedFormatCache,
         schedule_index: int,
     ) -> str:
-        formatted = formatted_cache[schedule_index]
+        formatted = formatted_cache.get(schedule_index)
         if formatted is None:
-            formatted = self._format_period_schedule(
-                schedule_set,
-                schedule_set.schedules[schedule_index],
-            )
-            formatted_cache[schedule_index] = formatted
+            items_at = getattr(schedule_set.schedules, "items_at", None)
+            if items_at is None:
+                formatted = self._format_period_schedule(
+                    schedule_set,
+                    schedule_set.schedules[schedule_index],
+                )
+            else:
+                formatted = self._format_period_schedule_items(
+                    schedule_set,
+                    items_at(schedule_index),
+                )
+            formatted_cache.set(schedule_index, formatted)
 
         return formatted
 
@@ -524,6 +1016,17 @@ class CompleteSystemScheduler:
         for schedule_set in schedule_sets:
             total *= schedule_set.count
         return total
+
+    def _close_schedule_sets(self, schedule_sets: Sequence[PeriodScheduleSet]) -> None:
+        self._close_schedule_sources(
+            schedule_set.schedules for schedule_set in schedule_sets
+        )
+
+    def _close_schedule_sources(self, schedule_sources: Iterable[object]) -> None:
+        for schedule_source in schedule_sources:
+            close = getattr(schedule_source, "close", None)
+            if close is not None:
+                close()
 
     def _format_complete_system(
         self,
@@ -543,24 +1046,36 @@ class CompleteSystemScheduler:
         schedule_set: PeriodScheduleSet,
         assignment: Dict[int, date],
     ) -> str:
-        lines = [
-            f"=== SEMESTER: {schedule_set.period.semester.value} ===\n",
-            f"  [TERM: {schedule_set.period.term.value}]\n",
-            "  " + "-" * 40 + "\n",
-        ]
+        return self._format_period_schedule_items(schedule_set, assignment.items())
 
-        if not assignment:
+    def _format_period_schedule_items(
+        self,
+        schedule_set: PeriodScheduleSet,
+        assignment_items: Iterable[tuple[int, date]],
+    ) -> str:
+        items = list(assignment_items)
+        lines = [schedule_set.header]
+
+        if not items:
             lines.append("  EMPTY PERIOD: No exams scheduled for this period.\n")
             return "".join(lines)
 
         sorted_items = sorted(
-            assignment.items(),
-            key=lambda item: (item[1], schedule_set.courses[item[0]].name.lower()),
+            items,
+            key=lambda item: (item[1], schedule_set.course_sort_keys[item[0]]),
         )
 
         for course_index, exam_date in sorted_items:
-            course = schedule_set.courses[course_index]
-            lines.append(f"  {course.name} | {exam_date} | {course.instructor}\n")
+            line_cache = schedule_set.course_line_caches[course_index]
+            line = line_cache.get(exam_date)
+            if line is None:
+                line = (
+                    f"{schedule_set.course_line_prefixes[course_index]}"
+                    f"{exam_date}"
+                    f"{schedule_set.course_line_suffixes[course_index]}"
+                )
+                line_cache[exam_date] = line
+            lines.append(line)
 
         return "".join(lines)
 

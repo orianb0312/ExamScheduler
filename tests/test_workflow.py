@@ -2,11 +2,76 @@ import json
 from io import StringIO
 from pathlib import Path
 
+import src.workflow as workflow_module
 from src.workflow import (
+    load_domain_data,
     run_complete_auto_stream_workflow,
     run_complete_lazy_stream_workflow,
     run_v1_workflow,
 )
+
+
+class _StaticJsonParser:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def parse_to_json(self, _source_config):
+        return json.dumps(self._payload)
+
+
+def test_load_domain_data_deserializes_parser_output_once(monkeypatch):
+    payload = {
+        "courses_node": [
+            {
+                "name": "Fall Exam",
+                "number": "10001",
+                "instructor": "Dr. Fall",
+                "programs": [
+                    {
+                        "number": "83101",
+                        "year": "1",
+                        "semester": "FALL",
+                        "requirement": "Obligatory",
+                    }
+                ],
+                "evaluation": "Exam",
+            }
+        ],
+        "periods_node": [
+            {
+                "semester": "FALL",
+                "moed": "Aleph",
+                "start_date": "01-01-2026",
+                "end_date": "02-01-2026",
+                "exclusions": [
+                    {
+                        "start_date": "02-01-2026",
+                        "end_date": None,
+                        "comment": "Blocked",
+                    }
+                ],
+            }
+        ],
+        "user_node": ["83101"],
+    }
+    real_json_loads = workflow_module.json.loads
+    json_load_calls = []
+
+    def count_json_loads(*args, **kwargs):
+        json_load_calls.append(args[0])
+        return real_json_loads(*args, **kwargs)
+
+    monkeypatch.setattr(workflow_module.json, "loads", count_json_loads)
+
+    courses, periods, selected_programs = load_domain_data(
+        source_config={},
+        parser=_StaticJsonParser(payload),
+    )
+
+    assert len(json_load_calls) == 1
+    assert courses[0].name == "Fall Exam"
+    assert periods[0].semester.value == "FALL"
+    assert selected_programs == [83101]
 
 
 def test_run_v1_workflow_processes_all_exam_periods(tmp_path):
