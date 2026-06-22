@@ -78,9 +78,50 @@ def parse_args() -> argparse.Namespace:
     # Optional manual file overrides from the CLI - passed as kwargs to the workflow
     parser.add_argument("--course-file", type=Path, default=None)
     parser.add_argument("--dates-file", type=Path, default=None)
+    # Optional V1 constraints file, using the same $$$$ chunk format as the GUI writes.
+    parser.add_argument("--constraints-file", type=Path, default=None)
     parser.add_argument("--user-file", type=Path, default=None)
 
     return parser.parse_args()
+
+
+def run_cli() -> int:
+    """Run the CLI entry point and convert failures into readable messages."""
+    try:
+        return main()
+    except SystemExit:
+        # Let argparse keep its standard help and validation behavior.
+        raise
+    except KeyboardInterrupt:
+        print("Error: Scheduling was cancelled.", file=sys.stderr)
+        return 130
+    except Exception as exc:
+        print(f"Error: {_format_cli_error(exc)}", file=sys.stderr)
+        return 1
+
+
+def _format_cli_error(exc: Exception) -> str:
+    if isinstance(exc, FileNotFoundError):
+        missing_path = exc.filename or str(exc)
+        return f"Required file was not found: {missing_path}"
+
+    if isinstance(exc, json.JSONDecodeError):
+        return (
+            "Invalid JSON configuration: "
+            f"{exc.msg} at line {exc.lineno}, column {exc.colno}."
+        )
+
+    if isinstance(exc, KeyError):
+        return f"Missing required input: {exc}"
+
+    if isinstance(exc, OSError):
+        return f"File system error: {exc}"
+
+    message = str(exc).strip()
+    if message:
+        return message
+
+    return exc.__class__.__name__
 
 
 def main() -> int:
@@ -91,6 +132,8 @@ def main() -> int:
     cli_overrides = {
         "course_file": args.course_file,
         "dates_file": args.dates_file,
+        # Keep this with the other file overrides so config and CLI behave alike.
+        "constraints_file": args.constraints_file,
         "user_file": args.user_file,
     }
 
@@ -226,4 +269,4 @@ def _print_complete_result(result) -> None:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_cli())

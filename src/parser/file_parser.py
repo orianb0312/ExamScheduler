@@ -12,6 +12,7 @@ Expected config keys
 course_file : str   path to the courses plain-text file  (records separated by $$$$)
 dates_file  : str   path to the exam-period plain-text file
 user_file   : str   path to the user-selection file  e.g. "83101, 83102, 83108"
+constraints_file : str|None   optional V1 constraint settings file
 
 Usage
 -----
@@ -39,6 +40,7 @@ from src.parser.IParser import (
     DATE_PATTERN,
     VALID_PROGRAM_NUMBERS,
 )
+from src.parser.constraint_file_parser import parse_constraints_text
 
 # ---------------------------------------------------------------------------
 # File-format constant  –  specific to the plain-text file format only
@@ -315,9 +317,9 @@ class FileParser(IParser):
 
     def parse_to_json(self, config: dict) -> str:
         """
-        Read all three files, validate and parse every record, then return
-        a single JSON string with three top-level keys:
-            "courses_node", "periods_node", "user_node"
+        Read the required files plus optional constraints, validate and parse
+        every record, then return a single JSON string with:
+            "courses_node", "periods_node", "user_node", "constraints_node"
 
         Raises
         ------
@@ -338,11 +340,20 @@ class FileParser(IParser):
         with open(config["user_file"], encoding="utf-8-sig") as fh:
             selection = parse_user_selection(fh.read())
 
+        # Constraint files are optional so old V1 runs still work unchanged.
+        constraints = {}
+        constraints_file = config.get("constraints_file")
+        if constraints_file:
+            # Re-validate here because text files can be edited outside the GUI.
+            with open(constraints_file, encoding="utf-8-sig") as fh:
+                constraints = parse_constraints_text(fh.read())
+
         return json.dumps(
             {
                 "courses_node": courses,
                 "periods_node": periods,
                 "user_node":    selection,
+                "constraints_node": constraints,
             },
             ensure_ascii=False,
             indent=2,

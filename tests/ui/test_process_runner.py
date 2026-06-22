@@ -57,6 +57,7 @@ def test_build_cli_arguments_constructs_unbuffered_main_command():
         max_systems=1000,
         course_file=root / "data" / "courses.txt",
         dates_file=root / "data" / "dates.txt",
+        constraints_file=root / "data" / "constraints.txt",
         user_file=root / "data" / "programs.txt",
     )
 
@@ -76,6 +77,7 @@ def test_build_cli_arguments_constructs_unbuffered_main_command():
     assert "1000" in args
     assert "--course-file" in args
     assert "--dates-file" in args
+    assert "--constraints-file" in args
     assert "--user-file" in args
 
 

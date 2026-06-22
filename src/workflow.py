@@ -59,13 +59,13 @@ def load_domain_data(
 
     # The parser receives its matching configuration block directly
     json_data = parser.parse_to_json(source_config)
+    parsed_data = json.loads(json_data)
 
-    courses = CourseFactory().build_all(json_data, "courses_node")
-    periods = PeriodFactory().build_all(json_data, "periods_node")
+    courses = CourseFactory().build_all(parsed_data, "courses_node")
+    periods = PeriodFactory().build_all(parsed_data, "periods_node")
 
     # Safe extraction of the user_node configuration
-    parsed_json = json.loads(json_data)
-    selected_programs = [int(program) for program in parsed_json.get("user_node", [])]
+    selected_programs = [int(program) for program in parsed_data.get("user_node", [])]
 
     return courses, periods, selected_programs
 
@@ -121,12 +121,18 @@ def _resolve_source_config(output_config: Path, kwargs: Dict[str, Any]) -> Dict[
 
     if source_type == "file":
         file_config = config_data.get("file", {})
+        # Constraints may come from config.json or from the explicit CLI flag.
+        constraints_file = kwargs.get("constraints_file") or file_config.get("constraints_file")
         # Use CLI argument values if provided; otherwise, fall back to the JSON config values
-        return {
+        source_config = {
             "course_file": str(kwargs.get("course_file") or file_config.get("course_file")),
             "dates_file":  str(kwargs.get("dates_file") or file_config.get("dates_file")),
             "user_file":   str(kwargs.get("user_file") or file_config.get("user_file")),
         }
+        if constraints_file:
+            # Do not invent defaults here; parsing decides whether the file is valid.
+            source_config["constraints_file"] = str(constraints_file)
+        return source_config
 
     # For other data source types (e.g., DB, API), return the corresponding configuration block directly
     return config_data.get(source_type, {})
@@ -324,49 +330,52 @@ def run_complete_lazy_stream_workflow(
         period_course_sets,
         max_systems=max_systems,
     )
-    _write_stream_summary(output_stream, stream, time_limit_seconds=None)
+    try:
+        _write_stream_summary(output_stream, stream, time_limit_seconds=None)
 
-    batches = stream.iter_batches(batch_size=batch_size)
-    written_count = 0
-    exhausted = False
+        batches = stream.iter_batches(batch_size=batch_size)
+        written_count = 0
+        exhausted = False
 
-    def write_next_batch() -> None:
-        nonlocal written_count, exhausted
+        def write_next_batch() -> None:
+            nonlocal written_count, exhausted
 
-        try:
-            batch = next(batches)
-        except StopIteration:
-            exhausted = True
+            try:
+                batch = next(batches)
+            except StopIteration:
+                exhausted = True
+                output_stream.write(f"{BATCH_END_MARKER}\n")
+                output_stream.flush()
+                return
+
+            written_count = batch[-1].number
+            output_stream.write("".join(system.text for system in batch))
             output_stream.write(f"{BATCH_END_MARKER}\n")
             output_stream.flush()
-            return
 
-        written_count = batch[-1].number
-        output_stream.write("".join(system.text for system in batch))
-        output_stream.write(f"{BATCH_END_MARKER}\n")
-        output_stream.flush()
+            progress_stream.write(
+                f"Batch ready: {written_count:,} of "
+                f"{stream.complete_system_count:,} complete systems cached.\n"
+            )
+            progress_stream.flush()
 
-        progress_stream.write(
-            f"Batch ready: {written_count:,} of "
-            f"{stream.complete_system_count:,} complete systems cached.\n"
-        )
-        progress_stream.flush()
+            if written_count >= stream.complete_system_count:
+                exhausted = True
 
-        if written_count >= stream.complete_system_count:
-            exhausted = True
+        write_next_batch()
 
-    write_next_batch()
+        while not exhausted:
+            command = input_stream.readline()
+            if not command:
+                break
 
-    while not exhausted:
-        command = input_stream.readline()
-        if not command:
-            break
-
-        command = command.strip().upper()
-        if command == LAZY_NEXT_COMMAND:
-            write_next_batch()
-        elif command == LAZY_STOP_COMMAND:
-            break
+            command = command.strip().upper()
+            if command == LAZY_NEXT_COMMAND:
+                write_next_batch()
+            elif command == LAZY_STOP_COMMAND:
+                break
+    finally:
+        stream.close()
 
     elapsed_seconds = time.perf_counter() - started_at
     truncated = written_count < stream.complete_system_count
@@ -420,31 +429,34 @@ def _run_complete_stream_workflow(
         period_course_sets,
         max_systems=max_systems,
     )
-    _write_stream_summary(output_stream, stream, time_limit_seconds)
+    try:
+        _write_stream_summary(output_stream, stream, time_limit_seconds)
 
-    deadline = None
-    if time_limit_seconds is not None:
-        # Leave a small buffer so auto mode keeps the same careful time-limit behavior.
-        deadline = started_at + max(0.0, time_limit_seconds - 0.25)
+        deadline = None
+        if time_limit_seconds is not None:
+            # Leave a small buffer so auto mode keeps the same careful time-limit behavior.
+            deadline = started_at + max(0.0, time_limit_seconds - 0.25)
 
-    written_count = 0
-    batch: list[str] = []
+        written_count = 0
+        batch: list[str] = []
 
-    for system in stream.systems:
-        if deadline is not None and time.perf_counter() >= deadline:
-            break
+        for system in stream.systems:
+            if deadline is not None and time.perf_counter() >= deadline:
+                break
 
-        written_count = system.number
-        batch.append(system.text)
+            written_count = system.number
+            batch.append(system.text)
 
-        if len(batch) >= batch_size:
+            if len(batch) >= batch_size:
+                output_stream.write("".join(batch))
+                output_stream.flush()
+                batch.clear()
+
+        if batch:
             output_stream.write("".join(batch))
             output_stream.flush()
-            batch.clear()
-
-    if batch:
-        output_stream.write("".join(batch))
-        output_stream.flush()
+    finally:
+        stream.close()
 
     truncated = written_count < stream.complete_system_count
     elapsed_seconds = time.perf_counter() - started_at

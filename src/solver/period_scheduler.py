@@ -2,7 +2,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import product
-from typing import Dict, Generator, List, Set
+from typing import Dict, Generator, Iterator, List, Set
 
 from src.output.output_manager import TextOutputManager
 from src.interfaces import ISchedulingRule
@@ -41,6 +41,41 @@ class Scheduler:
         self.validate_full_schedules = validate_full_schedules
         self._course_keys: List[_CourseKey] = []
 
+    def iter_assignments(
+        self,
+        courses: List[Course],
+        period: ExamPeriod,
+    ) -> Iterator[Dict[int, date]]:
+        self._course_keys = [_CourseKey(index, course) for index, course in enumerate(courses)]
+
+        available_dates = self._get_available_dates(period)
+        if not courses or not available_dates:
+            return
+
+        conflict_graph = self._build_conflict_graph(courses)
+        components = self._get_connected_components(courses, conflict_graph)
+
+        component_solutions = []
+        for component in components:
+            solutions = list(self._solve_component(component, available_dates, conflict_graph))
+            if not solutions:
+                return
+            component_solutions.append(solutions)
+
+        for combination in product(*component_solutions):
+            full_assignment: Dict[int, date] = {}
+            for partial_assignment in combination:
+                full_assignment.update(partial_assignment)
+
+            # Optional guard for future rules that are not fully captured by pairwise edges.
+            if self.validate_full_schedules and not self._rules_accept_assignment(full_assignment):
+                continue
+
+            yield full_assignment
+
+    def count_assignments(self, courses: List[Course], period: ExamPeriod) -> int:
+        return sum(1 for _ in self.iter_assignments(courses, period))
+
     def run_to_output(
         self,
         courses: List[Course],
@@ -50,21 +85,15 @@ class Scheduler:
         write_header: bool = True,
     ) -> int:
         start_time = time.perf_counter()
-        self._course_keys = [_CourseKey(index, course) for index, course in enumerate(courses)]
 
         available_dates = self._get_available_dates(period)
         if not courses or not available_dates:
             return self._write_empty_output(output_manager, period, append, write_header)
 
-        conflict_graph = self._build_conflict_graph(courses)
-        components = self._get_connected_components(courses, conflict_graph)
-
-        component_solutions = []
-        for component in components:
-            solutions = list(self._solve_component(component, available_dates, conflict_graph))
-            if not solutions:
-                return 0
-            component_solutions.append(solutions)
+        assignments = self.iter_assignments(courses, period)
+        first_assignment = next(assignments, None)
+        if first_assignment is None:
+            return 0
 
         output_manager._ensure_dir_exists()
         full_path = output_manager.get_full_path()
@@ -76,17 +105,13 @@ class Scheduler:
                 f.write("OFFICIAL UNIVERSITY MASTER EXAM SCHEDULE\n")
                 f.write("=" * 65 + "\n\n")
 
-            for combination in product(*component_solutions):
-                full_assignment: Dict[int, date] = {}
-                for partial_assignment in combination:
-                    full_assignment.update(partial_assignment)
-
-                # Optional guard for future rules that are not fully captured by pairwise edges.
-                if self.validate_full_schedules and not self._rules_accept_assignment(full_assignment):
-                    continue
-
+            for assignment in [first_assignment]:
                 total_schedules += 1
-                self._write_schedule(f, total_schedules, courses, period, full_assignment)
+                self._write_schedule(f, total_schedules, courses, period, assignment)
+
+            for assignment in assignments:
+                total_schedules += 1
+                self._write_schedule(f, total_schedules, courses, period, assignment)
 
         duration = time.perf_counter() - start_time
         print(
