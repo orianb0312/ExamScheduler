@@ -23,6 +23,8 @@ def validate_schedule(
     assignments: Iterable[ScheduledCourse],
     required_courses: Iterable[Course],
     period: ExamPeriod,
+    k_days_mandatory: int = 0,
+    m_days_any: int = 0,
 ) -> List[ValidationIssue]:
     """
     Independently validates one complete exam schedule.
@@ -41,6 +43,9 @@ def validate_schedule(
     _check_required_course_coverage(assignment_list, required_list, issues)
     _check_dates_and_evaluations(assignment_list, period, issues)
     _check_critical_conflicts(assignment_list, issues)
+    #Spacing validations (Only executes if spacing constraints are defined)
+    if k_days_mandatory > 0 or m_days_any > 0:
+        _check_spacing_conflicts(assignment_list, issues, k_days_mandatory, m_days_any)
 
     return issues
 
@@ -154,3 +159,51 @@ def _has_critical_conflict(left: Course, right: Course) -> bool:
                 return True
 
     return False
+
+def _check_spacing_conflicts(
+        assignments: List[ScheduledCourse],
+        issues: List[ValidationIssue],
+        k_days_mandatory: int,
+        m_days_any: int
+) -> None:
+    """
+    Validates the generated matrix against the defined V2.0 spacing constraints.
+    Appends a ValidationIssue if any two exams are scheduled too close together.
+    """
+    for left_index in range(len(assignments)):
+        left = assignments[left_index]
+        for right in assignments[left_index + 1:]:
+            # Absolute calendar difference between the two exam dates
+            delta_days = abs((left.exam_date - right.exam_date).days)
+
+            for l_aff in left.course.affiliations:
+                for r_aff in right.course.affiliations:
+                    # Spacing constraints apply only when courses share a study program and year
+                    if l_aff.program_id == r_aff.program_id and l_aff.year == r_aff.year:
+
+                        # Constraint 2.2: Check minimal spacing defined for ANY two courses
+                        if delta_days < m_days_any:
+                            issues.append(
+                                ValidationIssue(
+                                    "GENERAL_SPACING_CONFLICT",
+                                    f"Courses {left.course.course_id} and {right.course.course_id} "
+                                    f"are {delta_days} days apart (minimum {m_days_any} required)."
+                                )
+                            )
+                            # Break inner loop to prevent logging duplicate issues for the same pair
+                            break
+
+                        # Constraint 2.1: Check minimal spacing defined for MANDATORY courses
+                        both_obligatory = (
+                                l_aff.requirement_type == RequirementType.OBLIGATORY
+                                and r_aff.requirement_type == RequirementType.OBLIGATORY
+                        )
+                        if both_obligatory and delta_days < k_days_mandatory:
+                            issues.append(
+                                ValidationIssue(
+                                    "MANDATORY_SPACING_CONFLICT",
+                                    f"Mandatory courses {left.course.course_id} and {right.course.course_id} "
+                                    f"are {delta_days} days apart (minimum {k_days_mandatory} required)."
+                                )
+                            )
+                            break
