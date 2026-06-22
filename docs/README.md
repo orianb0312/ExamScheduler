@@ -10,6 +10,8 @@ project.
 - `diagram_exports/` - exported SVG, PNG, HTML, and PDF diagram files.
 - `testing_and_validation.md` - test status, validation strategy, and useful commands.
 - `test_specification.md` - formal Version 1.0 test specification and execution results.
+- `part3_constraint_unit_test_prep.md` - Part 3 constraint edge-case plan,
+  Req 2.2 mock data, and k-input expectations.
 - `ExamScheduler_Test_Specification_v1_0.docx` - Word version of the formal test specification.
 - `organization_plan.md` - current structure notes and recommended cleanup steps.
 - `layer_boundaries.md` - ownership rules for PyQt6 UI, services/adapters, and v1.0 logic.

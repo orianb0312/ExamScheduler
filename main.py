@@ -78,6 +78,8 @@ def parse_args() -> argparse.Namespace:
     # Optional manual file overrides from the CLI - passed as kwargs to the workflow
     parser.add_argument("--course-file", type=Path, default=None)
     parser.add_argument("--dates-file", type=Path, default=None)
+    # Optional V1 constraints file, using the same $$$$ chunk format as the GUI writes.
+    parser.add_argument("--constraints-file", type=Path, default=None)
     parser.add_argument("--user-file", type=Path, default=None)
 
     return parser.parse_args()
@@ -130,6 +132,8 @@ def main() -> int:
     cli_overrides = {
         "course_file": args.course_file,
         "dates_file": args.dates_file,
+        # Keep this with the other file overrides so config and CLI behave alike.
+        "constraints_file": args.constraints_file,
         "user_file": args.user_file,
     }
 

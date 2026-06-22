@@ -11,7 +11,8 @@ Run from the project root:
 Use the pytest summary as the source of truth for the current number of tests
 and the current runtime.
 
-Current verified result: 62 tests passed in 22.31 seconds.
+Current verified result: 276 tests passed, with 1 network-isolation warning, in
+11.50 seconds.
 
 `pytest.ini` keeps test discovery consistent, including capitalized files such
 as `tests/parser/TestFileparser.py`.
@@ -47,6 +48,7 @@ The tests cover these layers:
 - workflow integration
 - output manager behavior
 - independent schedule validation
+- Part 3 constraint input prep and Req 2.2 mock-data checks
 
 ## Important Test And Documentation Files
 
@@ -64,7 +66,11 @@ tests/solver/final_test.py
 tests/solver/new_final_test.py
 tests/output/test_output_manager.py
 tests/output/test_schedule_sorter.py
+tests/constraints/test_part3_k_input_validation.py
+tests/constraints/test_part3_req_2_2_mock_data.py
+tests/fixtures/part3_req_2_2_mock_pairs.json
 docs/test_specification.md
+docs/part3_constraint_unit_test_prep.md
 docs/ExamScheduler_Test_Specification_v1_0.docx
 ```
 
@@ -82,6 +88,12 @@ The current test suite checks that:
 8. Complete-system counts are exact, even when full output is too large to write.
 9. Auto mode reports truncation when not all complete systems are written.
 10. Output files are readable and follow the expected text format.
+11. Part 3 k validation rejects zero and negative values for requirements
+    2.1, 2.2, 2.4, and 2.5.
+12. Part 3 k validation accepts zero for requirement 2.3 and rejects negative
+    values.
+13. Req 2.2 mock data covers mandatory-mandatory, mandatory-elective, and
+    elective-elective exam pairs with exact-k and under-k boundaries.
 
 ## Useful Manual Commands
 

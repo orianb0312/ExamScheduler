@@ -121,12 +121,18 @@ def _resolve_source_config(output_config: Path, kwargs: Dict[str, Any]) -> Dict[
 
     if source_type == "file":
         file_config = config_data.get("file", {})
+        # Constraints may come from config.json or from the explicit CLI flag.
+        constraints_file = kwargs.get("constraints_file") or file_config.get("constraints_file")
         # Use CLI argument values if provided; otherwise, fall back to the JSON config values
-        return {
+        source_config = {
             "course_file": str(kwargs.get("course_file") or file_config.get("course_file")),
             "dates_file":  str(kwargs.get("dates_file") or file_config.get("dates_file")),
             "user_file":   str(kwargs.get("user_file") or file_config.get("user_file")),
         }
+        if constraints_file:
+            # Do not invent defaults here; parsing decides whether the file is valid.
+            source_config["constraints_file"] = str(constraints_file)
+        return source_config
 
     # For other data source types (e.g., DB, API), return the corresponding configuration block directly
     return config_data.get(source_type, {})
