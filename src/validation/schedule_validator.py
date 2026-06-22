@@ -207,3 +207,73 @@ def _check_spacing_conflicts(
                                 )
                             )
                             break
+
+def _check_advanced_constraints(
+        assignments: List[ScheduledCourse],
+        issues: List[ValidationIssue],
+        max_elective_conflicts: int,
+        min_mandatory_span: int,
+        max_daily_exams: int
+) -> None:
+    """
+    Independently validates the final generated matrix against advanced capacity and span constraints.
+    Appends descriptive ValidationIssues if any threshold rules are violated.
+    """
+    # 1. Evaluate Daily Exam Cap Constraint
+    date_counts = {}
+    for a in assignments:
+        date_counts[a.exam_date] = date_counts.get(a.exam_date, 0) + 1
+        if date_counts[a.exam_date] > max_daily_exams:
+            issues.append(
+                ValidationIssue(
+                    "DAILY_CAP_EXCEEDED",
+                    f"Date {a.exam_date} has {date_counts[a.exam_date]} exams (max allowed: {max_daily_exams})."
+                )
+            )
+
+    # Prepare data structures for Span and Conflict evaluation
+    cohort_mandatory_dates = {}
+    program_elective_dates = {}
+
+    for a in assignments:
+        for aff in a.course.affiliations:
+            # Group dates for the Mandatory Span constraint
+            if aff.requirement_type == RequirementType.OBLIGATORY:
+                cohort_key = (aff.program_id, aff.year)
+                if cohort_key not in cohort_mandatory_dates:
+                    cohort_mandatory_dates[cohort_key] = []
+                cohort_mandatory_dates[cohort_key].append(a.exam_date)
+
+            # Group dates for the Elective Conflicts constraint
+            elif aff.requirement_type == RequirementType.ELECTIVE:
+                prog_date_key = (aff.program_id, a.exam_date)
+                program_elective_dates[prog_date_key] = program_elective_dates.get(prog_date_key, 0) + 1
+
+    # 2. Evaluate Mandatory Span Constraint
+    for (prog_id, year), dates in cohort_mandatory_dates.items():
+        if len(dates) > 1:
+            span = abs((max(dates) - min(dates)).days)
+            if span < min_mandatory_span:
+                issues.append(
+                    ValidationIssue(
+                        "MANDATORY_SPAN_TOO_SHORT",
+                        f"Program {prog_id} Year {year} has a mandatory exam span of {span} days (min required: {min_mandatory_span})."
+                    )
+                )
+
+    # 3. Evaluate Elective Conflicts Constraint
+    program_conflicts = {}
+    for (prog_id, date_val), count in program_elective_dates.items():
+        if count > 1:
+            # Combinatorics formula to find total number of unique overlapping pairs
+            conflicts = (count * (count - 1)) // 2
+            program_conflicts[prog_id] = program_conflicts.get(prog_id, 0) + conflicts
+
+    for prog_id, total_conflicts in program_conflicts.items():
+        if total_conflicts > max_elective_conflicts:
+            issues.append(
+                ValidationIssue(
+                    "ELECTIVE_CONFLICTS_EXCEEDED",
+                    f"Program {prog_id} has {total_conflicts} elective conflicts (max allowed: {max_elective_conflicts})."
+                )
+            )
