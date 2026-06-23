@@ -9,6 +9,7 @@ from src.models.scheduling import DateExclusion, ExamPeriod
 from src.rules.academic_conflict_rule import AcademicConflictRule
 from src.solver.period_scheduler import Scheduler
 from src.validation.schedule_validator import ScheduledCourse, validate_schedule
+from src.rules.exam_spacing_rule import ExamSpacingRule
 
 
 def _affiliation(
@@ -81,7 +82,30 @@ def _brute_force_schedules(courses, period):
     return valid_schedules
 
 
-def _run_scheduler(tmp_path, courses, period):
+"""def _run_scheduler(tmp_path, courses, period):
+    output_dir = tmp_path / "output"
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "output_settings": {
+                    "base_directory": str(output_dir),
+                    "master_filename": "correctness_schedule",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )"""
+
+
+def _run_scheduler(tmp_path, courses, period, rules=None):
+    """
+    Executes the period scheduler. Allows injecting custom rules (like spacing)
+    to override or complement the default V1.0 academic rules.
+    """
+    if rules is None:
+        rules = [AcademicConflictRule()]
+
     output_dir = tmp_path / "output"
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -97,7 +121,8 @@ def _run_scheduler(tmp_path, courses, period):
     )
 
     output_manager = TextOutputManager(str(config_path))
-    count = Scheduler([AcademicConflictRule()]).run_to_output(courses, period, output_manager)
+    # Pass the customized rules list into the Scheduler instance
+    count = Scheduler(rules).run_to_output(courses, period, output_manager)
     parsed_schedules = _parse_output(output_manager.get_full_path(), courses)
 
     assert count == len(parsed_schedules)
@@ -219,3 +244,33 @@ def test_every_emitted_schedule_passes_independent_validator(tmp_path):
 
     for schedule in parsed_schedules:
         assert validate_schedule(schedule, courses, period) == []
+
+def test_new_scheduler_enforces_spacing_rules(tmp_path):
+    """
+    Integration Test: Proves that the backtracking algorithm actively uses ExamSpacingRule
+    to prune invalid schedule combinations during generation.
+    """
+    # 5 days total available dates
+    period = ExamPeriod(
+        semester=Semester.FALL,
+        term=Term.ALEPH,
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 5),
+        exclusions=[],
+    )
+
+    # Two obligatory courses in the same program
+    courses = [
+        _course(10001, "Math", [_affiliation()]),
+        _course(10002, "Physics", [_affiliation()]),
+    ]
+
+    # Enforce a strict minimum 3-day gap between mandatory exams
+    rules = [AcademicConflictRule(), ExamSpacingRule(k_days_mandatory=3, m_days_any=1)]
+
+    parsed_schedules = _run_scheduler(tmp_path, courses, period, rules=rules)
+
+    # Mathematical proof: With 5 available dates and a 3-day required distance,
+    # the only valid index pairs are: (1,4), (1,5), (2,5) and their permutations (4,1), (5,1), (5,2).
+    # Thus, exactly 6 valid schedules should be generated.
+    assert len(parsed_schedules) == 6
