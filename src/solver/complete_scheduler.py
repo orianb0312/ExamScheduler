@@ -11,6 +11,7 @@ from src.output.output_manager import TextOutputManager
 from src.interfaces import ISchedulingRule
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
+from src.rules.advanced_constraints_rule import AdvancedConstraintsRule
 
 
 DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE = 1000
@@ -819,6 +820,9 @@ class CompleteSystemScheduler:
         courses: List[Course],
         graph: Dict[int, Set[int]],
     ) -> List[List[int]]:
+        if self._requires_global_component_search():
+            return [list(range(len(courses)))]
+
         visited = set()
         components = []
 
@@ -842,6 +846,9 @@ class CompleteSystemScheduler:
             components.append(component)
 
         return components
+
+    def _requires_global_component_search(self) -> bool:
+        return any(isinstance(rule, AdvancedConstraintsRule) for rule in self.rules)
 
     def _solve_component(
         self,
@@ -913,10 +920,26 @@ class CompleteSystemScheduler:
         conflict_graph: Dict[int, Set[int]],
         current_assignment: Dict[int, date],
     ) -> bool:
-        return all(
-            current_assignment.get(conflicting_course) != exam_date
+        if any(
+            current_assignment.get(conflicting_course) == exam_date
             for conflicting_course in conflict_graph[course_index]
-        )
+        ):
+            return False
+
+        attempt = current_assignment.copy()
+        attempt[course_index] = exam_date
+        return self._rules_accept_assignment(attempt)
+
+    def _rules_accept_assignment(self, assignment: Dict[int, date]) -> bool:
+        state = {
+            self._course_keys[course_index]: exam_date
+            for course_index, exam_date in assignment.items()
+        }
+
+        for rule in self.rules:
+            if not rule.is_valid(state):
+                return False
+        return True
 
     def _iter_complete_systems(
         self,

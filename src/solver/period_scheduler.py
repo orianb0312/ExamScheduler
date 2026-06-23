@@ -8,6 +8,7 @@ from src.output.output_manager import TextOutputManager
 from src.interfaces import ISchedulingRule
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
+from src.rules.advanced_constraints_rule import AdvancedConstraintsRule
 
 
 @dataclass(frozen=True)
@@ -177,6 +178,9 @@ class Scheduler:
         courses: List[Course],
         graph: Dict[int, Set[int]],
     ) -> List[List[int]]:
+        if self._requires_global_component_search():
+            return [list(range(len(courses)))]
+
         visited = set()
         components = []
 
@@ -200,6 +204,9 @@ class Scheduler:
             components.append(component)
 
         return components
+
+    def _requires_global_component_search(self) -> bool:
+        return any(isinstance(rule, AdvancedConstraintsRule) for rule in self.rules)
 
     def _solve_component(
         self,
@@ -264,7 +271,7 @@ class Scheduler:
             if self._can_assign(course_index, exam_date, conflict_graph, current_assignment)
         )
 
-    def _can_assign(
+    """def _can_assign(
         self,
         course_index: int,
         exam_date: date,
@@ -274,7 +281,24 @@ class Scheduler:
         return all(
             current_assignment.get(conflicting_course) != exam_date
             for conflicting_course in conflict_graph[course_index]
-        )
+        )"""
+
+    def _can_assign(
+            self,
+            course_index: int,
+            exam_date: date,
+            conflict_graph: Dict[int, Set[int]],
+            current_assignment: Dict[int, date],
+    ) -> bool:
+        if any(
+                current_assignment.get(conflicting_course) == exam_date
+                for conflicting_course in conflict_graph[course_index]
+        ):
+            return False
+
+        attempt = current_assignment.copy()
+        attempt[course_index] = exam_date
+        return self._rules_accept_assignment(attempt)
 
     def _rules_accept_assignment(self, assignment: Dict[int, date]) -> bool:
         state = {

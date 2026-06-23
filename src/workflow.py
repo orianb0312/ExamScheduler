@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple, Any, Dict, TextIO
 
+from src.interfaces import ISchedulingRule
 from src.output.output_manager import TextOutputManager
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
@@ -14,6 +15,8 @@ from src.parser.course_factory import CourseFactory
 from src.parser.period_factory import PeriodFactory
 from src.process_protocol import BATCH_END_MARKER, LAZY_NEXT_COMMAND, LAZY_STOP_COMMAND
 from src.rules.academic_conflict_rule import AcademicConflictRule
+from src.rules.advanced_constraints_rule import AdvancedConstraintsRule
+from src.rules.exam_spacing_rule import ExamSpacingRule
 from src.solver.complete_scheduler import (
     DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE,
     CompleteSystemResult,
@@ -40,6 +43,64 @@ class SchedulerRunResult:
         return sum(period.schedule_count for period in self.periods)
 
 
+def _parse_domain_data(
+    source_config: Dict[str, Any],
+    parser: IParser | None = None,
+) -> tuple[dict[str, Any], List[Course], List[ExamPeriod], List[int]]:
+    if parser is None:
+        parser = FileParser()
+
+    json_data = parser.parse_to_json(source_config)
+    parsed_data = json.loads(json_data)
+    courses = CourseFactory().build_all(parsed_data, "courses_node")
+    periods = PeriodFactory().build_all(parsed_data, "periods_node")
+    selected_programs = [int(program) for program in parsed_data.get("user_node", [])]
+    return parsed_data, courses, periods, selected_programs
+
+
+def _build_scheduler_rules(constraints: Dict[str, int] | None) -> List[ISchedulingRule]:
+    constraints = constraints or {}
+    rules: List[ISchedulingRule] = [AcademicConflictRule()]
+
+    if (
+        "min_days_between_mandatory" in constraints
+        or "min_days_between_any" in constraints
+    ):
+        rules.append(
+            ExamSpacingRule(
+                k_days_mandatory=constraints.get("min_days_between_mandatory", 0),
+                m_days_any=constraints.get("min_days_between_any", 0),
+            )
+        )
+
+    if any(
+        key in constraints
+        for key in (
+            "max_elective_conflicts",
+            "min_days_before_last_mandatory",
+            "max_exams_per_day",
+        )
+    ):
+        rules.append(
+            AdvancedConstraintsRule(
+                max_elective_conflicts=constraints.get(
+                    "max_elective_conflicts",
+                    sys.maxsize,
+                ),
+                min_mandatory_span=constraints.get(
+                    "min_days_before_last_mandatory",
+                    0,
+                ),
+                max_daily_exams=constraints.get(
+                    "max_exams_per_day",
+                    sys.maxsize,
+                ),
+            )
+        )
+
+    return rules
+
+
 def load_domain_data(
     source_config: Dict[str, Any],
     parser: IParser | None = None,
@@ -54,19 +115,10 @@ def load_domain_data(
     parser : IParser | None
         The parser to use. Defaults to FileParser() if not provided.
     """
-    if parser is None:
-        parser = FileParser()
-
-    # The parser receives its matching configuration block directly
-    json_data = parser.parse_to_json(source_config)
-    parsed_data = json.loads(json_data)
-
-    courses = CourseFactory().build_all(parsed_data, "courses_node")
-    periods = PeriodFactory().build_all(parsed_data, "periods_node")
-
-    # Safe extraction of the user_node configuration
-    selected_programs = [int(program) for program in parsed_data.get("user_node", [])]
-
+    _parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
     return courses, periods, selected_programs
 
 
@@ -146,7 +198,10 @@ def run_v1_workflow(
         **kwargs: Any,
 ) -> SchedulerRunResult:
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
 
     if period_indexes is None:
         selected_periods = periods
@@ -154,7 +209,7 @@ def run_v1_workflow(
         selected_periods = [periods[index] for index in period_indexes]
 
     output_manager = TextOutputManager(str(output_config))
-    scheduler = Scheduler(rules=[AcademicConflictRule()])
+    scheduler = Scheduler(rules=_build_scheduler_rules(parsed_data.get("constraints_node")))
     period_results = []
 
     for index, period in enumerate(selected_periods):
@@ -189,13 +244,18 @@ def run_complete_count_workflow(
         **kwargs: Any,
 ) -> CompleteSystemResult:
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
 
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
 
-    return CompleteSystemScheduler(rules=[AcademicConflictRule()]).count_complete_systems(
+    return CompleteSystemScheduler(
+        rules=_build_scheduler_rules(parsed_data.get("constraints_node"))
+    ).count_complete_systems(
         period_course_sets
     )
 
@@ -208,14 +268,19 @@ def run_complete_write_workflow(
         **kwargs: Any,
 ) -> CompleteSystemResult:
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
 
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
     output_manager = TextOutputManager(str(output_config))
 
-    return CompleteSystemScheduler(rules=[AcademicConflictRule()]).write_complete_systems(
+    return CompleteSystemScheduler(
+        rules=_build_scheduler_rules(parsed_data.get("constraints_node"))
+    ).write_complete_systems(
         period_course_sets,
         output_manager,
         max_systems=max_systems,
@@ -230,14 +295,19 @@ def run_complete_auto_workflow(
         **kwargs: Any,
 ) -> CompleteSystemResult:
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
 
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
     output_manager = TextOutputManager(str(output_config))
 
-    return CompleteSystemScheduler(rules=[AcademicConflictRule()]).write_complete_systems_auto(
+    return CompleteSystemScheduler(
+        rules=_build_scheduler_rules(parsed_data.get("constraints_node"))
+    ).write_complete_systems_auto(
         period_course_sets,
         output_manager,
         time_limit_seconds=time_limit_seconds,
@@ -318,15 +388,19 @@ def run_complete_lazy_stream_workflow(
     started_at = time.perf_counter()
 
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
+    rules = _build_scheduler_rules(parsed_data.get("constraints_node"))
 
     progress_stream.write("Preparing lazy complete-system stream...\n")
     progress_stream.flush()
 
-    stream = CompleteSystemScheduler(rules=[AcademicConflictRule()]).stream_complete_systems(
+    stream = CompleteSystemScheduler(rules=rules).stream_complete_systems(
         period_course_sets,
         max_systems=max_systems,
     )
@@ -417,15 +491,19 @@ def _run_complete_stream_workflow(
     started_at = time.perf_counter()
 
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
+    rules = _build_scheduler_rules(parsed_data.get("constraints_node"))
 
     progress_stream.write("Preparing complete systems for streaming...\n")
     progress_stream.flush()
 
-    stream = CompleteSystemScheduler(rules=[AcademicConflictRule()]).stream_complete_systems(
+    stream = CompleteSystemScheduler(rules=rules).stream_complete_systems(
         period_course_sets,
         max_systems=max_systems,
     )

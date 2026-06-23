@@ -408,3 +408,184 @@ def test_workflow_rejects_invalid_constraints_file_override(tmp_path):
             user_file=user_file,
             constraints_file=constraints_file,
         )
+
+
+def test_run_v1_workflow_applies_spacing_constraints_from_constraints_file(tmp_path):
+    course_file = tmp_path / "courses.txt"
+    dates_file = tmp_path / "dates.txt"
+    user_file = tmp_path / "programs.txt"
+    constraints_file = tmp_path / "constraints.txt"
+    output_config = tmp_path / "config.json"
+
+    course_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "Math",
+                "10001",
+                "Dr. Math",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+                "$$$$",
+                "Physics",
+                "10002",
+                "Dr. Physics",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dates_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "FALL,Aleph",
+                "01-01-2026, 06-01-2026",
+                "06-01-2026 Blocked",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_file.write_text("83101", encoding="utf-8")
+    constraints_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "min_days_between_mandatory",
+                "3",
+                "$$$$",
+                "min_days_between_any",
+                "1",
+                "$$$$",
+                "max_elective_conflicts",
+                "-",
+                "$$$$",
+                "min_days_before_last_mandatory",
+                "-",
+                "$$$$",
+                "max_exams_per_day",
+                "-",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_config.write_text(
+        json.dumps(
+            {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(course_file),
+                    "dates_file": str(dates_file),
+                    "user_file": str(user_file),
+                },
+                "output_settings": {
+                    "base_directory": str(tmp_path / "output"),
+                    "master_filename": "workflow_schedule",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_v1_workflow(
+        output_config=output_config,
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+        constraints_file=constraints_file,
+    )
+
+    assert result.total_schedules == 6
+    assert result.periods[0].schedule_count == 6
+
+
+def test_complete_count_workflow_applies_global_constraints_from_constraints_file(tmp_path):
+    course_file = tmp_path / "courses.txt"
+    dates_file = tmp_path / "dates.txt"
+    user_file = tmp_path / "programs.txt"
+    constraints_file = tmp_path / "constraints.txt"
+    output_config = tmp_path / "config.json"
+
+    course_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "Program A",
+                "10001",
+                "Dr. A",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+                "$$$$",
+                "Program B",
+                "10002",
+                "Dr. B",
+                "83102,1,FALL,Obligatory",
+                "Exam",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dates_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "FALL,Aleph",
+                "01-01-2026, 02-01-2026",
+                "02-01-2026 Blocked",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_file.write_text("83101, 83102", encoding="utf-8")
+    constraints_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "min_days_between_mandatory",
+                "-",
+                "$$$$",
+                "min_days_between_any",
+                "-",
+                "$$$$",
+                "max_elective_conflicts",
+                "-",
+                "$$$$",
+                "min_days_before_last_mandatory",
+                "-",
+                "$$$$",
+                "max_exams_per_day",
+                "1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_config.write_text(
+        json.dumps(
+            {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(course_file),
+                    "dates_file": str(dates_file),
+                    "user_file": str(user_file),
+                },
+                "output_settings": {
+                    "base_directory": str(tmp_path / "output"),
+                    "master_filename": "workflow_schedule",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_complete_count_workflow(
+        output_config=output_config,
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+        constraints_file=constraints_file,
+    )
+
+    assert result.period_course_counts == [2]
+    assert result.period_schedule_counts == [0]
+    assert result.complete_system_count == 0
