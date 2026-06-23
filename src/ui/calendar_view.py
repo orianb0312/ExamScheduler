@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -15,6 +15,11 @@ from PyQt6.QtWidgets import (
 
 from src.ui.calendar_view_panel import CalendarPeriodList
 from src.ui.pagination_bar import PaginationBar
+from src.sorting.schedule_priority import (
+    SchedulePrioritySorter,
+    sortable_exams_from_display_system,
+)
+from src.ui.sorting_priority_widget import SortingPriorityWidget
 from src.ui.ui_cache import ScheduleCache, ScheduleSystem
 from src.ui.view_models import ExamPeriodViewModel
 
@@ -34,6 +39,10 @@ class OutputView(QWidget):
         super().__init__(parent)
         # The output screen pages through schedules one by one.
         self.cache = ScheduleCache(batch_size=1)
+        self._generated_systems: list[ScheduleSystem] = []
+        self._schedule_sorter = SchedulePrioritySorter()
+        self._sort_panel_open = False
+        self._sort_panel_width = 480
         self._selected_schedule: ScheduleSystem | None = None
         self._pending_more_page: int | None = None
         self._schedule_total: int | None = None
@@ -42,6 +51,17 @@ class OutputView(QWidget):
         self.title_label = QLabel("Possible Exam Schedules")
         self.title_label.setObjectName("screenTitle")
         self.status_label = QLabel("Ready")
+        self.sort_options_button = QPushButton("click for sort options")
+        self.sort_options_button.setObjectName("sortOptionsButton")
+        self.sorting_priority_widget = SortingPriorityWidget(self)
+        self.sorting_priority_widget.hide()
+        self._sort_panel_animation = QPropertyAnimation(
+            self.sorting_priority_widget,
+            b"pos",
+            self,
+        )
+        self._sort_panel_animation.setDuration(260)
+        self._sort_panel_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.pagination_bar = PaginationBar()
         self.back_button = QPushButton("Back to Input")
         self.schedule_label = QLabel("No schedule selected")
@@ -52,8 +72,10 @@ class OutputView(QWidget):
         self._build_layout()
         self._connect_signals()
         self._refresh_page()
+        self._resize_sort_panel()
 
     def clear(self) -> None:
+        self._generated_systems.clear()
         self.cache.clear()
         self.schedule_label.setText("No schedule selected")
         self.calendar_body.set_empty_text(DEFAULT_EMPTY_SCHEDULE_TEXT)
@@ -82,6 +104,7 @@ class OutputView(QWidget):
         self.status_label.setText(f"Error: {message}")
 
     def set_empty_result(self, message: str) -> None:
+        self._generated_systems.clear()
         self.cache.clear()
         self._set_selected_schedule(None)
         self._pending_more_page = None
@@ -116,7 +139,8 @@ class OutputView(QWidget):
         if not systems:
             return
 
-        self.cache.extend(systems)
+        self._generated_systems.extend(systems)
+        self._replace_cache_with_current_sort()
         self.pagination_bar.set_page_count(self.cache.batch_count)
         if (
             self._pending_more_page is not None
@@ -125,6 +149,28 @@ class OutputView(QWidget):
             self.pagination_bar.set_current_page(self._pending_more_page)
             self._pending_more_page = None
         self._refresh_page()
+
+    def _apply_sort_priority(self, _priority: tuple[str, ...]) -> None:
+        self._replace_cache_with_current_sort()
+        self.pagination_bar.set_page_count(self.cache.batch_count)
+        if self.cache.batch_count:
+            self.pagination_bar.set_current_page(1)
+        else:
+            self._refresh_page()
+
+    def _replace_cache_with_current_sort(self) -> None:
+        priority = self.sorting_priority_widget.priority
+        if not priority:
+            self.cache.replace(self._generated_systems)
+            return
+
+        self.cache.replace(
+            self._schedule_sorter.sort(
+                self._generated_systems,
+                priority,
+                sortable_exams_from_display_system,
+            )
+        )
 
     @property
     def selected_schedule(self) -> ScheduleSystem | None:
@@ -138,6 +184,7 @@ class OutputView(QWidget):
         header = QHBoxLayout()
         header.addWidget(self.title_label)
         header.addStretch()
+        header.addWidget(self.sort_options_button)
         header.addWidget(self.back_button)
         root_layout.addLayout(header)
 
@@ -161,6 +208,12 @@ class OutputView(QWidget):
         self.pagination_bar.future_page_requested.connect(self._request_schedule_page)
         self.pagination_bar.save_requested.connect(self.save_requested.emit)
         self.back_button.clicked.connect(self.back_requested.emit)
+        self.sort_options_button.clicked.connect(self._toggle_sort_panel)
+        self.sorting_priority_widget.close_requested.connect(self._hide_sort_panel)
+        self.sorting_priority_widget.priority_changed.connect(self._apply_sort_priority)
+        self._sort_panel_animation.finished.connect(
+            self._handle_sort_panel_animation_finished
+        )
 
     def _request_more_systems(self) -> None:
         self._request_schedule_page(self.pagination_bar.current_page + 1)
@@ -171,6 +224,53 @@ class OutputView(QWidget):
         self.set_more_available(False)
         self.status_label.setText("Generating next 1,000 schedule systems...")
         self.more_requested.emit()
+
+    def _toggle_sort_panel(self) -> None:
+        if self._sort_panel_open:
+            self._hide_sort_panel()
+        else:
+            self._show_sort_panel()
+
+    def _show_sort_panel(self) -> None:
+        self._sort_panel_open = True
+        self._resize_sort_panel()
+        self.sorting_priority_widget.move(self.width(), 0)
+        self.sorting_priority_widget.show()
+        self.sorting_priority_widget.raise_()
+        self._animate_sort_panel(
+            QPoint(self.width(), 0),
+            QPoint(self.width() - self._current_sort_panel_width(), 0),
+        )
+
+    def _hide_sort_panel(self) -> None:
+        self._sort_panel_open = False
+        self._animate_sort_panel(
+            self.sorting_priority_widget.pos(),
+            QPoint(self.width(), 0),
+        )
+
+    def _animate_sort_panel(self, start: QPoint, end: QPoint) -> None:
+        self._sort_panel_animation.stop()
+        self._sort_panel_animation.setStartValue(start)
+        self._sort_panel_animation.setEndValue(end)
+        self._sort_panel_animation.start()
+
+    def _handle_sort_panel_animation_finished(self) -> None:
+        if not self._sort_panel_open:
+            self.sorting_priority_widget.hide()
+
+    def _resize_sort_panel(self) -> None:
+        panel_width = self._current_sort_panel_width()
+        self.sorting_priority_widget.setFixedSize(panel_width, self.height())
+        if self._sort_panel_open:
+            self.sorting_priority_widget.move(self.width() - panel_width, 0)
+        else:
+            self.sorting_priority_widget.move(self.width(), 0)
+
+    def _current_sort_panel_width(self) -> int:
+        if self.width() <= 0:
+            return self._sort_panel_width
+        return min(self._sort_panel_width, self.width())
 
     def _refresh_page(self) -> None:
         if self.cache.batch_count == 0:
@@ -195,6 +295,20 @@ class OutputView(QWidget):
             return
         self._selected_schedule = schedule
         self.selected_schedule_changed.emit(schedule)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._resize_sort_panel()
+
+    def keyPressEvent(self, event) -> None:
+        if (
+            self._sort_panel_open
+            and event.key() == Qt.Key.Key_Escape
+        ):
+            self._hide_sort_panel()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 def _format_compact_count(value: int) -> str:

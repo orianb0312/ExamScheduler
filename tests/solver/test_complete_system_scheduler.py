@@ -12,6 +12,7 @@ from src.solver.complete_scheduler import (
     DiskAssignmentStore,
     PeriodScheduleSet,
 )
+from src.sorting.schedule_priority import MANDATORY_MIN_GAP
 
 
 def _affiliation():
@@ -36,6 +37,16 @@ def _period(term, month):
         term=term,
         start_date=date(2026, month, 1),
         end_date=date(2026, month, 2),
+        exclusions=[],
+    )
+
+
+def _wide_period():
+    return ExamPeriod(
+        semester=Semester.FALL,
+        term=Term.ALEPH,
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 4),
         exclusions=[],
     )
 
@@ -136,6 +147,26 @@ def test_complete_system_write_respects_explicit_limit(tmp_path):
     output = result.output_path.read_text(encoding="utf-8")
     assert output.count("Complete System #") == 3
     assert "Stopped after writing 3 of 4 complete systems" in output
+
+
+def test_complete_system_write_orders_output_by_sort_priority(tmp_path):
+    scheduler = CompleteSystemScheduler([AcademicConflictRule()])
+    courses = _courses()
+
+    result = scheduler.write_complete_systems(
+        [(_wide_period(), courses)],
+        _output_manager(tmp_path),
+        max_systems=2,
+        sort_priority=[MANDATORY_MIN_GAP],
+    )
+
+    output = result.output_path.read_text(encoding="utf-8")
+    first_system = output.split("Complete System #2")[0]
+
+    assert result.complete_system_count == 12
+    assert result.written_system_count == 2
+    assert "2026-01-01" in first_system
+    assert "2026-01-04" in first_system
 
 
 def test_complete_system_auto_writes_all_when_small(tmp_path):

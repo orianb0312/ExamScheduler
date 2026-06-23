@@ -1,6 +1,7 @@
 import time
 from dataclasses import dataclass
 from datetime import date, timedelta
+from itertools import chain
 from itertools import product
 from typing import Dict, Generator, Iterator, List, Set
 
@@ -9,6 +10,13 @@ from src.interfaces import ISchedulingRule
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
 from src.rules.advanced_constraints_rule import AdvancedConstraintsRule
+from src.sorting.schedule_priority import (
+    SchedulePrioritySorter,
+    sortable_exams_from_assignment,
+)
+
+
+DEFAULT_SORTED_PERIOD_SCHEDULE_LIMIT = 1_000_000
 
 
 @dataclass(frozen=True)
@@ -84,6 +92,8 @@ class Scheduler:
         output_manager: TextOutputManager,
         append: bool = False,
         write_header: bool = True,
+        sort_priority: List[str] | tuple[str, ...] = (),
+        max_sorted_schedules: int = DEFAULT_SORTED_PERIOD_SCHEDULE_LIMIT,
     ) -> int:
         start_time = time.perf_counter()
 
@@ -92,9 +102,22 @@ class Scheduler:
             return self._write_empty_output(output_manager, period, append, write_header)
 
         assignments = self.iter_assignments(courses, period)
-        first_assignment = next(assignments, None)
-        if first_assignment is None:
-            return 0
+        if sort_priority:
+            assignments_to_write = self._sorted_assignments(
+                courses,
+                self._collect_assignments_for_sorting(
+                    assignments,
+                    max_sorted_schedules,
+                ),
+                sort_priority,
+            )
+            if not assignments_to_write:
+                return 0
+        else:
+            first_assignment = next(assignments, None)
+            if first_assignment is None:
+                return 0
+            assignments_to_write = chain([first_assignment], assignments)
 
         output_manager._ensure_dir_exists()
         full_path = output_manager.get_full_path()
@@ -106,11 +129,7 @@ class Scheduler:
                 f.write("OFFICIAL UNIVERSITY MASTER EXAM SCHEDULE\n")
                 f.write("=" * 65 + "\n\n")
 
-            for assignment in [first_assignment]:
-                total_schedules += 1
-                self._write_schedule(f, total_schedules, courses, period, assignment)
-
-            for assignment in assignments:
+            for assignment in assignments_to_write:
                 total_schedules += 1
                 self._write_schedule(f, total_schedules, courses, period, assignment)
 
@@ -120,6 +139,42 @@ class Scheduler:
             f"Found {total_schedules:,} solutions."
         )
         return total_schedules
+
+    def _collect_assignments_for_sorting(
+        self,
+        assignments: Iterator[Dict[int, date]],
+        max_sorted_schedules: int,
+    ) -> List[Dict[int, date]]:
+        if max_sorted_schedules <= 0:
+            raise ValueError("max_sorted_schedules must be greater than zero.")
+
+        collected: List[Dict[int, date]] = []
+        for assignment in assignments:
+            if len(collected) >= max_sorted_schedules:
+                raise ValueError(
+                    "Period sorting would require materializing more than "
+                    f"{max_sorted_schedules:,} schedules in memory. "
+                    "Narrow the selected period, raise the sorted-period limit, "
+                    "or run this period without sorting."
+                )
+            collected.append(assignment)
+
+        return collected
+
+    def _sorted_assignments(
+        self,
+        courses: List[Course],
+        assignments: List[Dict[int, date]],
+        sort_priority: List[str] | tuple[str, ...],
+    ) -> List[Dict[int, date]]:
+        return SchedulePrioritySorter().sort(
+            assignments,
+            sort_priority,
+            lambda assignment: sortable_exams_from_assignment(
+                courses,
+                assignment.items(),
+            ),
+        )
 
     def _write_empty_output(
         self,

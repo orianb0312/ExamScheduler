@@ -500,6 +500,81 @@ def test_run_v1_workflow_applies_spacing_constraints_from_constraints_file(tmp_p
     assert result.periods[0].schedule_count == 6
 
 
+def test_run_v1_workflow_orders_text_output_from_sorting_file(tmp_path):
+    course_file = tmp_path / "courses.txt"
+    dates_file = tmp_path / "dates.txt"
+    user_file = tmp_path / "programs.txt"
+    sorting_file = tmp_path / "sorting.txt"
+    output_config = tmp_path / "config.json"
+
+    course_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "Math",
+                "10001",
+                "Dr. Math",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+                "$$$$",
+                "Physics",
+                "10002",
+                "Dr. Physics",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dates_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "FALL,Aleph",
+                "01-01-2026, 05-01-2026",
+                "05-01-2026 Blocked",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_file.write_text("83101", encoding="utf-8")
+    sorting_file.write_text(
+        "$$$$\nsorting_priority\nmandatory_min_gap\n",
+        encoding="utf-8",
+    )
+    output_config.write_text(
+        json.dumps(
+            {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(course_file),
+                    "dates_file": str(dates_file),
+                    "user_file": str(user_file),
+                    "sorting_file": str(sorting_file),
+                },
+                "output_settings": {
+                    "base_directory": str(tmp_path / "output"),
+                    "master_filename": "workflow_schedule",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_v1_workflow(
+        output_config=output_config,
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+    )
+
+    first_schedule = result.output_path.read_text(encoding="utf-8").split("Schedule #2")[0]
+
+    assert result.total_schedules == 12
+    assert "2026-01-01" in first_schedule
+    assert "2026-01-04" in first_schedule
+
+
 def test_complete_count_workflow_applies_global_constraints_from_constraints_file(tmp_path):
     course_file = tmp_path / "courses.txt"
     dates_file = tmp_path / "dates.txt"

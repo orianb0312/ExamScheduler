@@ -12,6 +12,10 @@ from src.interfaces import ISchedulingRule
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
 from src.rules.advanced_constraints_rule import AdvancedConstraintsRule
+from src.sorting.schedule_priority import (
+    SchedulePrioritySorter,
+    sortable_exams_from_assignment,
+)
 
 
 DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE = 1000
@@ -500,6 +504,7 @@ class CompleteSystemScheduler:
         self,
         period_course_sets: Sequence[tuple[ExamPeriod, List[Course]]],
         max_systems: Optional[int] = None,
+        sort_priority: Sequence[str] = (),
     ) -> CompleteSystemStream:
         schedule_sets = self._build_period_schedule_sets(period_course_sets)
         complete_count = self._product_count(schedule_sets)
@@ -509,6 +514,7 @@ class CompleteSystemScheduler:
             schedule_sets,
             formatted_caches,
             max_systems=max_systems,
+            sort_priority=sort_priority,
         )
 
         return CompleteSystemStream(
@@ -524,11 +530,13 @@ class CompleteSystemScheduler:
         period_course_sets: Sequence[tuple[ExamPeriod, List[Course]]],
         output_manager: TextOutputManager,
         max_systems: Optional[int] = None,
+        sort_priority: Sequence[str] = (),
     ) -> CompleteSystemResult:
         started_at = time.perf_counter()
         stream = self.stream_complete_systems(
             period_course_sets,
             max_systems=max_systems,
+            sort_priority=sort_priority,
         )
 
         output_manager._ensure_dir_exists()
@@ -594,6 +602,7 @@ class CompleteSystemScheduler:
         output_manager: TextOutputManager,
         time_limit_seconds: float = 30.0,
         safety_margin_seconds: float = 0.25,
+        sort_priority: Sequence[str] = (),
     ) -> CompleteSystemResult:
         """
         Writes the largest prefix of complete systems that fits inside the time budget.
@@ -603,7 +612,10 @@ class CompleteSystemScheduler:
         exhausted. The full count is still reported in the file header.
         """
         started_at = time.perf_counter()
-        stream = self.stream_complete_systems(period_course_sets)
+        stream = self.stream_complete_systems(
+            period_course_sets,
+            sort_priority=sort_priority,
+        )
 
         output_manager._ensure_dir_exists()
         output_path = output_manager.get_full_path()
@@ -992,15 +1004,24 @@ class CompleteSystemScheduler:
         schedule_sets: List[PeriodScheduleSet],
         formatted_caches: List[BoundedFormatCache],
         max_systems: Optional[int] = None,
+        sort_priority: Sequence[str] = (),
     ) -> Iterator[GeneratedCompleteSystem]:
         try:
             if max_systems is not None and max_systems <= 0:
                 return
 
-            for system_number, complete_system_blocks in enumerate(
-                self._iter_formatted_complete_systems(schedule_sets, formatted_caches),
-                start=1,
+            for system_number, schedule_indexes in self._iter_ordered_complete_system_indexes(
+                schedule_sets,
+                sort_priority,
             ):
+                complete_system_blocks = [
+                    self._get_formatted_period_schedule(
+                        schedule_sets[period_index],
+                        formatted_caches[period_index],
+                        schedule_index,
+                    )
+                    for period_index, schedule_index in enumerate(schedule_indexes)
+                ]
                 yield GeneratedCompleteSystem(
                     number=system_number,
                     text=self._format_complete_system(system_number, complete_system_blocks),
@@ -1010,6 +1031,58 @@ class CompleteSystemScheduler:
                     break
         finally:
             self._close_schedule_sets(schedule_sets)
+
+    def _iter_ordered_complete_system_indexes(
+        self,
+        schedule_sets: List[PeriodScheduleSet],
+        sort_priority: Sequence[str],
+    ) -> Iterator[tuple[int, tuple[int, ...]]]:
+        schedule_counts = [schedule_set.count for schedule_set in schedule_sets]
+        index_sets = (
+            tuple(schedule_indexes)
+            for schedule_indexes in _iter_index_product_counts(schedule_counts)
+        )
+
+        if not sort_priority:
+            for system_number, schedule_indexes in enumerate(index_sets, start=1):
+                yield system_number, schedule_indexes
+            return
+
+        sorted_index_sets = SchedulePrioritySorter().sort(
+            index_sets,
+            sort_priority,
+            lambda schedule_indexes: self._sortable_exams_for_complete_indexes(
+                schedule_sets,
+                schedule_indexes,
+            ),
+        )
+        for system_number, schedule_indexes in enumerate(sorted_index_sets, start=1):
+            yield system_number, schedule_indexes
+
+    def _sortable_exams_for_complete_indexes(
+        self,
+        schedule_sets: Sequence[PeriodScheduleSet],
+        schedule_indexes: Sequence[int],
+    ):
+        exams = []
+        for schedule_set, schedule_index in zip(schedule_sets, schedule_indexes):
+            exams.extend(
+                sortable_exams_from_assignment(
+                    schedule_set.courses,
+                    self._schedule_items_at(schedule_set, schedule_index),
+                )
+            )
+        return tuple(exams)
+
+    def _schedule_items_at(
+        self,
+        schedule_set: PeriodScheduleSet,
+        schedule_index: int,
+    ) -> Iterable[tuple[int, date]]:
+        items_at = getattr(schedule_set.schedules, "items_at", None)
+        if items_at is not None:
+            return items_at(schedule_index)
+        return schedule_set.schedules[schedule_index].items()
 
     def _get_formatted_period_schedule(
         self,

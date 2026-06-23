@@ -23,6 +23,13 @@ _MAX_PREFIX_BUFFER = 64
 
 
 @dataclass(frozen=True)
+class ScheduleExamCohort:
+    program_id: int
+    year: int
+    requirement_type: str
+
+
+@dataclass(frozen=True)
 class ScheduleExamDisplay:
     """One exam placement in the shape the output screen needs.
 
@@ -36,6 +43,7 @@ class ScheduleExamDisplay:
     course_id: int | None = None
     program_ids: tuple[int, ...] = ()
     requirement_types: tuple[str, ...] = ()
+    cohorts: tuple[ScheduleExamCohort, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -159,6 +167,7 @@ class ScheduleOutputDataAdapter:
             instructor=course.instructor,
             program_ids=self._course_catalog.program_ids_for(course),
             requirement_types=self._course_catalog.requirement_types_for(course),
+            cohorts=self._course_catalog.cohorts_for(course),
         )
 
 
@@ -221,6 +230,30 @@ class _CourseCatalog:
             # The compact calendar line only needs each status once.
             if value and value not in values:
                 values.append(value)
+
+        return tuple(values)
+
+    def cohorts_for(self, course: Course) -> tuple[ScheduleExamCohort, ...]:
+        values: list[ScheduleExamCohort] = []
+        seen: set[tuple[int, int, str]] = set()
+        for affiliation in course.affiliations:
+            program_id = affiliation.program_id
+            if self._selected_program_ids and program_id not in self._selected_program_ids:
+                continue
+
+            requirement_type = _enum_display_value(affiliation.requirement_type)
+            key = (program_id, affiliation.year, requirement_type)
+            if key in seen:
+                continue
+
+            seen.add(key)
+            values.append(
+                ScheduleExamCohort(
+                    program_id=program_id,
+                    year=affiliation.year,
+                    requirement_type=requirement_type,
+                )
+            )
 
         return tuple(values)
 

@@ -162,6 +162,153 @@ QListWidget#programSelector::indicator {
     height: 16px;
 }
 
+QPushButton#sortOptionsButton {
+    background: #26344f;
+    color: #d8e6ff;
+    border: 1px solid #5b82ba;
+    border-radius: 14px;
+    padding: 6px 14px;
+    font-weight: 700;
+}
+
+QPushButton#sortOptionsButton:hover {
+    background: #304260;
+    color: #ffffff;
+}
+
+QWidget#sortOptionsPanel {
+    background: #171a21;
+    border-left: 1px solid #465268;
+}
+
+QLabel#sortPanelTitle {
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+QLabel#sortPanelSubtitle {
+    color: #aeb8c7;
+    font-size: 12px;
+}
+
+QLabel#sortPriorityBadge {
+    color: #d8e6ff;
+    background: #2f6feb;
+    border: 1px solid #6da6ff;
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QPushButton#sortResetButton {
+    background: #252b36;
+    color: #f1f3f5;
+    border: 1px solid #596579;
+    border-radius: 12px;
+    padding: 5px 12px;
+    font-weight: 600;
+}
+
+QPushButton#sortResetButton:hover {
+    background: #303746;
+}
+
+QPushButton#sortCloseButton {
+    background: #222836;
+    color: #d7dfec;
+    border: 1px solid #596579;
+    border-radius: 15px;
+    padding: 0;
+    font-weight: 700;
+}
+
+QPushButton#sortCloseButton:hover {
+    background: #313a4c;
+    color: #ffffff;
+}
+
+QScrollArea#sortCriteriaScroll {
+    background: #171a21;
+    border: none;
+}
+
+QScrollArea#sortCriteriaScroll > QWidget > QWidget {
+    background: #171a21;
+}
+
+QWidget#sortCriteriaStack {
+    background: #171a21;
+}
+
+QWidget#sortCriteriaCard {
+    background: #252b36;
+    border: 1px solid #3c4554;
+    border-radius: 8px;
+}
+
+QWidget#sortCriteriaCard:hover {
+    border-color: #5d6c83;
+    background: #2d333e;
+}
+
+QWidget#sortCriteriaCard[dragging="true"] {
+    border-color: #72a7ff;
+    background: #303b4e;
+}
+
+QWidget#sortCriteriaCard[inactive="true"] {
+    background: #20252e;
+    border-color: #333c4b;
+}
+
+QLabel#sortDragHandle {
+    color: #7f8998;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel#sortRankCircle {
+    color: #ffffff;
+    background: #3a4658;
+    border: 1px solid #68758a;
+    border-radius: 13px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+QLabel#sortCriterionTitle {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+QLabel#sortCriterionDescription {
+    color: #adb7c5;
+    font-size: 11px;
+}
+
+QPushButton#sortArrowButton {
+    background: #1f2430;
+    color: #d6dde8;
+    border: 1px solid #465166;
+    border-radius: 5px;
+    padding: 0;
+    font-weight: 700;
+}
+
+QPushButton#sortArrowButton:hover {
+    background: #2b3342;
+    color: #ffffff;
+}
+
+QPushButton#sortArrowButton:disabled {
+    color: #667181;
+    background: #1b2029;
+    border-color: #313947;
+}
+
 QPlainTextEdit {
     background: #25272d;
     color: #f1f3f5;
@@ -200,8 +347,14 @@ QPushButton#primaryButton:hover {
 }
 
 QPushButton#load_button,
-QPushButton#browseButton {
+QPushButton#browseButton,
+QPushButton#compactButton {
     font-weight: 500;
+}
+
+QPushButton#compactButton {
+    min-width: 96px;
+    padding: 5px 8px;
 }
 
 QPushButton#load_button {
