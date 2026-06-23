@@ -218,10 +218,12 @@ def parse_period_record(record_text: str) -> dict:
     Line order:
       0    - "Semester,Moed"          e.g. "FALL,Aleph"
       1    - "start_date, end_date"   e.g. "29-01-2026, 11-03-2026"
-      2..n - Exclusion date lines     (at least one required)
+      2..n - Exclusion date lines     (at least one required by Phase 1)
     """
     lines = [ln.strip() for ln in record_text.splitlines() if ln.strip()]
 
+    # split_records has already removed the "$$$$" marker. Phase 1 still
+    # requires one excluded-date line inside each period record.
     if len(lines) < 3:
         raise ValueError(
             f"Period record has too few lines (need at least 3, got {len(lines)}): {lines}"
