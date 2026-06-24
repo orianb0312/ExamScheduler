@@ -30,6 +30,8 @@ from src.services.constraint_settings_policy import (
 )
 from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.scheduler_input_state import SchedulerInputState
+from src.ui.ai_copilot_widget import AICopilotWidget
+from src.ui.ai_copilot_worker import AICopilotWorker
 from src.ui.calendar_view_panel import CalendarView
 from src.ui.constraint_settings_widget import ConstraintSettingsWidget
 from src.ui.file_loader_widget import FileLoaderWidget
@@ -76,6 +78,10 @@ class InputPanel(QWidget):
         self.view_calendar_button = self.nav_tabs["Calendar"]
         self.view_calendar_button.setEnabled(True)
         self.settings_button = self.nav_tabs["Settings"]
+        self.ai_copilot = AICopilotWidget()
+        self._ai_copilot_worker: AICopilotWorker | None = None
+        self._ai_copilot_rules: dict[str, dict] = {}
+        self._next_ai_copilot_rule_number = 1
         self.calendar_view = CalendarView(show_back_button=False)
         self.constraint_settings = ConstraintSettingsWidget()
         self.period_indexes_edit = QLineEdit()
@@ -154,6 +160,13 @@ class InputPanel(QWidget):
         # program selector. The runtime file is written later, at generate time.
         self._scheduler_input_state.set_constraints(parameters)
 
+    @property
+    def ai_copilot_rules(self) -> dict[str, dict]:
+        return {
+            rule_id: dict(rule)
+            for rule_id, rule in self._ai_copilot_rules.items()
+        }
+
     def _build_layout(self) -> None:
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -193,7 +206,7 @@ class InputPanel(QWidget):
 
         content_layout.addWidget(self._build_page_header())
         content_layout.addLayout(self._build_program_configuration_layout())
-        content_layout.addWidget(self._build_home_image(), 1)
+        content_layout.addLayout(self._build_program_page_lower_layout(), 1)
 
         scroll_area.setWidget(content)
         return scroll_area
@@ -248,6 +261,19 @@ class InputPanel(QWidget):
         file_card.setMaximumWidth(520)
         layout.addWidget(file_card, 1)
         layout.addWidget(self._build_study_programs_card(), 2)
+        return layout
+
+    def _build_program_page_lower_layout(self) -> QHBoxLayout:
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(22)
+
+        copilot_card = self._section_card(self.ai_copilot)
+        copilot_card.setMinimumWidth(360)
+        copilot_card.setMaximumWidth(480)
+
+        layout.addWidget(self._build_home_image(), 3)
+        layout.addWidget(copilot_card, 2)
         return layout
 
     def _build_study_programs_card(self) -> QWidget:
@@ -310,10 +336,236 @@ class InputPanel(QWidget):
         self.nav_tabs["Programs"].clicked.connect(self.show_program_page)
         self.view_calendar_button.clicked.connect(self.view_calendar_requested.emit)
         self.settings_button.clicked.connect(self.show_settings_page)
+        self.ai_copilot.message_submitted.connect(self._start_ai_copilot_worker)
         self.constraint_settings.settings_changed.connect(self._store_constraint_parameters)
         self.selected_programs_panel.program_detail_requested.connect(
             self._open_program_courses
         )
+
+    def _start_ai_copilot_worker(self, user_text: str) -> None:
+        if self._ai_copilot_worker is not None and self._ai_copilot_worker.isRunning():
+            self.ai_copilot.append_message(
+                "Copilot",
+                "Please wait for the current response to finish.",
+                "#ffcf66",
+            )
+            return
+
+        self.ai_copilot.set_processing(True)
+        self.ai_copilot.append_message("Copilot", "Processing request...", "#79d28a")
+
+        self._ai_copilot_worker = AICopilotWorker(
+            user_text,
+            self,
+            existing_constraints=self.constraint_parameters,
+            chatbot_rules=self._ai_copilot_rules,
+            security_log_path=self._project_root / "security_log.txt",
+        )
+        self._ai_copilot_worker.constraint_ready.connect(
+            self._handle_ai_copilot_constraint
+        )
+        self._ai_copilot_worker.response_ready.connect(
+            self._handle_ai_copilot_response
+        )
+        self._ai_copilot_worker.finished.connect(
+            self._finish_ai_copilot_worker
+        )
+        self._ai_copilot_worker.start()
+
+    def _handle_ai_copilot_response(self, response_text: str) -> None:
+        self.ai_copilot.append_message("Copilot", response_text, "#ff8f88")
+
+    def _handle_ai_copilot_constraint(self, constraint_payload: dict) -> None:
+        action = constraint_payload.get("action")
+        if action == "system_inquiry":
+            self._handle_ai_copilot_inquiry(constraint_payload.get("topic"))
+            return
+
+        if action == "already_active":
+            self.ai_copilot.append_message(
+                "Copilot",
+                "That scheduling rule is already active.",
+                "#79d28a",
+            )
+            return
+
+        if action == "clarify":
+            message = constraint_payload.get("message")
+            if isinstance(message, str):
+                self.ai_copilot.append_message(
+                    "Copilot",
+                    message,
+                    "#79d28a",
+                )
+            else:
+                self._handle_ai_copilot_response(
+                    AICopilotWorker.GENERIC_FALLBACK_MESSAGE
+                )
+            return
+
+        if action == "revert_rule":
+            self._revert_ai_copilot_rule(constraint_payload.get("rule_id"))
+            return
+
+        if action in AICopilotWorker.SUPPORTED_RULE_DEFINITIONS:
+            parameters = {
+                key: value
+                for key, value in constraint_payload.items()
+                if key != "action"
+            }
+            self._create_ai_copilot_rule(
+                {
+                    "description": self._describe_ai_copilot_rule(
+                        action,
+                        parameters,
+                    ),
+                    "rule_type": action,
+                    "parameters": parameters,
+                }
+            )
+            return
+
+        self._handle_ai_copilot_response(
+            "The local model returned an unsupported rule action."
+        )
+
+    def _handle_ai_copilot_inquiry(self, topic) -> None:
+        if topic == "supported_rules":
+            names = ", ".join(
+                definition["name"]
+                for definition in AICopilotWorker.SUPPORTED_RULE_DEFINITIONS.values()
+            )
+            message = f"Supported scheduling rules: {names}."
+        elif topic == "active_ai_rules":
+            if not self._ai_copilot_rules:
+                message = "There are no active AI-created rules."
+            else:
+                entries = [
+                    f'{rule_id}: {rule["description"]}'
+                    for rule_id, rule in self._ai_copilot_rules.items()
+                ]
+                message = "Active AI-created rules: " + "; ".join(entries)
+        elif topic == "base_rules":
+            message = (
+                "Base scheduling rules are read-only and cannot be reverted "
+                "or overridden by the chatbot."
+            )
+        else:
+            self._handle_ai_copilot_response(
+                "The local model returned an unsupported system inquiry."
+            )
+            return
+
+        self.ai_copilot.append_message("Copilot", message, "#79d28a")
+
+    @staticmethod
+    def _describe_ai_copilot_rule(
+        rule_type: str,
+        parameters: dict,
+    ) -> str:
+        if rule_type == "fix_date":
+            return (
+                f'Fix {parameters.get("course", "course")} on '
+                f'{parameters.get("date", "date")}'
+            )
+        if rule_type == "exclude_day":
+            day = parameters.get("date") or parameters.get("weekday") or "day"
+            course = parameters.get("course")
+            return (
+                f"Exclude {day} for {course}"
+                if course
+                else f"Exclude {day} from exam scheduling"
+            )
+        if rule_type == "lecturer_unavailable":
+            day = parameters.get("date") or parameters.get("weekday") or "day"
+            return (
+                f'Lecturer {parameters.get("lecturer", "unknown")} '
+                f"unavailable on {day}"
+            )
+        if rule_type == "program_limit":
+            return (
+                f'Limit {parameters.get("program", "program")} to '
+                f'{parameters.get("max_exams_per_day", "N")} exams per day'
+            )
+        if rule_type == "exam_spacing":
+            return (
+                f'Minimum {parameters.get("min_days", "N")} days between exams'
+            )
+        return "AI-created scheduling rule"
+
+    def _create_ai_copilot_rule(self, rule: dict) -> None:
+        description = rule.get("description")
+        rule_type = rule.get("rule_type")
+        parameters = rule.get("parameters")
+        if (
+            not isinstance(description, str)
+            or not description.strip()
+            or not AICopilotWorker._is_english_code_text(description)
+            or not isinstance(rule_type, str)
+            or AICopilotWorker._RULE_TYPE_RE.fullmatch(rule_type) is None
+            or rule_type not in AICopilotWorker.SUPPORTED_RULE_DEFINITIONS
+            or not isinstance(parameters, dict)
+            or not AICopilotWorker._json_strings_are_english(parameters)
+            or not AICopilotWorker._parameters_match_supported_rule(
+                rule_type,
+                parameters,
+            )
+        ):
+            self._handle_ai_copilot_response(
+                "The local model returned an invalid scheduling rule."
+            )
+            return
+
+        normalized_description = AICopilotWorker._normalize_for_comparison(
+            description
+        )
+        if any(
+            AICopilotWorker._normalize_for_comparison(
+                str(existing.get("description", ""))
+            )
+            == normalized_description
+            for existing in self._ai_copilot_rules.values()
+        ):
+            self._handle_ai_copilot_response(
+                "That chatbot rule already exists."
+            )
+            return
+
+        rule_id = f"ai_rule_{self._next_ai_copilot_rule_number}"
+        self._next_ai_copilot_rule_number += 1
+        stored_rule = {
+            "description": description.strip(),
+            "rule_type": rule_type,
+            "parameters": dict(parameters),
+        }
+        self._ai_copilot_rules[rule_id] = stored_rule
+        self.ai_copilot.append_message(
+            "Copilot",
+            f'Created {rule_id}: {stored_rule["description"]}',
+            "#79d28a",
+        )
+
+    def _revert_ai_copilot_rule(self, rule_id) -> None:
+        if not isinstance(rule_id, str) or rule_id not in self._ai_copilot_rules:
+            self._handle_ai_copilot_response(
+                "Only rules created by this chatbot can be reverted."
+            )
+            return
+
+        removed_rule = self._ai_copilot_rules.pop(rule_id)
+        self.ai_copilot.append_message(
+            "Copilot",
+            f'Reverted {rule_id}: {removed_rule["description"]}',
+            "#79d28a",
+        )
+
+    def _finish_ai_copilot_worker(self) -> None:
+        self.ai_copilot.set_processing(False)
+        if self._ai_copilot_worker is None:
+            return
+
+        self._ai_copilot_worker.deleteLater()
+        self._ai_copilot_worker = None
 
     def set_data_load_success(
             self,

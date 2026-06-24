@@ -193,6 +193,26 @@ def test_process_runner_captures_stdout_result(
     assert "SUCCESS" in "".join(output_chunks)
 
 
+def test_process_runner_creates_performance_log_for_each_run(
+    tmp_path,
+    qtbot,
+    process_runner_factory,
+):
+    created_paths: list[str] = []
+    runner = process_runner_factory(["-c", "print('Complete System #1')"])
+    runner.performance_log_created.connect(created_paths.append)
+
+    with qtbot.waitSignal(runner.process_finished, timeout=3000):
+        runner.start(CliRunConfig(project_root=tmp_path))
+
+    assert created_paths == [str(runner.performance_log_path)]
+    assert runner.performance_log_path.exists()
+    log_text = runner.performance_log_path.read_text(encoding="utf-8")
+    assert "child_rss_mb" in log_text
+    assert "first_result" in log_text
+    assert "process_finished" in log_text
+
+
 def test_process_runner_emits_progress_when_stdout_is_written(
     tmp_path,
     qtbot,

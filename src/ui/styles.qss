@@ -627,6 +627,40 @@ QFrame#homeImagePanel {
     margin-top: 6px;
 }
 
+QLabel#aiCopilotTitle {
+    font-size: 16px;
+    font-weight: 700;
+    color: #dcecff;
+}
+
+QTextEdit#aiCopilotDisplay {
+    background: #25272d;
+    color: #f1f3f5;
+    border: 1px solid #4b505b;
+    border-radius: 4px;
+    padding: 8px;
+    selection-background-color: #3d5f93;
+    selection-color: #ffffff;
+}
+
+QLineEdit#aiCopilotInput {
+    min-height: 34px;
+}
+
+QPushButton#aiCopilotSend {
+    background: #3b78e7;
+    color: #ffffff;
+    border: 1px solid #3b78e7;
+    border-radius: 4px;
+    font-weight: 600;
+    padding: 6px 14px;
+}
+
+QPushButton#aiCopilotSend:hover {
+    background: #4f8cff;
+    border-color: #4f8cff;
+}
+
 QWidget#constraintRow {
     background: transparent;
 }
