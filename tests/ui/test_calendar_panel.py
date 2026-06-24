@@ -1030,3 +1030,123 @@ def test_failed_run_sets_output_error_status(tmp_path, qtbot: QtBot) -> None:
 
     assert "Scheduler process exited with code 2" in window.output_view.status_label.text()
 
+def test_output_view_calendar_buttons_enable_with_selected_schedule(
+    qtbot: QtBot,
+) -> None:
+    """
+    Verify that calendar actions become available when at least one
+    schedule is present in the OutputView.
+
+    Export and revoke-current actions depend only on schedule
+    availability, not registry state.
+    """
+    view = OutputView()
+    qtbot.addWidget(view)
+
+    assert not view.pagination_bar.calendar_export_button.isEnabled()
+    assert not view.pagination_bar.calendar_revoke_current_button.isEnabled()
+
+    view.add_systems(
+        [
+            ScheduleSystem(
+                number=1,
+                text="Schedule #1",
+            )
+        ]
+    )
+
+    assert view.pagination_bar.calendar_export_button.isEnabled()
+    assert view.pagination_bar.calendar_revoke_current_button.isEnabled()
+
+def test_output_view_calendar_export_signal_reaches_main_window(
+    tmp_path,
+    qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the UI action maps cleanly to export outputs via QFileDialog."""
+    opened_paths: list[str] = []
+
+    class _FakeExportService:
+        def export_schedule(self, schedule):
+            from src.services.schedule_calendar_export_service import CalendarExportResult
+            # Mocking the new ICSFormatter response
+            return CalendarExportResult(1, 0, "METHOD:PUBLISH")
+
+        def has_exported_entries(self) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        main_window_module,
+        "ScheduleCalendarExportService",
+        lambda *_args, **_kwargs: _FakeExportService(),
+    )
+
+    # Mock the file save dialog to automatically return a path in our temp directory
+    save_path = tmp_path / "test_export.ics"
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *args, **kwargs: (str(save_path), "Calendar Files (*.ics)"))
+    )
+
+    # Mock OS file opening
+    monkeypatch.setattr(
+        main_window_module.QDesktopServices,
+        "openUrl",
+        staticmethod(lambda url: opened_paths.append(url.toLocalFile()) or True),
+    )
+
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    window.output_view.add_systems(
+        [
+            _schedule_with_exam(
+                "Algorithms",
+                10001,
+                date(2026, 1, 2),
+            )
+        ]
+    )
+
+    with qtbot.waitSignal(window.output_view.calendar_export_requested):
+        qtbot.mouseClick(
+            window.output_view.pagination_bar.calendar_export_button,
+            Qt.MouseButton.LeftButton,
+        )
+
+    # Confirm file was written, opened, and contains our mock data
+    assert opened_paths
+    assert save_path.exists()
+    assert save_path.read_text(encoding="utf-8") == "METHOD:PUBLISH"
+    assert window.output_view.pagination_bar.calendar_revoke_all_button.isEnabled()
+
+
+def test_remove_all_calendar_button_disabled_until_export(
+        tmp_path,
+        qtbot: QtBot,
+        monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify global cleanup interface availability tracks with registry state triggers."""
+    monkeypatch.setattr(
+        main_window_module.QDesktopServices,
+        "openUrl",
+        staticmethod(lambda url: True),
+    )
+
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    assert not window.output_view.pagination_bar.calendar_revoke_all_button.isEnabled()
+
+    window.output_view.add_systems(
+        [
+            _schedule_with_exam(
+                "Algorithms",
+                10001,
+                date(2026, 1, 2),
+            )
+        ]
+    )
+
+    assert not window.output_view.pagination_bar.calendar_revoke_all_button.isEnabled()
