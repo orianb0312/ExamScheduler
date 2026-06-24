@@ -1,4 +1,5 @@
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +15,9 @@ from src.sorting.schedule_priority import (
     SortableExam,
     parse_sort_priority_text,
 )
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _exam(day: int, requirement: str = "Obligatory") -> SortableExam:
@@ -49,6 +53,19 @@ def test_parse_sort_priority_text_rejects_duplicates_and_unknowns() -> None:
 
     with pytest.raises(ValueError, match="Unknown sorting criterion"):
         parse_sort_priority_text("made_up_sort\n")
+
+
+def test_repository_v1_sorting_priority_file_is_valid() -> None:
+    sorting_file = PROJECT_ROOT / "data" / "SortingPriority.txt"
+
+    assert sorting_file.exists()
+    assert parse_sort_priority_text(sorting_file.read_text(encoding="utf-8")) == (
+        MANDATORY_MIN_GAP,
+        AVERAGE_COHORT_GAP,
+        ELECTIVE_CONFLICTS,
+        MANDATORY_SPAN,
+        MAX_DAILY_EXAMS,
+    )
 
 
 def test_sorter_orders_by_mandatory_min_gap_descending() -> None:
