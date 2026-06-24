@@ -47,19 +47,17 @@ def test_ui_file_selection_and_loading_responsiveness(tmp_path, qtbot):
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
 
-    # Set file paths into the UI fields to simulate completion of file selection browsing
     window.input_panel.file_loader.set_courses_path(str(courses_file))
     window.input_panel.file_loader.set_exam_dates_path(str(exam_dates_file))
 
-    # Benchmark the complete synchronous parsing loop triggered by clicking the load button
     start_time = time.perf_counter()
     qtbot.mouseClick(
         window.input_panel.file_loader.load_button,
         Qt.MouseButton.LeftButton,
     )
     elapsed_time = time.perf_counter() - start_time
+    print(f"\n  [latency] File loading: {elapsed_time * 1000:.1f} ms")
 
-    # Assert the main thread is never blocked or frozen for more than 1 second
     assert elapsed_time < 1.0, f"File loading blocked the UI thread for {elapsed_time:.2f}s"
 
 
@@ -72,12 +70,11 @@ def test_ui_program_selection_responsiveness(tmp_path, qtbot):
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
 
-    # Benchmark program state modification and subsequent widget status updates
     start_time = time.perf_counter()
     window.input_panel._store_selected_programs(["83101", "83102", "83104"])
     elapsed_time = time.perf_counter() - start_time
+    print(f"\n  [latency] Program selection: {elapsed_time * 1000:.1f} ms")
 
-    # Confirm UI response time meets the latency threshold criteria
     assert elapsed_time < 1.0, f"Program selection blocked the UI thread for {elapsed_time:.2f}s"
 
 
@@ -91,7 +88,6 @@ def test_ui_date_editing_responsiveness(tmp_path, qtbot):
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
 
-    # Load valid files first to populate an exam period at index 0 and avoid validation alerts
     window.input_panel.file_loader.set_courses_path(str(courses_file))
     window.input_panel.file_loader.set_exam_dates_path(str(exam_dates_file))
     qtbot.mouseClick(
@@ -99,12 +95,11 @@ def test_ui_date_editing_responsiveness(tmp_path, qtbot):
         Qt.MouseButton.LeftButton,
     )
 
-    # Benchmark full calendar rendering routine when data ranges shift
     start_time = time.perf_counter()
     window._update_period_dates(0, date(2026, 1, 2), date(2026, 1, 12))
     elapsed_time = time.perf_counter() - start_time
+    print(f"\n  [latency] Date editing + calendar redraw: {elapsed_time * 1000:.1f} ms")
 
-    # Validate redraw calculations finish in under 1 second
     assert elapsed_time < 1.0, f"Date editing/redraw blocked the UI thread for {elapsed_time:.2f}s"
 
 
@@ -117,7 +112,6 @@ def test_ui_schedule_generation_is_non_blocking_on_main_thread(tmp_path, qtbot):
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
 
-    # Construct standard test command pipeline configuration parameters
     config = CliRunConfig(
         project_root=tmp_path,
         mode="complete-count",
@@ -125,15 +119,13 @@ def test_ui_schedule_generation_is_non_blocking_on_main_thread(tmp_path, qtbot):
         dates_file=tmp_path / "dates_resp.txt"
     )
 
-    # Measure initiation cost; launching an OS thread pipe must be instantaneous
     start_time = time.perf_counter()
     window._start_cli_run(config)
     elapsed_time = time.perf_counter() - start_time
+    print(f"\n  [latency] QProcess start: {elapsed_time * 1000:.1f} ms")
 
-    # Confirm process initialization yields execution context immediately back to the GUI loop
     assert elapsed_time < 1.0, f"Starting process blocked the UI thread for {elapsed_time:.2f}s"
 
-    # Safely terminate the launched test worker process to avoid orphan resource leaks
     window._runner.cancel()
 
 
@@ -146,19 +138,17 @@ def test_ui_schedule_navigation_and_saving_responsiveness(tmp_path, qtbot):
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
 
-    # Use MagicMock to genericize the ScheduleSystem object initialization and avoid constructor mismatches
     dummy_system = MagicMock()
     window._calendar_data_service.exams_for_period = MagicMock(return_value=())
 
     window.output_view.add_systems([dummy_system])
     window.output_view.set_schedule_total(1)
 
-    # Measure page navigation refresh rate when moving through cached options
     start_time = time.perf_counter()
     window.output_view._refresh_page()
     elapsed_time = time.perf_counter() - start_time
+    print(f"\n  [latency] Schedule page navigation: {elapsed_time * 1000:.1f} ms")
 
-    # Assert navigation paging switches screens seamlessly under 1 second
     assert elapsed_time < 1.0, f"Schedule page navigation blocked the UI thread for {elapsed_time:.2f}s"
 
 
@@ -174,11 +164,11 @@ def test_ui_constraint_settings_value_change_responsiveness(tmp_path, qtbot):
 
     settings = window.input_panel.constraint_settings
 
-    # Benchmark a constraint edit, which runs validate_all + per-row UI updates.
     start_time = time.perf_counter()
     settings.set_constraint("min_days_between_mandatory", enabled=True, value="5")
     settings.set_constraint("max_exams_per_day", enabled=True, value="2")
     elapsed_time = time.perf_counter() - start_time
+    print(f"\n  [latency] Settings value change: {elapsed_time * 1000:.1f} ms")
 
     assert elapsed_time < 1.0, (
         f"Constraint value change blocked the UI thread for {elapsed_time:.2f}s"
@@ -196,18 +186,14 @@ def test_ui_constraint_settings_pre_run_validation_responsiveness(tmp_path, qtbo
     qtbot.addWidget(window)
 
     settings = window.input_panel.constraint_settings
-    # Enable a constraint but leave it invalid (empty) to exercise the full
-    # warning-formatting path the guard runs in its slowest case.
     settings.set_constraint("min_days_between_mandatory", enabled=True, value="")
 
     start_time = time.perf_counter()
-    # Patch the modal warning so the invalid path doesn't open a blocking
-    # dialog in a headless test; we are timing the validation, not the popup.
     with patch("src.ui.input_panel.QMessageBox"):
         can_run = window.input_panel._validate_constraints_before_run()
     elapsed_time = time.perf_counter() - start_time
+    print(f"\n  [latency] Settings pre-run guard: {elapsed_time * 1000:.1f} ms")
 
-    # The guard must block the run (invalid input) but do so instantly.
     assert can_run is False
     assert elapsed_time < 1.0, (
         f"Constraint pre-run validation blocked the UI thread for {elapsed_time:.2f}s"
@@ -222,15 +208,15 @@ def test_ui_bulk_schedule_cache_loading_responsiveness(tmp_path, qtbot):
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
 
-    # Simulate receiving a massive list of 2,000 generated schedules at once from the runner
     large_batch = [MagicMock() for _ in range(2000)]
 
-    # Measure the cost of expanding the cache list and updating total pages simultaneously
     start_time = time.perf_counter()
     window.output_view.add_systems(large_batch)
     elapsed_time = time.perf_counter() - start_time
+    print(f"\n  [latency] Bulk cache load (2,000 systems): {elapsed_time * 1000:.1f} ms")
 
     assert elapsed_time < 1.0, f"Loading a bulk batch of systems blocked the UI for {elapsed_time:.2f}s"
+
 
 def test_ui_post_process_file_loading_responsiveness(tmp_path, qtbot):
     """
@@ -240,16 +226,16 @@ def test_ui_post_process_file_loading_responsiveness(tmp_path, qtbot):
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
 
-    # Mock the internal file loading behavior to prevent actual heavy disk IO crashes during test execution
     window._load_generated_output_file = MagicMock()
     window._should_show_empty_schedule_message = MagicMock(return_value=False)
 
     start_time = time.perf_counter()
-    # Trigger the process finished event handler directly with a successful exit code (0)
     window._handle_finished(0, "NormalExit")
     elapsed_time = time.perf_counter() - start_time
+    print(f"\n  [latency] Process finish handler: {elapsed_time * 1000:.1f} ms")
 
     assert elapsed_time < 1.0, f"Process finish handling blocked the UI for {elapsed_time:.2f}s"
+
 
 def test_ui_shows_processing_indicator_when_process_is_active(tmp_path, qtbot):
     """
@@ -261,21 +247,16 @@ def test_ui_shows_processing_indicator_when_process_is_active(tmp_path, qtbot):
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
 
-    # 1. Before execution, the action button must display its default idle text
     assert window.input_panel.run_button.text() == "Generate Schedules"
     assert window.output_view.status_label.text() == "Ready"
 
-    # 2. Simulate the process starting (triggering the QProcess active signals)
     window._handle_started()
 
-    # Verify that the loading indicators instantly change to notify the user
     assert window.input_panel.run_button.text() == "Generating Schedules..."
     assert window.input_panel.run_button.isEnabled() is False
     assert window.output_view.status_label.text() == "Running..."
 
-    # 3. Simulate the process finishing execution successfully
     window._handle_finished(0, "NormalExit")
 
-    # Verify that indicators are updated/hidden and button control returns to normal idle state
     assert window.input_panel.run_button.text() == "Generate Schedules"
     assert window.input_panel.run_button.isEnabled() is True
