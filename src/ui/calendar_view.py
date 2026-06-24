@@ -28,6 +28,11 @@ class OutputView(QWidget):
     back_requested = pyqtSignal()
     more_requested = pyqtSignal()
     save_requested = pyqtSignal()
+    # Forward calendar actions to MainWindow, which owns the
+    # export service and calendar integration logic.
+    calendar_export_requested = pyqtSignal()
+    calendar_revoke_current_requested = pyqtSignal()
+    calendar_revoke_all_requested = pyqtSignal()
     selected_schedule_changed = pyqtSignal(object)
 
     def __init__(self, parent=None) -> None:
@@ -161,6 +166,19 @@ class OutputView(QWidget):
         self.pagination_bar.future_page_requested.connect(self._request_schedule_page)
         self.pagination_bar.save_requested.connect(self.save_requested.emit)
         self.back_button.clicked.connect(self.back_requested.emit)
+        # Forward pagination bar calendar actions to the main window layer.
+        # OutputView acts as a pass-through component.
+        self.pagination_bar.calendar_export_requested.connect(
+            self.calendar_export_requested.emit
+        )
+
+        self.pagination_bar.calendar_revoke_current_requested.connect(
+            self.calendar_revoke_current_requested.emit
+        )
+
+        self.pagination_bar.calendar_revoke_all_requested.connect(
+            self.calendar_revoke_all_requested.emit
+        )
 
     def _request_more_systems(self) -> None:
         self._request_schedule_page(self.pagination_bar.current_page + 1)
@@ -195,6 +213,20 @@ class OutputView(QWidget):
             return
         self._selected_schedule = schedule
         self.selected_schedule_changed.emit(schedule)
+
+    def set_calendar_revoke_all_enabled(
+            self,
+            enabled: bool,
+    ) -> None:
+        """
+        Update the availability of the global calendar cleanup action.
+
+        The actual enablement decision is owned by MainWindow, which
+        has access to the export registry state.
+        """
+        self.pagination_bar.set_calendar_revoke_all_enabled(
+            enabled
+        )
 
 
 def _format_compact_count(value: int) -> str:
