@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -20,17 +21,58 @@ from src.sorting.schedule_priority import (
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _exam(day: int, requirement: str = "Obligatory") -> SortableExam:
+@dataclass(frozen=True)
+class RankingCase:
+    # A tiny named schedule makes the expected order readable in the assertions.
+    name: str
+    exams: tuple[SortableExam, ...]
+
+
+def _exam(
+    day: int,
+    requirement: str = "Obligatory",
+    *,
+    program_id: int = 83101,
+    year: int = 1,
+) -> SortableExam:
     return SortableExam(
         exam_date=date(2026, 1, day),
         cohorts=(
             SortableCohort(
-                program_id=83101,
-                year=1,
+                program_id=program_id,
+                year=year,
                 requirement_type=requirement,
             ),
         ),
     )
+
+
+def _ranking_case(
+    name: str,
+    second_mandatory_day: int,
+    extra_same_day_programs: tuple[int, ...],
+) -> RankingCase:
+    # The first two exams control Metric 3.1 for one mandatory cohort.
+    exams = [
+        _exam(1, program_id=83101),
+        _exam(second_mandatory_day, program_id=83101),
+    ]
+    # Extra programs on day 1 raise Metric 3.5 without changing Metric 3.1.
+    exams.extend(
+        _exam(1, program_id=program_id)
+        for program_id in extra_same_day_programs
+    )
+    return RankingCase(name=name, exams=tuple(exams))
+
+
+RANKING_CASES = (
+    _ranking_case("wide_gap_crowded", 7, (83102, 83103)),
+    _ranking_case("wide_gap_medium", 7, (83102,)),
+    _ranking_case("wide_gap_light", 7, ()),
+    _ranking_case("middle_gap_crowded", 5, (83102, 83103)),
+    _ranking_case("middle_gap_medium", 5, (83102,)),
+    _ranking_case("tight_gap_heaviest", 3, (83102, 83103, 83104)),
+)
 
 
 def test_parse_sort_priority_text_accepts_aliases_and_headers() -> None:
@@ -146,6 +188,70 @@ def test_sorter_chains_priorities_lexicographically() -> None:
     )
 
     assert ordered == [stronger_secondary, weaker_secondary]
+
+
+def test_ranking_combination_fixture_scores_match_documented_metrics() -> None:
+    # This keeps the code fixture aligned with the prep table in the docs.
+    scorer = SchedulePrioritySorter()
+
+    actual_scores = {
+        ranking_case.name: scorer.score_tuple(
+            ranking_case.exams,
+            [MANDATORY_MIN_GAP, MAX_DAILY_EXAMS],
+        )
+        for ranking_case in RANKING_CASES
+    }
+
+    assert actual_scores == {
+        "wide_gap_crowded": (6.0, 3.0),
+        "wide_gap_medium": (6.0, 2.0),
+        "wide_gap_light": (6.0, 1.0),
+        "middle_gap_crowded": (4.0, 3.0),
+        "middle_gap_medium": (4.0, 2.0),
+        "tight_gap_heaviest": (2.0, 4.0),
+    }
+
+
+@pytest.mark.parametrize(
+    ("priority", "expected_order"),
+    (
+        (
+            (MANDATORY_MIN_GAP, MAX_DAILY_EXAMS),
+            (
+                "wide_gap_crowded",
+                "wide_gap_medium",
+                "wide_gap_light",
+                "middle_gap_crowded",
+                "middle_gap_medium",
+                "tight_gap_heaviest",
+            ),
+        ),
+        (
+            (MAX_DAILY_EXAMS, MANDATORY_MIN_GAP),
+            (
+                "tight_gap_heaviest",
+                "wide_gap_crowded",
+                "middle_gap_crowded",
+                "wide_gap_medium",
+                "middle_gap_medium",
+                "wide_gap_light",
+            ),
+        ),
+    ),
+    ids=("metric_3_1_primary", "metric_3_5_primary"),
+)
+def test_ranking_combinations_follow_documented_lexicographic_order(
+    priority: tuple[str, ...],
+    expected_order: tuple[str, ...],
+) -> None:
+    # Swapping the primary metric must swap the first comparison, not blend scores.
+    ordered = SchedulePrioritySorter().sort(
+        RANKING_CASES,
+        priority,
+        lambda ranking_case: ranking_case.exams,
+    )
+
+    assert tuple(ranking_case.name for ranking_case in ordered) == expected_order
 
 
 def test_calendar_day_metrics_count_saturdays_and_holidays_by_date_delta() -> None:
