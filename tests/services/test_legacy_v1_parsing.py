@@ -261,34 +261,35 @@ def test_legacy_full_service_warm_cache(tmp_path):
         f"Warm cache load took {elapsed:.1f} ms — over threshold"
     )
 
-    def test_legacy_v1_run_without_constraints_file_fallback(tmp_path):
-        """
-        Backward Compatibility Guard:
-        Verifies that the system successfully loads and parses legacy V1 production files
-        even when the newer V2 constraints file is entirely absent. The system should
-        gracefully fall back to default runtime settings without raising errors.
-        """
-        from src.services.file_loading_service import FileLoadingService
-        from src.services.internal_data_store import InternalDataStore
+def test_legacy_v1_run_without_constraints_file_fallback(tmp_path):
+    """
+    Backward-compatibility guard for legacy V1 inputs.
 
-        store = InternalDataStore(tmp_path / "cache_fallback.json")
-        service = FileLoadingService(internal_store=store)
+    Proves the three original V1 production files still load and parse
+    correctly when NO V2 constraints file is supplied — exactly the situation
+    a pre-constraints V1 user is in. The load must succeed, return the full
+    baseline data, and stay under the 1s threshold, with no error raised by
+    the absence of constraint settings.
+    """
+    store = InternalDataStore(tmp_path / "cache_fallback.json")
+    service = FileLoadingService(internal_store=store)
 
-        # Execute load omitting the --constraints-file flag/parameter to simulate V1 behavior
-        start = time.perf_counter()
-        result = service.load_selected_files(COURSES_FILE, DATES_FILE)
-        elapsed = _elapsed_ms(start)
-        print(f"\n  [latency] Legacy run without constraints fallback: {elapsed:.1f} ms")
+    # No --constraints-file is involved anywhere in this path — pure V1 behavior.
+    start = time.perf_counter()
+    result = service.load_selected_files(COURSES_FILE, DATES_FILE)
+    elapsed = _elapsed_ms(start)
+    print(f"\n  [latency] Legacy run without constraints file: {elapsed:.1f} ms")
 
-        # 1. Correctness — Ensure base baseline data is parsed flawlessly
-        assert result.loaded_data.course_count == 3
-        assert result.loaded_data.exam_period_count == 3
+    # Baseline data parses flawlessly with no constraints machinery involved.
+    assert result.loaded_data.course_count == 3
+    assert result.loaded_data.exam_period_count == 3
 
-        # 2. Fallback Safety — Validate that missing constraints do not crash the pipeline
-        # (Adapt the exact attribute check below to match your service's configuration schema)
-        assert hasattr(result, "loaded_data"), "Data failed to initialize in absence of constraints"
+    program_ids = result.loaded_data.program_ids_as_strings
+    assert "83101" in program_ids
+    assert "83102" in program_ids
+    assert "83108" in program_ids
 
-        # 3. Latency Performance — Must complete well under the strict 1-second threshold
-        assert elapsed / 1000 < THRESHOLD_SECONDS, (
-            f"Fallback loading took {elapsed:.1f} ms — over threshold"
-        )
+    # Must complete well under the strict 1-second threshold.
+    assert elapsed / 1000 < THRESHOLD_SECONDS, (
+        f"Legacy fallback load took {elapsed:.1f} ms — over threshold"
+    )
