@@ -2,6 +2,8 @@ import json
 from datetime import date, timedelta
 from itertools import product
 
+import pytest
+
 from src.output.output_manager import TextOutputManager
 from src.models.academic import Course, Exam, ProgramAffiliation, Project
 from src.models.enums import RequirementType, Semester, Term
@@ -10,6 +12,7 @@ from src.rules.academic_conflict_rule import AcademicConflictRule
 from src.solver.period_scheduler import Scheduler
 from src.validation.schedule_validator import ScheduledCourse, validate_schedule
 from src.rules.exam_spacing_rule import ExamSpacingRule
+from src.sorting.schedule_priority import MANDATORY_MIN_GAP
 
 
 def _affiliation(
@@ -153,6 +156,35 @@ def _parse_output(output_path, courses):
         schedules.append(current)
 
     return schedules
+
+
+def test_sorted_period_output_rejects_unbounded_materialization(tmp_path):
+    courses = [
+        _course(10001, "Algorithms", [_affiliation()]),
+        _course(10002, "Databases", [_affiliation()]),
+    ]
+    output_dir = tmp_path / "output"
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "output_settings": {
+                    "base_directory": str(output_dir),
+                    "master_filename": "guarded_period_schedule",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="more than 1 schedules"):
+        Scheduler([AcademicConflictRule()]).run_to_output(
+            courses,
+            _period(),
+            TextOutputManager(str(config_path)),
+            sort_priority=[MANDATORY_MIN_GAP],
+            max_sorted_schedules=1,
+        )
 
 
 def _canonical_output_schedules(parsed_schedules):

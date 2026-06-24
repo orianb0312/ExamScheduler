@@ -12,6 +12,8 @@ project.
 - `test_specification.md` - formal Version 1.0 test specification and execution results.
 - `part3_constraint_unit_test_prep.md` - Part 3 constraint edge-case plan,
   Req 2.2 mock data, and k-input expectations.
+- `part3_ranking_combination_test_prep.md` - Part 3 ranking combination
+  expected orders for Metric 3.1 and Metric 3.5 permutations.
 - `ExamScheduler_Test_Specification_v1_0.docx` - Word version of the formal test specification.
 - `organization_plan.md` - current structure notes and recommended cleanup steps.
 - `layer_boundaries.md` - ownership rules for PyQt6 UI, services/adapters, and v1.0 logic.

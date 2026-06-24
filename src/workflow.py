@@ -175,6 +175,7 @@ def _resolve_source_config(output_config: Path, kwargs: Dict[str, Any]) -> Dict[
         file_config = config_data.get("file", {})
         # Constraints may come from config.json or from the explicit CLI flag.
         constraints_file = kwargs.get("constraints_file") or file_config.get("constraints_file")
+        sorting_file = kwargs.get("sorting_file") or file_config.get("sorting_file")
         # Use CLI argument values if provided; otherwise, fall back to the JSON config values
         source_config = {
             "course_file": str(kwargs.get("course_file") or file_config.get("course_file")),
@@ -184,6 +185,8 @@ def _resolve_source_config(output_config: Path, kwargs: Dict[str, Any]) -> Dict[
         if constraints_file:
             # Do not invent defaults here; parsing decides whether the file is valid.
             source_config["constraints_file"] = str(constraints_file)
+        if sorting_file:
+            source_config["sorting_file"] = str(sorting_file)
         return source_config
 
     # For other data source types (e.g., DB, API), return the corresponding configuration block directly
@@ -210,6 +213,7 @@ def run_v1_workflow(
 
     output_manager = TextOutputManager(str(output_config))
     scheduler = Scheduler(rules=_build_scheduler_rules(parsed_data.get("constraints_node")))
+    sort_priority = parsed_data.get("sorting_node") or []
     period_results = []
 
     for index, period in enumerate(selected_periods):
@@ -220,6 +224,7 @@ def run_v1_workflow(
             output_manager,
             append=index > 0,
             write_header=index == 0,
+            sort_priority=sort_priority,
         )
 
         period_results.append(
@@ -284,6 +289,7 @@ def run_complete_write_workflow(
         period_course_sets,
         output_manager,
         max_systems=max_systems,
+        sort_priority=parsed_data.get("sorting_node") or [],
     )
 
 
@@ -311,6 +317,7 @@ def run_complete_auto_workflow(
         period_course_sets,
         output_manager,
         time_limit_seconds=time_limit_seconds,
+        sort_priority=parsed_data.get("sorting_node") or [],
     )
 
 
@@ -403,6 +410,7 @@ def run_complete_lazy_stream_workflow(
     stream = CompleteSystemScheduler(rules=rules).stream_complete_systems(
         period_course_sets,
         max_systems=max_systems,
+        sort_priority=parsed_data.get("sorting_node") or [],
     )
     try:
         _write_stream_summary(output_stream, stream, time_limit_seconds=None)
@@ -506,6 +514,7 @@ def _run_complete_stream_workflow(
     stream = CompleteSystemScheduler(rules=rules).stream_complete_systems(
         period_course_sets,
         max_systems=max_systems,
+        sort_priority=parsed_data.get("sorting_node") or [],
     )
     try:
         _write_stream_summary(output_stream, stream, time_limit_seconds)

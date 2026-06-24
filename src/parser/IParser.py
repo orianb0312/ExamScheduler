@@ -94,6 +94,7 @@ class IParser(ABC):
                 "user_node":    [ str, ... ],        # list of 5-digit program numbers
                 "constraints_node": {                # optional enabled constraint settings
                     str: int                          # constraint key -> k value
-                }
+                },
+                "sorting_node": [ str, ... ]          # optional sorting criterion keys
             }
         """

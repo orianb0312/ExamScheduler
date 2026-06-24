@@ -150,3 +150,56 @@ def test_file_parser_includes_sanitized_constraints_node(tmp_path):
         "min_days_between_mandatory": 2,
         "max_elective_conflicts": 0,
     }
+
+
+def test_file_parser_includes_sorting_priority_node(tmp_path):
+    course_file = tmp_path / "courses.txt"
+    dates_file = tmp_path / "dates.txt"
+    user_file = tmp_path / "programs.txt"
+    sorting_file = tmp_path / "sorting.txt"
+
+    course_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "Intro to Scheduling",
+                "10001",
+                "Dr. Parser",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dates_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "FALL,Aleph",
+                "01-01-2026, 02-01-2026",
+                "02-01-2026 Blocked",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_file.write_text("83101", encoding="utf-8")
+    sorting_file.write_text(
+        "$$$$\nsorting_priority\n3.5\nmandatory_min_gap\n",
+        encoding="utf-8",
+    )
+
+    parsed = json.loads(
+        FileParser().parse_to_json(
+            {
+                "course_file": str(course_file),
+                "dates_file": str(dates_file),
+                "user_file": str(user_file),
+                "sorting_file": str(sorting_file),
+            }
+        )
+    )
+
+    assert parsed["sorting_node"] == [
+        "max_daily_exams",
+        "mandatory_min_gap",
+    ]

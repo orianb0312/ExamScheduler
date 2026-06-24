@@ -80,6 +80,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dates-file", type=Path, default=None)
     # Optional V1 constraints file, using the same $$$$ chunk format as the GUI writes.
     parser.add_argument("--constraints-file", type=Path, default=None)
+    parser.add_argument(
+        "--sorting-file",
+        "--sort-file",
+        dest="sorting_file",
+        type=Path,
+        default=None,
+        help="Optional V1 file describing the multi-criteria sorting priority.",
+    )
     parser.add_argument("--user-file", type=Path, default=None)
 
     return parser.parse_args()
@@ -134,6 +142,7 @@ def main() -> int:
         "dates_file": args.dates_file,
         # Keep this with the other file overrides so config and CLI behave alike.
         "constraints_file": args.constraints_file,
+        "sorting_file": args.sorting_file,
         "user_file": args.user_file,
     }
 
