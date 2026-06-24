@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from PyQt6.QtCore import QUrl
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QStackedWidget
 
 from src.process_protocol import LAZY_NEXT_COMMAND, LAZY_STOP_COMMAND
@@ -31,6 +33,11 @@ from src.ui.view_models import (
     ExamPeriodViewModel,
     ExclusionViewModel,
     ScheduledExamViewModel,
+)
+from src.services.schedule_calendar_export_service import (
+    CalendarExportError,
+    CalendarExportResult,
+    ScheduleCalendarExportService,
 )
 
 
@@ -80,6 +87,14 @@ class MainWindow(QMainWindow):
         self._load_stylesheet()
 
         self._set_default_baseline_programs()
+        # Manage calendar exports, cancellation files, and export history.
+        # The service persists exported events so future cancellation files
+        # can target the correct calendar UIDs.
+        self._calendar_export_service = ScheduleCalendarExportService(
+            self._project_root / ".exam_scheduler_cache" / "calendar"
+        )
+        self._sync_calendar_revoke_all_button()
+
         self._load_default_files_if_available()
 
     def _build_layout(self) -> None:
@@ -104,6 +119,21 @@ class MainWindow(QMainWindow):
         self._runner.stderr_received.connect(self._handle_stderr)
         self._runner.process_finished.connect(self._handle_finished)
         self._runner.process_error.connect(self._handle_error)
+        # Calendar-related actions originate in the OutputView and are routed
+        # through MainWindow because MainWindow owns the export service and
+        # application-level error handling.
+
+        self.output_view.calendar_export_requested.connect(
+            self._export_selected_schedule_to_calendar
+        )
+
+        self.output_view.calendar_revoke_current_requested.connect(
+            self._revoke_current_schedule_from_calendar
+        )
+
+        self.output_view.calendar_revoke_all_requested.connect(
+            self._revoke_all_app_calendar_entries
+        )
 
     @property
     def loaded_input_data(self) -> LoadedSchedulerInput | None:
@@ -129,6 +159,10 @@ class MainWindow(QMainWindow):
                 # Populate the UI text fields so the user sees the paths from their last session
                 self.input_panel.file_loader.set_courses_path(str(courses_path))
                 self.input_panel.file_loader.set_exam_dates_path(str(exam_dates_path))
+                # Synchronize the initial state of the "Remove All" button with the
+                # persisted export registry. This allows previously exported entries
+                # from earlier application sessions to be detected immediately.
+                self._sync_calendar_revoke_all_button()
 
             # If we didn't get valid paths from the cache, fallback to UI defaults
         if not courses_path or not exam_dates_path:
@@ -503,6 +537,95 @@ class MainWindow(QMainWindow):
         stylesheet_path = Path(__file__).with_name("styles.qss")
         self.setStyleSheet(stylesheet_path.read_text(encoding="utf-8"))
 
+    def _sync_calendar_revoke_all_button(self) -> None:
+        """
+        Keep the global calendar cleanup button synchronized with the
+        export registry state.
+
+        The button should only be available when at least one exam event
+        previously exported by this application exists in the registry.
+        """
+        self.output_view.set_calendar_revoke_all_enabled(
+            self._calendar_export_service.has_exported_entries()
+        )
+
+    def _export_selected_schedule_to_calendar(self) -> None:
+        self._run_calendar_export_action(
+            action=lambda: self._calendar_export_service.export_schedule(
+                self.output_view.selected_schedule
+            ),
+            success_prefix="Successfully exported schedule to calendar:",
+        )
+
+    def _revoke_current_schedule_from_calendar(self) -> None:
+        self._run_calendar_export_action(
+            action=lambda: self._calendar_export_service.revoke_current_schedule(
+                self.output_view.selected_schedule
+            ),
+            success_prefix="Successfully generated cancellation file for schedule:",
+        )
+
+    def _revoke_all_app_calendar_entries(self) -> None:
+        self._run_calendar_export_action(
+            action=self._calendar_export_service.revoke_all_exported,
+            success_prefix="Successfully generated global cancellation file:",
+        )
+
+    def _run_calendar_export_action(
+            self,
+            action,
+            success_prefix: str,
+    ) -> None:
+        try:
+            result = action()
+        except CalendarExportError as exc:
+            QMessageBox.information(self, "Calendar Sync", str(exc))
+            return
+        except OSError as exc:
+            QMessageBox.warning(self, "Calendar Sync", f"System Error: {exc}")
+            return
+
+        if not hasattr(result, 'ics_content') or not result.ics_content:
+            self._toast.show_message("No valid events to process.")
+            return
+
+        # Open native file save dialog so the user saves the .ics file locally
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Calendar File (.ics)",
+            str(self._project_root / "outputs" / "exam_schedule.ics"),
+            "Calendar Files (*.ics)",
+        )
+
+        if not file_path:
+            return  # User aborted the save flow
+
+        try:
+            saved_path = Path(file_path)
+            saved_path.write_text(result.ics_content, encoding="utf-8", newline="")
+        except OSError as exc:
+            QMessageBox.warning(self, "Calendar Sync", f"Could not save file: {exc}")
+            return
+
+        # Automatically open the saved file using the OS default calendar app (Outlook, Apple Calendar, etc.)
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(saved_path.resolve())))
+
+        self._toast.show_message(
+            self._calendar_success_message(result, success_prefix)
+        )
+        self._sync_calendar_revoke_all_button()
+
+    def _calendar_success_message(
+            self,
+            result: CalendarExportResult,
+            prefix: str,
+    ) -> str:
+        message = f"{prefix} {result.event_count} exam event(s)."
+        if result.skipped_without_date:
+            message += f" Skipped {result.skipped_without_date} exam(s) without dates."
+        return message
 
 def _to_scheduled_exam_view_model(exam: ScheduleExamDisplay) -> ScheduledExamViewModel:
     if exam.exam_date is None:
