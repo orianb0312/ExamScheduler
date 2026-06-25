@@ -1,7 +1,7 @@
 import time
 from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PyQt6.QtCore import Qt
@@ -39,7 +39,7 @@ def _create_responsive_test_files(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_ui_file_selection_and_loading_responsiveness(tmp_path, qtbot):
     """
-    Step 1 Requirement: Test file selection and file loading responsiveness.
+    Test file selection and file loading responsiveness.
     Ensures that opening, reading, parsing, and populating initial database
     records into memory completes well below the 1-second responsiveness limit.
     """
@@ -65,7 +65,7 @@ def test_ui_file_selection_and_loading_responsiveness(tmp_path, qtbot):
 
 def test_ui_program_selection_responsiveness(tmp_path, qtbot):
     """
-    Step 2 Requirement: Test study program option selection responsiveness.
+    Test study program option selection responsiveness.
     Verifies that choosing filtering choices, indexing targets, and re-rendering
     the active selection layout summary updates the display dynamically without freezing.
     """
@@ -83,7 +83,7 @@ def test_ui_program_selection_responsiveness(tmp_path, qtbot):
 
 def test_ui_date_editing_responsiveness(tmp_path, qtbot):
     """
-    Step 3 Requirement: Test date boundary constraint editing and layout redraw.
+    Test date boundary constraint editing and layout redraw.
     Verifies that changing target start or end boundaries and structurally rebuildable
     grid panels for monthly calendar widgets performs smoothly.
     """
@@ -110,7 +110,7 @@ def test_ui_date_editing_responsiveness(tmp_path, qtbot):
 
 def test_ui_schedule_generation_is_non_blocking_on_main_thread(tmp_path, qtbot):
     """
-    Step 4 Requirement: Test background schedule solver execution workflow.
+    Test background schedule solver execution workflow.
     Confirms that clicking run starts the subprocess asynchronously using QProcess,
     releasing the UI loop immediately rather than freezing while calculations process.
     """
@@ -139,7 +139,7 @@ def test_ui_schedule_generation_is_non_blocking_on_main_thread(tmp_path, qtbot):
 
 def test_ui_schedule_navigation_and_saving_responsiveness(tmp_path, qtbot):
     """
-    Step 5 Requirement: Test output screen page navigation.
+    Test output screen page navigation.
     Ensures pagination changes, view-model mapping, and canvas refreshes for
     individual solutions return answers within the strict 1-second limit.
     """
@@ -160,6 +160,59 @@ def test_ui_schedule_navigation_and_saving_responsiveness(tmp_path, qtbot):
 
     # Assert navigation paging switches screens seamlessly under 1 second
     assert elapsed_time < 1.0, f"Schedule page navigation blocked the UI thread for {elapsed_time:.2f}s"
+
+
+def test_ui_constraint_settings_value_change_responsiveness(tmp_path, qtbot):
+    """
+    Test scheduling-constraints (Settings) page responsiveness.
+    Changing a constraint value triggers full validation of all five constraints
+    plus a UI refresh of each row. Verify this per-keystroke work never blocks
+    the UI thread beyond the 1-second responsiveness limit.
+    """
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    settings = window.input_panel.constraint_settings
+
+    # Benchmark a constraint edit, which runs validate_all + per-row UI updates.
+    start_time = time.perf_counter()
+    settings.set_constraint("min_days_between_mandatory", enabled=True, value="5")
+    settings.set_constraint("max_exams_per_day", enabled=True, value="2")
+    elapsed_time = time.perf_counter() - start_time
+
+    assert elapsed_time < 1.0, (
+        f"Constraint value change blocked the UI thread for {elapsed_time:.2f}s"
+    )
+
+
+def test_ui_constraint_settings_pre_run_validation_responsiveness(tmp_path, qtbot):
+    """
+    Test the pre-Generate constraint validation gate.
+    The guard validates all enabled constraints before building runtime files.
+    Confirm the gate stays well under the 1-second limit even in its slowest
+    case (an invalid constraint that also builds the per-constraint warning).
+    """
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+
+    settings = window.input_panel.constraint_settings
+    # Enable a constraint but leave it invalid (empty) to exercise the full
+    # warning-formatting path the guard runs in its slowest case.
+    settings.set_constraint("min_days_between_mandatory", enabled=True, value="")
+
+    start_time = time.perf_counter()
+    # Patch the modal warning so the invalid path doesn't open a blocking
+    # dialog in a headless test; we are timing the validation, not the popup.
+    with patch("src.ui.input_panel.QMessageBox"):
+        can_run = window.input_panel._validate_constraints_before_run()
+    elapsed_time = time.perf_counter() - start_time
+
+    # The guard must block the run (invalid input) but do so instantly.
+    assert can_run is False
+    assert elapsed_time < 1.0, (
+        f"Constraint pre-run validation blocked the UI thread for {elapsed_time:.2f}s"
+    )
+
 
 def test_ui_bulk_schedule_cache_loading_responsiveness(tmp_path, qtbot):
     """
