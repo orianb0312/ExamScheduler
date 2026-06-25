@@ -103,7 +103,9 @@ def test_semester_and_term_labels_are_normalized(service) -> None:
     schedule = _schedule(semester_label=" fall ", term_label="ALEPH")
     result = service.export_schedule(schedule)
     assert result.event_count == 1
-    assert "SUMMARY:Exam: Algorithms (10001) - Aleph" in result.ics_content
+
+    assert "SUMMARY:Algorithms (10001)" in result.ics_content
+    assert "DESCRIPTION:Exam: Algorithms (10001) - Aleph" in result.ics_content
 
 
 def test_skips_exams_without_dates(service) -> None:
