@@ -43,6 +43,21 @@ class SchedulerRunResult:
         return sum(period.schedule_count for period in self.periods)
 
 
+@dataclass(frozen=True)
+class SchedulerDomainContext:
+    """Parsed scheduler inputs reused by workflows and post-run exports."""
+
+    parsed_data: Dict[str, Any]
+    courses: List[Course]
+    periods: List[ExamPeriod]
+    selected_programs: List[int]
+
+    @property
+    def sort_priority(self) -> Sequence[str]:
+        # Analytics and scheduling both read the exact same normalized priority list.
+        return self.parsed_data.get("sorting_node") or []
+
+
 def _parse_domain_data(
     source_config: Dict[str, Any],
     parser: IParser | None = None,
@@ -120,6 +135,25 @@ def load_domain_data(
         parser=parser,
     )
     return courses, periods, selected_programs
+
+
+def load_domain_context(
+        output_config: Path,
+        parser: IParser | None = None,
+        **kwargs: Any,
+) -> SchedulerDomainContext:
+    """Load the same parsed inputs used by a CLI workflow run."""
+    source_config = _resolve_source_config(output_config, kwargs)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
+    return SchedulerDomainContext(
+        parsed_data=parsed_data,
+        courses=courses,
+        periods=periods,
+        selected_programs=selected_programs,
+    )
 
 
 def filter_courses_for_period(

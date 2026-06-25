@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence
 
+from src.services.analytics_export_service import DEFAULT_ANALYTICS_SCHEDULE_LIMIT
 from src.services.scheduler_input_state import SchedulerInputState
 
 
@@ -33,6 +34,11 @@ class CliRunConfig:
     constraints_file: Path | None = None
     sorting_file: Path | None = None
     user_file: Path | None = None
+    export_analytics: bool = False
+    analytics_formats: Sequence[str] = ()
+    analytics_output_dir: Path | None = None
+    analytics_base_filename: str | None = None
+    analytics_max_schedules: int = DEFAULT_ANALYTICS_SCHEDULE_LIMIT
 
 
 @dataclass(frozen=True)
@@ -174,6 +180,17 @@ def build_cli_arguments(config: CliRunConfig) -> tuple[str, list[str]]:
         args.extend(["--sorting-file", str(config.sorting_file)])
     if config.user_file is not None:
         args.extend(["--user-file", str(config.user_file)])
+    # These flags are optional so the desktop runner can keep streaming runs unchanged.
+    if config.export_analytics:
+        args.append("--export-analytics")
+    for format_name in config.analytics_formats:
+        args.extend(["--analytics-format", str(format_name)])
+    if config.analytics_output_dir is not None:
+        args.extend(["--analytics-output-dir", str(config.analytics_output_dir)])
+    if config.analytics_base_filename:
+        args.extend(["--analytics-base-filename", config.analytics_base_filename])
+    if config.analytics_max_schedules != DEFAULT_ANALYTICS_SCHEDULE_LIMIT:
+        args.extend(["--analytics-max-schedules", str(config.analytics_max_schedules)])
 
     return program, args
 

@@ -22,6 +22,7 @@ from src.services.schedule_output_service import (
     StdoutScheduleParser,
     parse_schedule_total,
 )
+from src.services.selected_schedule_analytics_writer import SelectedScheduleAnalyticsWriter
 from src.services.selected_schedule_file_writer import SelectedScheduleFileWriter
 from src.ui.calendar_view import OutputView
 from src.ui.input_panel import InputPanel
@@ -61,6 +62,7 @@ class MainWindow(QMainWindow):
         self._output_adapter = ScheduleOutputDataAdapter()
         self._calendar_data_service = ScheduleCalendarDataService()
         self._selected_schedule_writer = SelectedScheduleFileWriter()
+        self._selected_schedule_analytics_writer = SelectedScheduleAnalyticsWriter()
         # Tests can inject a fake runner, while the real app still uses QProcess.
         runner_factory = process_runner_factory or ProcessRunner
         self._runner = runner_factory(self)
@@ -356,28 +358,52 @@ class MainWindow(QMainWindow):
             return
 
         default_path = self._default_selected_schedule_path(schedule)
-        file_path, _ = QFileDialog.getSaveFileName(
+        file_path, selected_filter = QFileDialog.getSaveFileName(
             self,
             "Save Schedule",
             str(default_path),
-            self._selected_schedule_writer.file_filter,
+            self._save_file_filter(),
         )
         if not file_path:
             return
 
         try:
-            saved_path = self._selected_schedule_writer.write(schedule, file_path)
+            # The same save button handles raw schedules and deterministic analytics exports.
+            if _is_analytics_export_request(file_path, selected_filter):
+                saved_path = self._selected_schedule_analytics_writer.write(
+                    schedule,
+                    file_path,
+                    format_name=_analytics_format_from_selection(
+                        file_path,
+                        selected_filter,
+                    ),
+                    active_priorities=self.output_view.sorting_priority_widget.priority,
+                )
+                message = f"Analytics saved to {saved_path}"
+            else:
+                saved_path = self._selected_schedule_writer.write(schedule, file_path)
+                message = f"Schedule saved to {saved_path}"
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Could not save schedule", str(exc))
             return
 
-        self._toast.show_message(f"Schedule saved to {saved_path}")
+        self._toast.show_message(message)
 
     def _default_selected_schedule_path(self, schedule: ScheduleSystem) -> Path:
         return (
             self._project_root
             / "outputs"
             / self._selected_schedule_writer.suggested_filename(schedule)
+        )
+
+    def _save_file_filter(self) -> str:
+        return (
+            "Text Files (*.txt);;"
+            "Analytics JSON Files (*.json);;"
+            "Analytics Text Files (*.txt);;"
+            "Analytics CSV Files (*.csv);;"
+            "Analytics PDF Files (*.pdf);;"
+            "All Files (*)"
         )
 
     def _load_generated_output_file(self) -> None:
@@ -557,3 +583,24 @@ def _systems_with_scheduled_exams(
         for system in systems
         if any(period.exams for period in system.periods)
     ]
+
+
+def _is_analytics_export_request(file_path: str, selected_filter: str) -> bool:
+    suffix = Path(file_path).suffix.casefold()
+    # JSON/CSV/PDF are analytics-only in this dialog; TXT can still mean a raw schedule.
+    return "Analytics" in selected_filter or suffix in {".json", ".csv", ".pdf"}
+
+
+def _analytics_format_from_selection(file_path: str, selected_filter: str) -> str:
+    suffix = Path(file_path).suffix.casefold().lstrip(".")
+    if suffix in {"json", "txt", "csv", "pdf"}:
+        return suffix
+    if "JSON" in selected_filter:
+        return "json"
+    if "CSV" in selected_filter:
+        return "csv"
+    if "PDF" in selected_filter:
+        return "pdf"
+    if "Text" in selected_filter:
+        return "txt"
+    return "json"
