@@ -37,7 +37,6 @@ class OutputView(QWidget):
     # Forward calendar actions to MainWindow, which owns the
     # export service and calendar integration logic.
     calendar_export_requested = pyqtSignal()
-    calendar_revoke_current_requested = pyqtSignal()
     calendar_revoke_all_requested = pyqtSignal()
 
     selected_schedule_changed = pyqtSignal(object)
@@ -230,9 +229,6 @@ class OutputView(QWidget):
         # OutputView acts as a pass-through component.
         self.pagination_bar.calendar_export_requested.connect(
             self.calendar_export_requested.emit
-        )
-        self.pagination_bar.calendar_revoke_current_requested.connect(
-            self.calendar_revoke_current_requested.emit
         )
         self.pagination_bar.calendar_revoke_all_requested.connect(
             self.calendar_revoke_all_requested.emit
