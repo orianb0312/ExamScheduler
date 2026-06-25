@@ -1,7 +1,6 @@
 """Build calendar files natively from UI schedules and track export history."""
 
 from __future__ import annotations
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,41 +60,37 @@ class ScheduleCalendarExportService:
         return structured_data
 
     def export_schedule(self, schedule: ScheduleSystem | None) -> CalendarExportResult:
-        exams, skipped = self._exams_from_schedule(schedule)
-        if not exams:
+        new_exams, skipped = self._exams_from_schedule(schedule)
+        if not new_exams:
             raise CalendarExportError("The selected schedule has no dated exams to export.")
 
-        formatter = ICSFormatter(is_cancellation=False)
-        ics_content = formatter.format(self._build_structured_data(exams))
+        old_exams = list(self._registry.all_exams())
+        new_keys = {(exam.course_id, exam.exam_date.isoformat()) for exam in new_exams}
 
-        self._registry.add_exams(exams)
-        return CalendarExportResult(len(exams), skipped, ics_content)
+        # Only explicitly cancel exams that are completely missing from the new schedule
+        exams_to_cancel = [
+            exam for exam in old_exams
+            if (exam.course_id, exam.exam_date.isoformat()) not in new_keys
+        ]
 
-    def revoke_current_schedule(self, schedule: ScheduleSystem | None) -> CalendarExportResult:
-        exams, skipped = self._exams_from_schedule(schedule)
-        if not exams:
-            raise CalendarExportError("The selected schedule has no dated exams to revoke.")
+        formatter = ICSFormatter()
+        ics_content = formatter.format(
+            publish_data=self._build_structured_data(new_exams),
+            cancel_data=self._build_structured_data(exams_to_cancel)
+        )
 
-        registry_keys = {record.dedupe_key() for record in self._registry.all_records()}
-        valid_exams = [exam for exam in exams if (exam.course_id, exam.exam_date.isoformat()) in registry_keys]
+        self._registry.clear()
+        self._registry.add_exams(new_exams)
 
-        if not valid_exams:
-            raise CalendarExportError("None of the exams in the selected schedule were previously marked as exported.")
-
-        formatter = ICSFormatter(is_cancellation=True)
-        ics_content = formatter.format(self._build_structured_data(valid_exams))
-
-        self._registry.remove_exams(valid_exams)
-        total_skipped = skipped + (len(exams) - len(valid_exams))
-        return CalendarExportResult(len(valid_exams), total_skipped, ics_content)
+        return CalendarExportResult(len(new_exams), skipped, ics_content)
 
     def revoke_all_exported(self) -> CalendarExportResult:
         exams = list(self._registry.all_exams())
         if not exams:
             raise CalendarExportError("No marked calendar entries were found to revoke.")
 
-        formatter = ICSFormatter(is_cancellation=True)
-        ics_content = formatter.format(self._build_structured_data(exams))
+        formatter = ICSFormatter()
+        ics_content = formatter.format(cancel_data=self._build_structured_data(exams))
 
         self._registry.clear()
         return CalendarExportResult(len(exams), 0, ics_content)
