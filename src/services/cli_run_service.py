@@ -31,6 +31,7 @@ class CliRunConfig:
     course_file: Path | None = None
     dates_file: Path | None = None
     constraints_file: Path | None = None
+    ai_rules_file: Path | None = None
     sorting_file: Path | None = None
     user_file: Path | None = None
 
@@ -90,6 +91,9 @@ class SchedulerRunConfigBuilder:
             dates_file=runtime_dates_file or _path_or_none(form.dates_file_text),
             # Passing a file keeps GUI runs on the same V1 parsing path.
             constraints_file=runtime_constraints_file,
+            ai_rules_file=(
+                form.project_root / "data" / "active_ai_rules.json"
+            ).resolve(),
             user_file=selected_programs_file,
         )
 
@@ -170,6 +174,8 @@ def build_cli_arguments(config: CliRunConfig) -> tuple[str, list[str]]:
     if config.constraints_file is not None:
         # The backend will parse and validate this before scheduling starts.
         args.extend(["--constraints-file", str(config.constraints_file)])
+    if config.ai_rules_file is not None:
+        args.extend(["--ai-rules-file", str(config.ai_rules_file.resolve())])
     if config.sorting_file is not None:
         args.extend(["--sorting-file", str(config.sorting_file)])
     if config.user_file is not None:

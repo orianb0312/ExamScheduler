@@ -58,6 +58,7 @@ def test_build_cli_arguments_constructs_unbuffered_main_command():
         course_file=root / "data" / "courses.txt",
         dates_file=root / "data" / "dates.txt",
         constraints_file=root / "data" / "constraints.txt",
+        ai_rules_file=root / "data" / "active_ai_rules.json",
         user_file=root / "data" / "programs.txt",
     )
 
@@ -78,6 +79,8 @@ def test_build_cli_arguments_constructs_unbuffered_main_command():
     assert "--course-file" in args
     assert "--dates-file" in args
     assert "--constraints-file" in args
+    assert "--ai-rules-file" in args
+    assert str((root / "data" / "active_ai_rules.json").resolve()) in args
     assert "--user-file" in args
 
 

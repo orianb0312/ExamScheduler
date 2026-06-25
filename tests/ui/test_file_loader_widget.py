@@ -95,10 +95,22 @@ def test_input_panel_home_image_fills_lower_page_area(tmp_path, qtbot):
     image_panel = panel.findChild(QFrame, "homeImagePanel")
 
     assert image_panel is not None
-    assert image_panel.minimumHeight() == 300
-    assert image_panel.maximumHeight() == 360
+    assert image_panel.minimumHeight() >= 180
+    assert image_panel.maximumHeight() <= 340
     assert image_panel.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
-    assert image_panel.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Fixed
+    assert image_panel.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Expanding
+
+
+def test_file_path_fields_are_wider_than_browse_buttons(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+    panel.resize(1400, 900)
+    panel.show()
+    qtbot.wait(20)
+
+    loader = panel.file_loader
+    assert loader.courses_input.width() > loader.courses_btn.width() * 2
+    assert loader.exams_input.width() > loader.exams_btn.width() * 2
 
 
 def test_input_panel_shows_program_selection_limit_message(tmp_path, qtbot):

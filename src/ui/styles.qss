@@ -451,7 +451,7 @@ QLabel#navTitleLabel {
 
 QPushButton#navTab,
 QPushButton#navTabActive {
-    min-width: 88px;
+    min-width: 56px;
     min-height: 58px;
     border-radius: 0;
     border: none;
@@ -631,6 +631,34 @@ QLabel#aiCopilotTitle {
     font-size: 16px;
     font-weight: 700;
     color: #dcecff;
+}
+
+QLabel#aiCopilotRulesSummary {
+    color: #aebbd0;
+    font-size: 11px;
+    padding: 1px 2px 3px 2px;
+}
+
+QPushButton#aiCopilotClearRules {
+    background: transparent;
+    color: #ffb5b0;
+    border: 1px solid #7b4c52;
+    border-radius: 10px;
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+QPushButton#aiCopilotClearRules:hover {
+    background: #4a2f35;
+    color: #ffd7d4;
+    border-color: #a86269;
+}
+
+QPushButton#aiCopilotClearRules:disabled {
+    background: transparent;
+    color: #6f7785;
+    border-color: #454c59;
 }
 
 QTextEdit#aiCopilotDisplay {

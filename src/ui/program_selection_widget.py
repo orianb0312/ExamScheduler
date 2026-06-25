@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QListWidget,
+    QListWidgetItem,
+    QSizePolicy,
+)
 
 from src.services.program_selection_policy import (
     DEFAULT_PROGRAM_SELECTION_POLICY,
@@ -35,7 +40,10 @@ class ProgramSelectionWidget(QListWidget):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setMinimumHeight(180)
-        self.setMaximumHeight(260)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
         self.itemChanged.connect(self._on_item_changed)
 
     def add_programs(self, programs: list[str]):

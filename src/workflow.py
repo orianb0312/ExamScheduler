@@ -17,6 +17,7 @@ from src.process_protocol import BATCH_END_MARKER, LAZY_NEXT_COMMAND, LAZY_STOP_
 from src.rules.academic_conflict_rule import AcademicConflictRule
 from src.rules.advanced_constraints_rule import AdvancedConstraintsRule
 from src.rules.exam_spacing_rule import ExamSpacingRule
+from src.rules.ai_copilot_rule import AICopilotRule
 from src.solver.complete_scheduler import (
     DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE,
     CompleteSystemResult,
@@ -58,7 +59,10 @@ def _parse_domain_data(
     return parsed_data, courses, periods, selected_programs
 
 
-def _build_scheduler_rules(constraints: Dict[str, int] | None) -> List[ISchedulingRule]:
+def _build_scheduler_rules(
+    constraints: Dict[str, int] | None,
+    ai_rules_file: Path,
+) -> List[ISchedulingRule]:
     constraints = constraints or {}
     rules: List[ISchedulingRule] = [AcademicConflictRule()]
 
@@ -98,7 +102,28 @@ def _build_scheduler_rules(constraints: Dict[str, int] | None) -> List[IScheduli
             )
         )
 
+    rules.append(AICopilotRule(ai_rules_file))
+
     return rules
+
+
+def _build_workflow_rules(
+    parsed_data: Dict[str, Any],
+    output_config: Path,
+    kwargs: Dict[str, Any],
+) -> List[ISchedulingRule]:
+    configured_path = kwargs.get("ai_rules_file")
+    if configured_path is None:
+        configured_path = (
+            Path(output_config).expanduser().resolve().parent
+            / "data"
+            / "active_ai_rules.json"
+        )
+    absolute_ai_rules_path = Path(configured_path).expanduser().resolve()
+    return _build_scheduler_rules(
+        parsed_data.get("constraints_node"),
+        absolute_ai_rules_path,
+    )
 
 
 def load_domain_data(
@@ -212,7 +237,9 @@ def run_v1_workflow(
         selected_periods = [periods[index] for index in period_indexes]
 
     output_manager = TextOutputManager(str(output_config))
-    scheduler = Scheduler(rules=_build_scheduler_rules(parsed_data.get("constraints_node")))
+    scheduler = Scheduler(
+        rules=_build_workflow_rules(parsed_data, output_config, kwargs)
+    )
     sort_priority = parsed_data.get("sorting_node") or []
     period_results = []
 
@@ -259,7 +286,7 @@ def run_complete_count_workflow(
     )
 
     return CompleteSystemScheduler(
-        rules=_build_scheduler_rules(parsed_data.get("constraints_node"))
+        rules=_build_workflow_rules(parsed_data, output_config, kwargs)
     ).count_complete_systems(
         period_course_sets
     )
@@ -284,7 +311,7 @@ def run_complete_write_workflow(
     output_manager = TextOutputManager(str(output_config))
 
     return CompleteSystemScheduler(
-        rules=_build_scheduler_rules(parsed_data.get("constraints_node"))
+        rules=_build_workflow_rules(parsed_data, output_config, kwargs)
     ).write_complete_systems(
         period_course_sets,
         output_manager,
@@ -312,7 +339,7 @@ def run_complete_auto_workflow(
     output_manager = TextOutputManager(str(output_config))
 
     return CompleteSystemScheduler(
-        rules=_build_scheduler_rules(parsed_data.get("constraints_node"))
+        rules=_build_workflow_rules(parsed_data, output_config, kwargs)
     ).write_complete_systems_auto(
         period_course_sets,
         output_manager,
@@ -402,7 +429,7 @@ def run_complete_lazy_stream_workflow(
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
-    rules = _build_scheduler_rules(parsed_data.get("constraints_node"))
+    rules = _build_workflow_rules(parsed_data, output_config, kwargs)
 
     progress_stream.write("Preparing lazy complete-system stream...\n")
     progress_stream.flush()
@@ -506,7 +533,7 @@ def _run_complete_stream_workflow(
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
-    rules = _build_scheduler_rules(parsed_data.get("constraints_node"))
+    rules = _build_workflow_rules(parsed_data, output_config, kwargs)
 
     progress_stream.write("Preparing complete systems for streaming...\n")
     progress_stream.flush()

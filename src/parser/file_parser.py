@@ -213,7 +213,11 @@ def parse_date_line(line: str) -> dict:
     return {"start_date": start_date, "end_date": end_date, "comment": comment}
 
 
-def parse_period_record(record_text: str) -> dict:
+def parse_period_record(
+    record_text: str,
+    *,
+    require_exclusion: bool = True,
+) -> dict:
     """
     Parse a single period record block into a dict.
 
@@ -224,11 +228,11 @@ def parse_period_record(record_text: str) -> dict:
     """
     lines = [ln.strip() for ln in record_text.splitlines() if ln.strip()]
 
-    # split_records has already removed the "$$$$" marker. Phase 1 still
-    # requires one excluded-date line inside each period record.
-    if len(lines) < 3:
+    minimum_line_count = 3 if require_exclusion else 2
+    if len(lines) < minimum_line_count:
         raise ValueError(
-            f"Period record has too few lines (need at least 3, got {len(lines)}): {lines}"
+            "Period record has too few lines "
+            f"(need at least {minimum_line_count}, got {len(lines)}): {lines}"
         )
 
     header_parts = [p.strip() for p in lines[0].split(",")]
@@ -257,8 +261,11 @@ def parse_period_record(record_text: str) -> dict:
 
 
 def parse_periods_text(text: str) -> list[dict]:
-    """Parse full dates-file text into a list of period dicts."""
-    return [parse_period_record(r) for r in split_records(text)]
+    """Parse a full dates file, allowing periods with no excluded dates."""
+    return [
+        parse_period_record(record, require_exclusion=False)
+        for record in split_records(text)
+    ]
 
 
 # ===========================================================================

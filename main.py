@@ -81,6 +81,12 @@ def parse_args() -> argparse.Namespace:
     # Optional V1 constraints file, using the same $$$$ chunk format as the GUI writes.
     parser.add_argument("--constraints-file", type=Path, default=None)
     parser.add_argument(
+        "--ai-rules-file",
+        type=Path,
+        default=None,
+        help="Absolute path to validated active AI scheduling rules.",
+    )
+    parser.add_argument(
         "--sorting-file",
         "--sort-file",
         dest="sorting_file",
@@ -142,6 +148,7 @@ def main() -> int:
         "dates_file": args.dates_file,
         # Keep this with the other file overrides so config and CLI behave alike.
         "constraints_file": args.constraints_file,
+        "ai_rules_file": args.ai_rules_file,
         "sorting_file": args.sorting_file,
         "user_file": args.user_file,
     }

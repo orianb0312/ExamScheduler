@@ -165,6 +165,88 @@ def test_run_v1_workflow_processes_all_exam_periods(tmp_path):
     assert "Fall Project" not in content
 
 
+def test_run_v1_workflow_injects_persisted_ai_rule_from_absolute_path(
+    tmp_path,
+):
+    course_file = tmp_path / "courses.txt"
+    dates_file = tmp_path / "dates.txt"
+    user_file = tmp_path / "programs.txt"
+    output_config = tmp_path / "config.json"
+    ai_rules_file = (tmp_path / "data" / "active_ai_rules.json").resolve()
+    ai_rules_file.parent.mkdir(parents=True)
+
+    course_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "Algorithms",
+                "10001",
+                "Dr. Ada",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dates_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "FALL,Aleph",
+                "01-01-2026, 03-01-2026",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_file.write_text("83101", encoding="utf-8")
+    ai_rules_file.write_text(
+        json.dumps(
+            [
+                {
+                    "rule_id": "ai_rule_1",
+                    "description": "Fix Algorithms on 2026-01-02",
+                    "rule_type": "fix_date",
+                    "parameters": {
+                        "course": "Algorithms",
+                        "date": "2026-01-02",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_config.write_text(
+        json.dumps(
+            {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(course_file),
+                    "dates_file": str(dates_file),
+                    "user_file": str(user_file),
+                },
+                "output_settings": {
+                    "base_directory": str(tmp_path / "output"),
+                    "master_filename": "ai_rule_schedule",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_v1_workflow(
+        output_config=output_config,
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+        ai_rules_file=ai_rules_file,
+    )
+
+    assert result.total_schedules == 1
+    assert "Algorithms | 2026-01-02" in result.output_path.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_run_complete_auto_stream_workflow_writes_schedule_blocks_to_stdout(tmp_path):
     course_file = tmp_path / "courses.txt"
     dates_file = tmp_path / "dates.txt"

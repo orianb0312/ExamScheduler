@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -41,6 +42,10 @@ class FileLoaderWidget(QWidget):
         self.courses_btn = QPushButton("Browse...")
         self.courses_btn.setObjectName("browseButton")
         self.courses_btn.setFixedWidth(104)
+        self.courses_btn.setSizePolicy(
+            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Fixed,
+        )
         self.courses_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.courses_btn.clicked.connect(self._browse_courses)
 
@@ -61,6 +66,10 @@ class FileLoaderWidget(QWidget):
         self.exams_btn = QPushButton("Browse...")
         self.exams_btn.setObjectName("browseButton")
         self.exams_btn.setFixedWidth(104)
+        self.exams_btn.setSizePolicy(
+            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Fixed,
+        )
         self.exams_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.exams_btn.clicked.connect(self._browse_exam_dates)
 
@@ -99,8 +108,12 @@ class FileLoaderWidget(QWidget):
 
         self.load_button = QPushButton("Load Files Into Scheduler")
         self.load_button.setObjectName("load_button")
-        self.load_button.setFixedWidth(220)
+        self.load_button.setMinimumWidth(180)
         self.load_button.setMinimumHeight(34)
+        self.load_button.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
         self.load_button.setEnabled(False)
         self.load_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.load_button.clicked.connect(self._handle_load_clicked)
@@ -108,7 +121,8 @@ class FileLoaderWidget(QWidget):
         load_action_layout = QHBoxLayout()
         load_action_layout.setContentsMargins(0, 0, 0, 0)
         load_action_layout.addStretch(1)
-        load_action_layout.addWidget(self.load_button)
+        load_action_layout.addWidget(self.load_button, 2)
+        load_action_layout.addStretch(1)
         main_layout.addLayout(load_action_layout)
 
         self.setLayout(main_layout)
@@ -142,8 +156,8 @@ class FileLoaderWidget(QWidget):
         mode_layout = QHBoxLayout()
         mode_layout.setContentsMargins(0, 0, 0, 0)
         mode_layout.setSpacing(8)
-        mode_layout.addWidget(replace_button)
-        mode_layout.addWidget(update_button)
+        mode_layout.addWidget(replace_button, 1)
+        mode_layout.addWidget(update_button, 1)
         layout.addLayout(mode_layout)
         return section
 
@@ -198,6 +212,12 @@ class FileLoaderWidget(QWidget):
         self.error_label.setVisible(True)
         self.load_button.setEnabled(False)
 
+    def set_compact_vertical(self, compact: bool) -> None:
+        """Tighten vertical spacing when the dashboard window is short."""
+        self.layout().setSpacing(8 if compact else 14)
+        for section in self.findChildren(QWidget, "fileSourceSection"):
+            section.layout().setSpacing(5 if compact else 8)
+
     def _browse_courses(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Courses File", "", "All Files (*)")
         if file_path:
@@ -213,8 +233,12 @@ class FileLoaderWidget(QWidget):
         button = QPushButton(label)
         button.setObjectName("modeButton")
         button.setCheckable(True)
-        button.setFixedWidth(82)
+        button.setMinimumWidth(68)
         button.setMinimumHeight(32)
+        button.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         return button
 

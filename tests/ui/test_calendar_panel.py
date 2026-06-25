@@ -19,7 +19,12 @@ from src.services.schedule_output_service import (
     ScheduleSystem,
 )
 from src.ui.calendar_view import OutputView
-from src.ui.calendar_view_panel import CalendarView, _DayCell, _MonthGrid, _PeriodSection
+from src.ui.calendar_view_panel import (
+    CalendarView,
+    _DayCell,
+    _MonthGrid,
+    _PeriodSection,
+)
 from src.ui.main_window import MainWindow, NO_EXAM_SCHEDULES_MESSAGE
 from src.ui.view_models import (
     ExamPeriodViewModel,
@@ -261,9 +266,13 @@ def test_top_calendar_nav_opens_calendar_without_loaded_data(tmp_path, qtbot: Qt
     assert window._stack.currentWidget() is window.input_panel
     assert window.input_panel.is_calendar_page_visible()
     assert window.calendar_view._back_button.isHidden()
+    period_count = len(window.input_panel.exam_periods)
     assert window.calendar_view._status_label.text() in {
         "No data",
-        f"{len(window.input_panel.exam_periods)} exam periods loaded",
+        (
+            f"{period_count} exam period"
+            f"{'s' if period_count != 1 else ''} loaded"
+        ),
     }
 
 

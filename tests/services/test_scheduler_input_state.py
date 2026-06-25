@@ -148,6 +148,9 @@ def test_run_config_writes_runtime_constraints_file(tmp_path):
     config = SchedulerRunConfigBuilder(state).build(_form(tmp_path))
 
     assert config.constraints_file == tmp_path / "runtime" / "ui_constraints.txt"
+    assert config.ai_rules_file == (
+        tmp_path / "data" / "active_ai_rules.json"
+    ).resolve()
     assert config.constraints_file.read_text(encoding="utf-8") == (
         "$$$$\n"
         "min_days_between_mandatory\n"
