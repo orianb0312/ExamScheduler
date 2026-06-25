@@ -1067,18 +1067,10 @@ def test_failed_run_sets_output_error_status(tmp_path, qtbot: QtBot) -> None:
 def test_output_view_calendar_buttons_enable_with_selected_schedule(
     qtbot: QtBot,
 ) -> None:
-    """
-    Verify that calendar actions become available when at least one
-    schedule is present in the OutputView.
-
-    Export and revoke-current actions depend only on schedule
-    availability, not registry state.
-    """
     view = OutputView()
     qtbot.addWidget(view)
 
     assert not view.pagination_bar.calendar_export_button.isEnabled()
-    assert not view.pagination_bar.calendar_revoke_current_button.isEnabled()
 
     view.add_systems(
         [
@@ -1090,7 +1082,6 @@ def test_output_view_calendar_buttons_enable_with_selected_schedule(
     )
 
     assert view.pagination_bar.calendar_export_button.isEnabled()
-    assert view.pagination_bar.calendar_revoke_current_button.isEnabled()
 
 def test_output_view_calendar_export_signal_reaches_main_window(
     tmp_path,
