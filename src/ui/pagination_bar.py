@@ -45,7 +45,7 @@ class PaginationBar(QWidget):
         # Generate a cancellation file for every calendar entry previously
         # exported by this application.
         self.calendar_revoke_all_button = QPushButton(
-            "Revoke All App Entries"
+            "Cancel All Synced Exams"
         )
 
         # Fixed widths help keep the toolbar layout stable.
