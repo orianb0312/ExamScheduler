@@ -129,10 +129,6 @@ class MainWindow(QMainWindow):
             self._export_selected_schedule_to_calendar
         )
 
-        self.output_view.calendar_revoke_current_requested.connect(
-            self._revoke_current_schedule_from_calendar
-        )
-
         self.output_view.calendar_revoke_all_requested.connect(
             self._revoke_all_app_calendar_entries
         )
