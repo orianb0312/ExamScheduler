@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import pytest
@@ -263,6 +264,7 @@ def test_top_calendar_nav_opens_calendar_without_loaded_data(tmp_path, qtbot: Qt
     assert window.calendar_view._back_button.isHidden()
     assert window.calendar_view._status_label.text() in {
         "No data",
+        "1 exam period loaded",
         f"{len(window.input_panel.exam_periods)} exam periods loaded",
     }
 
@@ -781,6 +783,38 @@ def test_save_action_writes_current_visible_schedule(
     assert "Databases (10002) | 2026-01-03 | Dr. Ada" in content
     assert "Algorithms (10001) | 2026-01-02 | Dr. Ada" not in content
     assert not window._toast.isHidden()
+
+
+def test_save_action_can_write_selected_schedule_analytics_json(
+    tmp_path,
+    qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    destination = tmp_path / "exports" / "chosen_schedule_analytics.json"
+
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getSaveFileName",
+        staticmethod(
+            lambda *args, **kwargs: (
+                str(destination),
+                "Analytics JSON Files (*.json)",
+            )
+        ),
+    )
+
+    window.output_view.add_systems([
+        _schedule_with_exam("Algorithms", 10001, date(2026, 1, 2))
+    ])
+    qtbot.mouseClick(window.output_view.pagination_bar.save_button, Qt.MouseButton.LeftButton)
+
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+    assert payload["reports"][0]["schedule_number"] == 1
+    assert payload["reports"][0]["scheduled_exams"][0]["course_name"] == "Algorithms"
+    assert not window._toast.isHidden()
+    assert "Analytics saved" in window._toast.message_label.text()
 
 
 def test_calendar_label_without_course_id() -> None:

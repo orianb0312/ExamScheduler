@@ -126,6 +126,33 @@ def test_build_cli_arguments_prefers_lazy_flag_for_lazy_runs():
     assert "--stream-schedules" not in args
 
 
+def test_build_cli_arguments_adds_analytics_export_options():
+    root = Path("C:/repo/ExamScheduler")
+    config = CliRunConfig(
+        project_root=root,
+        python_executable="python",
+        mode="complete-write",
+        export_analytics=True,
+        analytics_formats=("json", "csv"),
+        analytics_output_dir=root / "analytics",
+        analytics_base_filename="night_run",
+        analytics_max_schedules=12,
+    )
+
+    _program, args = build_cli_arguments(config)
+
+    assert "--export-analytics" in args
+    assert args.count("--analytics-format") == 2
+    assert "json" in args
+    assert "csv" in args
+    assert "--analytics-output-dir" in args
+    assert str(root / "analytics") in args
+    assert "--analytics-base-filename" in args
+    assert "night_run" in args
+    assert "--analytics-max-schedules" in args
+    assert "12" in args
+
+
 def test_build_cli_arguments_rejects_unknown_modes():
     with pytest.raises(ValueError):
         build_cli_arguments(CliRunConfig(project_root=Path("."), mode="server"))

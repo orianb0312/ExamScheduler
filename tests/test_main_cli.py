@@ -85,6 +85,80 @@ def test_cli_modes_still_complete_successfully(tmp_path):
         assert "Traceback" not in result.stderr
 
 
+def test_cli_complete_write_exports_deterministic_analytics(tmp_path):
+    config_path = _write_minimal_scheduler_input(tmp_path)
+    sorting_file = tmp_path / "sorting.txt"
+    analytics_dir = tmp_path / "analytics"
+    sorting_file.write_text("$$$$\nsorting_priority\nmax_daily_exams\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(MAIN_SCRIPT),
+            "--mode",
+            "complete-write",
+            "--max-systems",
+            "1",
+            "--output-config",
+            str(config_path),
+            "--sorting-file",
+            str(sorting_file),
+            "--analytics-format",
+            "json,txt,csv",
+            "--analytics-output-dir",
+            str(analytics_dir),
+            "--analytics-base-filename",
+            "cli_diagnostics",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Analytics file:" in result.stdout
+
+    json_path = analytics_dir / "cli_diagnostics.json"
+    text_path = analytics_dir / "cli_diagnostics.txt"
+    csv_path = analytics_dir / "cli_diagnostics.csv"
+    assert json_path.exists()
+    assert text_path.exists()
+    assert csv_path.exists()
+
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    report = payload["reports"][0]
+    assert report["calculation_mode"] == "deterministic_rules"
+    assert report["metric_values"][0]["key"] == "max_daily_exams"
+    assert report["scheduled_exams"][0]["course_name"] == "Fall Exam"
+    assert "Functional justification" in text_path.read_text(encoding="utf-8")
+    assert "scheduled_exam" in csv_path.read_text(encoding="utf-8")
+
+
+def test_cli_rejects_bad_analytics_format_before_scheduling():
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(MAIN_SCRIPT),
+            "--mode",
+            "complete-write",
+            "--max-systems",
+            "1",
+            "--analytics-format",
+            "fake",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "Unsupported analytics format 'fake'" in result.stderr
+    assert "Output file:" not in result.stdout
+    assert "Complete systems:" not in result.stdout
+
+
 def _write_minimal_scheduler_input(tmp_path: Path) -> Path:
     course_file = tmp_path / "courses.txt"
     dates_file = tmp_path / "dates.txt"

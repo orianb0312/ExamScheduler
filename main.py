@@ -7,6 +7,7 @@ from typing import Any, Dict
 from src.parser.IParser import IParser
 from src.parser.file_parser import FileParser
 from src.workflow import (
+    load_domain_context,
     run_complete_auto_workflow,
     run_complete_auto_stream_workflow,
     run_complete_count_workflow,
@@ -14,6 +15,11 @@ from src.workflow import (
     run_complete_write_stream_workflow,
     run_complete_write_workflow,
     run_v1_workflow,
+)
+from src.analytics.exporters import SUPPORTED_ANALYTICS_FORMATS
+from src.services.analytics_export_service import (
+    DEFAULT_ANALYTICS_SCHEDULE_LIMIT,
+    ScheduleAnalyticsExportService,
 )
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -73,6 +79,43 @@ def parse_args() -> argparse.Namespace:
         "--lazy-schedules",
         action="store_true",
         help="Generate the first schedule page, then wait for NEXT commands on stdin.",
+    )
+    parser.add_argument(
+        "--export-analytics",
+        action="store_true",
+        help=(
+            "After a file-writing schedule run, export deterministic analytics "
+            "beside the generated schedule file."
+        ),
+    )
+    parser.add_argument(
+        "--analytics-format",
+        "--analytics-formats",
+        dest="analytics_formats",
+        action="append",
+        default=[],
+        help=(
+            "Analytics export format. Repeat the flag or pass comma-separated "
+            f"values. Supported: {', '.join(SUPPORTED_ANALYTICS_FORMATS)}."
+        ),
+    )
+    parser.add_argument(
+        "--analytics-output-dir",
+        type=Path,
+        default=None,
+        help="Directory for analytics exports. Defaults to the schedule output directory.",
+    )
+    parser.add_argument(
+        "--analytics-base-filename",
+        type=str,
+        default=None,
+        help="Base filename for analytics exports, without an extension.",
+    )
+    parser.add_argument(
+        "--analytics-max-schedules",
+        type=int,
+        default=DEFAULT_ANALYTICS_SCHEDULE_LIMIT,
+        help="Maximum schedules to include in a post-run analytics export.",
     )
 
     # Optional manual file overrides from the CLI - passed as kwargs to the workflow
@@ -154,6 +197,8 @@ def main() -> int:
     source_type = args.source_type or config_data.get("source_type", "file")
     parser = get_parser(source_type)
 
+    _validate_analytics_request(args)
+
     # Route execution to the appropriate workflow based on the chosen mode
     if args.mode == "period":
         result = run_v1_workflow(
@@ -163,6 +208,7 @@ def main() -> int:
             **cli_overrides,
         )
         _print_period_result(result)
+        _export_analytics_if_requested(args, result.output_path, parser, cli_overrides)
         return 0
 
     if args.mode == "complete-count":
@@ -177,6 +223,7 @@ def main() -> int:
 
     if args.mode == "complete-write":
         if args.lazy_schedules:
+            _reject_streaming_analytics(args)
             run_complete_lazy_stream_workflow(
                 output_config=args.output_config,
                 period_indexes=args.period_index,
@@ -190,6 +237,7 @@ def main() -> int:
             return 0
 
         if args.stream_schedules:
+            _reject_streaming_analytics(args)
             run_complete_write_stream_workflow(
                 output_config=args.output_config,
                 period_indexes=args.period_index,
@@ -209,10 +257,18 @@ def main() -> int:
             **cli_overrides,
         )
         _print_complete_result(result)
+        if result.output_path is not None:
+            _export_analytics_if_requested(
+                args,
+                result.output_path,
+                parser,
+                cli_overrides,
+            )
         return 0
 
     # Fallback to auto mode
     if args.lazy_schedules:
+        _reject_streaming_analytics(args)
         run_complete_lazy_stream_workflow(
             output_config=args.output_config,
             period_indexes=args.period_index,
@@ -225,6 +281,7 @@ def main() -> int:
         return 0
 
     if args.stream_schedules:
+        _reject_streaming_analytics(args)
         run_complete_auto_stream_workflow(
             output_config=args.output_config,
             period_indexes=args.period_index,
@@ -244,6 +301,8 @@ def main() -> int:
         **cli_overrides,
     )
     _print_complete_result(result)
+    if result.output_path is not None:
+        _export_analytics_if_requested(args, result.output_path, parser, cli_overrides)
     return 0
 
 
@@ -275,6 +334,101 @@ def _print_complete_result(result) -> None:
     print(f"Truncated: {result.truncated}")
     if result.auto_limit_seconds is not None:
         print(f"Auto time limit: {result.auto_limit_seconds:.2f} seconds")
+
+
+def _export_analytics_if_requested(
+    args: argparse.Namespace,
+    schedule_output_path: Path,
+    parser: IParser,
+    cli_overrides: Dict[str, Any],
+) -> None:
+    if not _analytics_export_requested(args):
+        return
+
+    formats = _parse_analytics_formats(args.analytics_formats)
+    # Reload the same input files so post-run analytics use the same courses and priorities.
+    context = load_domain_context(
+        args.output_config,
+        parser=parser,
+        **cli_overrides,
+    )
+    export_service = ScheduleAnalyticsExportService()
+    reports, reached_limit = export_service.reports_from_output_file(
+        schedule_output_path,
+        courses=context.courses,
+        selected_program_ids=context.selected_programs,
+        active_priorities=context.sort_priority,
+        max_schedules=args.analytics_max_schedules,
+    )
+
+    output_dir = args.analytics_output_dir or schedule_output_path.parent
+    base_filename = (
+        args.analytics_base_filename
+        or f"{schedule_output_path.stem}_analytics"
+    )
+    written_paths = export_service.export_reports(
+        reports,
+        formats,
+        output_dir,
+        base_filename,
+    )
+
+    for path in written_paths:
+        print(f"Analytics file: {path}")
+    if reached_limit:
+        print(
+            "Analytics export limited to the first "
+            f"{args.analytics_max_schedules:,} schedules."
+        )
+
+
+def _analytics_export_requested(args: argparse.Namespace) -> bool:
+    return bool(args.export_analytics or args.analytics_formats)
+
+
+def _validate_analytics_request(args: argparse.Namespace) -> None:
+    if not _analytics_export_requested(args):
+        return
+
+    # Fail before scheduling work starts if the requested export can never be written.
+    _parse_analytics_formats(args.analytics_formats)
+
+    if args.mode == "complete-count":
+        raise ValueError("Analytics export requires a schedule output file.")
+
+    if args.stream_schedules or args.lazy_schedules:
+        _reject_streaming_analytics(args)
+
+
+def _parse_analytics_formats(values: list[str]) -> tuple[str, ...]:
+    tokens: list[str] = []
+    for value in values:
+        tokens.extend(part.strip() for part in str(value).split(",") if part.strip())
+
+    if not tokens:
+        return SUPPORTED_ANALYTICS_FORMATS
+
+    clean: list[str] = []
+    for token in tokens:
+        normalized = token.strip().casefold().lstrip(".")
+        if normalized == "text":
+            normalized = "txt"
+        if normalized not in SUPPORTED_ANALYTICS_FORMATS:
+            valid = ", ".join(SUPPORTED_ANALYTICS_FORMATS)
+            raise ValueError(
+                f"Unsupported analytics format '{token}'. Valid: {valid}."
+            )
+        if normalized not in clean:
+            clean.append(normalized)
+    return tuple(clean)
+
+
+def _reject_streaming_analytics(args: argparse.Namespace) -> None:
+    if _analytics_export_requested(args):
+        raise ValueError(
+            "Analytics export is available for file-writing runs only. "
+            "Run without --stream-schedules or --lazy-schedules."
+        )
 
 
 if __name__ == "__main__":
