@@ -12,11 +12,13 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
-from PyQt6.QtCore import QObject, QProcess, QProcessEnvironment, pyqtSignal
+from PyQt6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, pyqtSignal
 
 from src.services.constraint_settings_policy import (
     CONSTRAINT_DEFINITIONS,
+    is_constraint_integer_allowed,
 )
+from src.services.process_resource_logger import SystemResourceSampler
 
 
 LOGGER = logging.getLogger(__name__)
@@ -143,7 +145,7 @@ STATE HANDLING:
         "הבקשה קשורה לתזמון בחינות, אך אינה נתמכת על ידי כללי המערכת."
     )
     _INPUT_TOO_LONG_MESSAGE = (
-        "הבקשה ארוכה מדי. ניתן להזין עד 50 תווים בלבד."
+        "הבקשה ארוכה מדי. ניתן להזין עד 250 תווים בלבד."
     )
     _NON_ENGLISH_RULE_MESSAGE = (
         "לא ניתן ליצור את הכלל: פלט הכלל חייב להיות באנגלית."
@@ -151,10 +153,19 @@ STATE HANDLING:
     GENERIC_FALLBACK_MESSAGE = (
         "The request is not valid for exam scheduling. Please rephrase."
     )
+    MODEL_TIMEOUT_MESSAGE = (
+        "The local AI model timed out. No scheduling rules were changed."
+    )
+    MODEL_MEMORY_MESSAGE = (
+        "The local AI model cannot run safely because available memory is too low. "
+        "No scheduling rules were changed."
+    )
     _DEFAULT_MODEL = "llama3.1:8b-instruct-q4_K_M"
     MAX_INPUT_LENGTH = 50
-    MAX_SUPPORTED_INPUT_LENGTH = 300
+    MAX_SUPPORTED_INPUT_LENGTH = 250
     MAX_MODEL_RESPONSE_LENGTH = 8192
+    INFERENCE_TIMEOUT_MS = 30_000
+    MIN_AVAILABLE_MEMORY_BYTES = 1536 * 1024 * 1024
 
     _SCRIPT_BLOCK_RE = re.compile(r"(?is)<script\b.*?>.*?</script\s*>")
     _HTML_TAG_RE = re.compile(r"(?is)<[^>]+>")
@@ -430,6 +441,7 @@ STATE HANDLING:
         existing_constraints: Mapping[str, int] | None = None,
         chatbot_rules: Mapping[str, Mapping[str, object]] | None = None,
         security_log_path: str | Path | None = None,
+        resource_sampler=None,
     ) -> None:
         super().__init__(parent)
         self._user_text = user_text
@@ -454,11 +466,15 @@ STATE HANDLING:
         self._security_log_path = Path(
             security_log_path or Path.cwd() / "security_log.txt"
         )
+        self._resource_sampler = resource_sampler or SystemResourceSampler()
         self._process = process or QProcess(self)
         self._process.readyReadStandardOutput.connect(self._read_stdout)
         self._process.readyReadStandardError.connect(self._read_stderr)
         self._process.finished.connect(self._handle_process_finished)
         self._process.errorOccurred.connect(self._handle_process_error)
+        self._timeout_timer = QTimer(self)
+        self._timeout_timer.setSingleShot(True)
+        self._timeout_timer.timeout.connect(self._handle_inference_timeout)
 
         process_environment = QProcessEnvironment.systemEnvironment()
         process_environment.insert("OLLAMA_NOHISTORY", "1")
@@ -530,6 +546,11 @@ STATE HANDLING:
         self._audit_blocked_request(reason)
         self.response_ready.emit(self.GENERIC_FALLBACK_MESSAGE)
         return self.GENERIC_FALLBACK_MESSAGE
+
+    def _fail_closed(self, reason: str, message: str) -> None:
+        self._audit_blocked_request(reason)
+        self.response_ready.emit(message)
+        self._finish()
 
     def parse_llm_response(
         self,
@@ -772,12 +793,17 @@ STATE HANDLING:
             or re.fullmatch(r"\d{1,10}", parameters["program"]) is None
         ):
             return False
-        for numeric_key in ("max_exams_per_day", "min_days"):
-            if numeric_key in parameters and (
-                not isinstance(parameters[numeric_key], int)
-                or isinstance(parameters[numeric_key], bool)
-                or parameters[numeric_key] < 0
-                or parameters[numeric_key] > 3650
+        numeric_constraints = {
+            "max_exams_per_day": "max_exams_per_day",
+            "min_days": "min_days_between_any",
+        }
+        for numeric_key, constraint_key in numeric_constraints.items():
+            if (
+                numeric_key in parameters
+                and not is_constraint_integer_allowed(
+                    constraint_key,
+                    parameters[numeric_key],
+                )
             ):
                 return False
         return True
@@ -1068,6 +1094,23 @@ STATE HANDLING:
             self._finish()
             return
 
+        available_memory = self._resource_sampler.available_memory_bytes()
+        try:
+            minimum_memory = int(
+                os.environ.get(
+                    "EXAMSCHEDULER_AI_MIN_AVAILABLE_MEMORY_BYTES",
+                    self.MIN_AVAILABLE_MEMORY_BYTES,
+                )
+            )
+        except ValueError:
+            minimum_memory = self.MIN_AVAILABLE_MEMORY_BYTES
+        if (
+            available_memory is not None
+            and available_memory < minimum_memory
+        ):
+            self._fail_closed("model_oom_prevented", self.MODEL_MEMORY_MESSAGE)
+            return
+
         self._stdout_chunks.clear()
         self._stderr_text = ""
         self._process.start(
@@ -1083,6 +1126,7 @@ STATE HANDLING:
             ],
         )
         self._process.closeWriteChannel()
+        self._timeout_timer.start(self.INFERENCE_TIMEOUT_MS)
 
     @classmethod
     def _logical_request_text(cls, text: str) -> str:
@@ -1403,6 +1447,7 @@ STATE HANDLING:
         if not self._is_running:
             return
 
+        self._timeout_timer.stop()
         self._read_stdout()
         self._read_stderr()
         raw_response = "".join(self._stdout_chunks).strip()
@@ -1420,6 +1465,9 @@ STATE HANDLING:
                 exit_code,
                 self._stderr_text,
             )
+            if self._looks_like_oom(self._stderr_text):
+                self._fail_closed("model_oom", self.MODEL_MEMORY_MESSAGE)
+                return
             self._block("model_unavailable")
 
         self._finish()
@@ -1428,11 +1476,46 @@ STATE HANDLING:
         if not self._is_running:
             return
 
+        self._timeout_timer.stop()
+        self._read_stderr()
         error_name = getattr(error, "name", str(error))
         LOGGER.warning("Local Ollama process error: %s", error_name)
+        if self._looks_like_oom(self._stderr_text):
+            self._fail_closed("model_oom", self.MODEL_MEMORY_MESSAGE)
+            return
         self._block(f"model_error:{error_name}")
         self._finish()
 
+    def _handle_inference_timeout(self) -> None:
+        if not self._is_running:
+            return
+        self._is_running = False
+        kill = getattr(self._process, "kill", None)
+        if callable(kill):
+            kill()
+        else:
+            terminate = getattr(self._process, "terminate", None)
+            if callable(terminate):
+                terminate()
+        self._audit_blocked_request("model_timeout")
+        self.response_ready.emit(self.MODEL_TIMEOUT_MESSAGE)
+        self.finished.emit()
+
+    @staticmethod
+    def _looks_like_oom(text: str) -> bool:
+        normalized = text.casefold()
+        return any(
+            marker in normalized
+            for marker in (
+                "out of memory",
+                "cannot allocate memory",
+                "insufficient memory",
+                "cuda out of memory",
+                "oom",
+            )
+        )
+
     def _finish(self) -> None:
+        self._timeout_timer.stop()
         self._is_running = False
         self.finished.emit()

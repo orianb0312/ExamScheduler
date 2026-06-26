@@ -8,6 +8,9 @@ from typing import Dict, Mapping
 
 from src.interfaces import ISchedulingRule
 from src.models.academic import Course
+from src.services.constraint_settings_policy import (
+    is_constraint_integer_allowed,
+)
 
 
 class AICopilotRule(ISchedulingRule):
@@ -327,12 +330,17 @@ class AICopilotRule(ISchedulingRule):
         ):
             return False
 
-        for key in ("max_exams_per_day", "min_days"):
-            if key in parameters and (
-                not isinstance(parameters[key], int)
-                or isinstance(parameters[key], bool)
-                or parameters[key] < 0
-                or parameters[key] > 3650
+        numeric_constraints = {
+            "max_exams_per_day": "max_exams_per_day",
+            "min_days": "min_days_between_any",
+        }
+        for key, constraint_key in numeric_constraints.items():
+            if (
+                key in parameters
+                and not is_constraint_integer_allowed(
+                    constraint_key,
+                    parameters[key],
+                )
             ):
                 return False
         return True

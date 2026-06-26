@@ -215,3 +215,18 @@ def _is_integer(text: str) -> bool:
 
 
 DEFAULT_CONSTRAINT_SETTINGS_POLICY = ConstraintSettingsPolicy()
+
+
+def is_constraint_integer_allowed(key: str, value: object) -> bool:
+    """Validate an integer through the same policy used by manual fields."""
+    if (
+        key not in CONSTRAINTS_BY_KEY
+        or not isinstance(value, int)
+        or isinstance(value, bool)
+    ):
+        return False
+    return DEFAULT_CONSTRAINT_SETTINGS_POLICY.validate_value(
+        CONSTRAINTS_BY_KEY[key],
+        enabled=True,
+        raw_value=str(value),
+    ).is_valid

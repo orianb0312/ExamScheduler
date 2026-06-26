@@ -82,7 +82,7 @@ class AICopilotWidget(QWidget):
         self.input_field.setPlaceholderText(
             "Type a constraint here (for example: do not schedule Physics on Sunday)..."
         )
-        self.input_field.setMaxLength(300)
+        self.input_field.setMaxLength(250)
         self.input_field.setClearButtonEnabled(True)
 
         self.send_button.setObjectName("aiCopilotSend")

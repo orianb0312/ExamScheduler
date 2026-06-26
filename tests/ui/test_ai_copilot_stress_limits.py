@@ -174,10 +174,10 @@ ALL_INVALID_RULE_PAYLOADS = (
     {
         "action": "program_limit",
         "program": "83101",
-        "max_exams_per_day": 3651,
+        "max_exams_per_day": 0,
     },
     {"action": "exam_spacing", "min_days": -1},
-    {"action": "exam_spacing", "min_days": 3651},
+    {"action": "exam_spacing", "min_days": 0},
     {
         "action": "exclude_day",
         "weekday": "Friday",
@@ -240,7 +240,7 @@ def test_all_rule_types_survive_repeated_good_bad_sequence(tmp_path):
                 "program": "1234567890",
                 "max_exams_per_day": 0,
             },
-            True,
+            False,
         ),
         (
             {
@@ -264,12 +264,12 @@ def test_all_rule_types_survive_repeated_good_bad_sequence(tmp_path):
                 "program": "83101",
                 "max_exams_per_day": 3651,
             },
-            False,
+            True,
         ),
-        ({"action": "exam_spacing", "min_days": 0}, True),
+        ({"action": "exam_spacing", "min_days": 0}, False),
         ({"action": "exam_spacing", "min_days": 3650}, True),
         ({"action": "exam_spacing", "min_days": -1}, False),
-        ({"action": "exam_spacing", "min_days": 3651}, False),
+        ({"action": "exam_spacing", "min_days": 3651}, True),
         (
             {
                 "action": "fix_date",
@@ -300,15 +300,15 @@ def test_every_numeric_and_text_boundary(payload, accepted, tmp_path):
 
 def test_input_and_model_response_absolute_limits(tmp_path):
     valid_prefix = "No exams on Fridays "
-    exactly_300 = valid_prefix + ("x" * (300 - len(valid_prefix)))
-    exactly_301 = exactly_300 + "x"
+    exactly_250 = valid_prefix + ("x" * (250 - len(valid_prefix)))
+    exactly_251 = exactly_250 + "x"
 
-    constraints, responses, process = _run_request(exactly_300, tmp_path)
+    constraints, responses, process = _run_request(exactly_250, tmp_path)
     assert constraints == [{"action": "exclude_day", "weekday": "Friday"}]
     assert responses == []
     assert process.program is None
 
-    constraints, responses, process = _run_request(exactly_301, tmp_path)
+    constraints, responses, process = _run_request(exactly_251, tmp_path)
     assert constraints == []
     assert responses == [FALLBACK]
     assert process.program is None

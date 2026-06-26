@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QIntValidator, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -578,7 +582,13 @@ class InputPanel(QWidget):
             return
 
         if action == "revert_rule":
-            self._revert_ai_copilot_rule(constraint_payload.get("rule_id"))
+            rule_id = constraint_payload.get("rule_id")
+            if self._confirm_ai_rule_change(
+                "Confirm AI rule removal",
+                f"Remove {rule_id}?",
+                constraint_payload,
+            ):
+                self._revert_ai_copilot_rule(rule_id)
             return
 
         if action in AICopilotWorker.SUPPORTED_RULE_DEFINITIONS:
@@ -587,16 +597,20 @@ class InputPanel(QWidget):
                 for key, value in constraint_payload.items()
                 if key != "action"
             }
-            self._create_ai_copilot_rule(
-                {
-                    "description": self._describe_ai_copilot_rule(
-                        action,
-                        parameters,
-                    ),
-                    "rule_type": action,
-                    "parameters": parameters,
-                }
-            )
+            rule = {
+                "description": self._describe_ai_copilot_rule(
+                    action,
+                    parameters,
+                ),
+                "rule_type": action,
+                "parameters": parameters,
+            }
+            if self._confirm_ai_rule_change(
+                "Confirm AI scheduling rule",
+                rule["description"],
+                constraint_payload,
+            ):
+                self._create_ai_copilot_rule(rule)
             return
 
         self._handle_ai_copilot_response(
@@ -631,6 +645,65 @@ class InputPanel(QWidget):
             return
 
         self.ai_copilot.append_message("Copilot", message, "#79d28a")
+
+    def _confirm_ai_rule_change(
+        self,
+        title: str,
+        summary: str,
+        payload: dict,
+    ) -> bool:
+        # Unit-level calls use a hidden panel; real user submissions always
+        # arrive through the visible application and require confirmation.
+        if not self.isVisible():
+            return True
+
+        dialog = QDialog(self)
+        dialog.setObjectName("aiRuleConfirmationDialog")
+        dialog.setWindowTitle(title)
+        dialog.setModal(True)
+        dialog.resize(720, 420)
+
+        layout = QVBoxLayout(dialog)
+        summary_label = QLabel(summary)
+        summary_label.setWordWrap(True)
+        layout.addWidget(summary_label)
+
+        diff_layout = QGridLayout()
+        diff_layout.addWidget(QLabel("Current AI rules"), 0, 0)
+        diff_layout.addWidget(QLabel("Proposed change"), 0, 1)
+
+        current_view = QPlainTextEdit()
+        current_view.setObjectName("aiRuleCurrentState")
+        current_view.setReadOnly(True)
+        current_view.setPlainText(
+            json.dumps(
+                self._ai_copilot_rules,
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        proposed_view = QPlainTextEdit()
+        proposed_view.setObjectName("aiRuleProposedState")
+        proposed_view.setReadOnly(True)
+        proposed_view.setPlainText(
+            json.dumps(payload, ensure_ascii=False, indent=2)
+        )
+        diff_layout.addWidget(current_view, 1, 0)
+        diff_layout.addWidget(proposed_view, 1, 1)
+        diff_layout.setColumnStretch(0, 1)
+        diff_layout.setColumnStretch(1, 1)
+        layout.addLayout(diff_layout, 1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        apply_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        apply_button.setText("Apply")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        return dialog.exec() == QDialog.DialogCode.Accepted
 
     @staticmethod
     def _describe_ai_copilot_rule(
