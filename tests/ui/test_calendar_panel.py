@@ -300,7 +300,8 @@ def test_generate_schedules_starts_process_runner_boundary(tmp_path, qtbot: QtBo
     runner = created_runners[0]
     assert runner.started_config is not None
     assert runner.started_config.lazy_schedules is True
-    assert window._stack.currentWidget() is window.input_panel
+    # Verify proper screen transition configuration to loading view
+    assert window._stack.currentWidget() is window.loading_view
     assert not window.input_panel.run_button.isEnabled()
     assert window.input_panel.program_selector.isEnabled()
 
