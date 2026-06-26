@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -47,7 +50,6 @@ NO_EXAM_SCHEDULES_MESSAGE = (
     "Check that the selected courses include exam assessments."
 )
 
-
 ProcessRunnerFactory = Callable[[object], ProcessRunner]
 
 
@@ -63,8 +65,12 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("ExamScheduler v2.0")
         self.resize(1200, 760)
+        self.setMinimumSize(820, 620)
 
         self._project_root = Path(project_root)
+        self._active_ai_rules_file = (
+            self._project_root / "data" / "active_ai_rules.json"
+        ).resolve()
         self._parser = StdoutScheduleParser()
         self._output_adapter = ScheduleOutputDataAdapter()
         self._calendar_data_service = ScheduleCalendarDataService()
@@ -86,6 +92,7 @@ class MainWindow(QMainWindow):
         self._build_layout()
         self._toast = ToastNotification(self)
         self._connect_signals()
+        self._initialize_active_ai_rules()
         self._load_stylesheet()
 
         self._set_default_baseline_programs()
@@ -99,6 +106,10 @@ class MainWindow(QMainWindow):
 
         self._load_default_files_if_available()
 
+    def show_resizable_maximized(self) -> None:
+        """Start full-size while retaining normal restore and resize controls."""
+        self.showMaximized()
+
     def _build_layout(self) -> None:
         self._stack.addWidget(self.input_panel)
         self._stack.addWidget(self.output_view)
@@ -109,6 +120,9 @@ class MainWindow(QMainWindow):
         self.input_panel.run_requested.connect(self._start_cli_run)
         self.input_panel.cancel_requested.connect(self._runner.cancel)
         self.input_panel.view_calendar_requested.connect(self._show_calendar_screen)
+        self.input_panel.ai_constraint_requested.connect(
+            self.handle_new_ai_constraint
+        )
         self.calendar_view.back_requested.connect(self._show_input_screen)
         self.calendar_view.day_clicked.connect(self._toggle_calendar_day)
         self.calendar_view.period_dates_changed.connect(self._update_period_dates)
@@ -558,6 +572,192 @@ class MainWindow(QMainWindow):
     def _load_stylesheet(self) -> None:
         stylesheet_path = Path(__file__).with_name("styles.qss")
         self.setStyleSheet(stylesheet_path.read_text(encoding="utf-8"))
+
+    def handle_new_ai_constraint(self, rule_dict: dict) -> None:
+        """Persist one validated upsert or removal event from the copilot."""
+        print(
+            "DEBUG [MainWindow]: Received constraint event: "
+            f"{json.dumps(rule_dict, ensure_ascii=True, sort_keys=True)}",
+            flush=True,
+        )
+        if not isinstance(rule_dict, dict):
+            return
+
+        current_rules = self._read_active_ai_rules()
+        operation = rule_dict.get("operation")
+        if operation == "upsert" and set(rule_dict) == {"operation", "rule"}:
+            persisted_rule = rule_dict.get("rule")
+            if not self._is_persistable_ai_rule(persisted_rule):
+                return
+            assert isinstance(persisted_rule, dict)
+            rule_id = persisted_rule["rule_id"]
+            current_rules = [
+                rule
+                for rule in current_rules
+                if rule.get("rule_id") != rule_id
+            ]
+            current_rules.append(dict(persisted_rule))
+        elif operation == "remove" and set(rule_dict) == {
+            "operation",
+            "rule_id",
+        }:
+            rule_id = rule_dict.get("rule_id")
+            if not self._is_ai_rule_id(rule_id):
+                return
+            current_rules = [
+                rule
+                for rule in current_rules
+                if rule.get("rule_id") != rule_id
+            ]
+        elif operation == "clear" and set(rule_dict) == {"operation"}:
+            current_rules = []
+        else:
+            return
+
+        try:
+            self._write_active_ai_rules(current_rules)
+        except OSError as exc:
+            print(
+                "DEBUG [MainWindow]: Failed to save active AI rules: "
+                f"{exc}",
+                flush=True,
+            )
+            self._toast.show_message(
+                "The AI rule was processed, but its file could not be saved. "
+                "Please try again."
+            )
+            return
+        print(
+            "DEBUG [MainWindow]: Saved active AI rules to "
+            f"{self._active_ai_rules_file}",
+            flush=True,
+        )
+
+    def _initialize_active_ai_rules(self) -> None:
+        self._active_ai_rules_file.parent.mkdir(parents=True, exist_ok=True)
+        self._recover_pending_ai_rules_write()
+        if not self._active_ai_rules_file.exists():
+            self._write_active_ai_rules([])
+        self.input_panel.restore_ai_copilot_rules(
+            self._read_active_ai_rules()
+        )
+
+    def _read_active_ai_rules(self) -> list[dict]:
+        try:
+            payload = json.loads(
+                self._active_ai_rules_file.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError, RecursionError):
+            return []
+        if not isinstance(payload, list) or len(payload) > 100:
+            return []
+        return [
+            dict(rule)
+            for rule in payload
+            if self._is_persistable_ai_rule(rule)
+        ]
+
+    def _write_active_ai_rules(self, rules: list[dict]) -> None:
+        self._active_ai_rules_file.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = self._active_ai_rules_file.with_suffix(".json.tmp")
+        serialized_rules = (
+            json.dumps(rules, ensure_ascii=False, indent=2) + "\n"
+        )
+        temporary_path.write_text(serialized_rules, encoding="utf-8")
+
+        last_error: OSError | None = None
+        for retry_delay in (0.0, 0.05, 0.1, 0.2, 0.4):
+            if retry_delay:
+                time.sleep(retry_delay)
+            try:
+                os.replace(temporary_path, self._active_ai_rules_file)
+                return
+            except PermissionError as exc:
+                last_error = exc
+
+        # OneDrive and antivirus scanners can hold the destination open while
+        # still permitting a normal write. Use that as a final safe fallback.
+        try:
+            self._active_ai_rules_file.write_text(
+                serialized_rules,
+                encoding="utf-8",
+            )
+            temporary_path.unlink(missing_ok=True)
+        except OSError:
+            if last_error is not None:
+                raise last_error
+            raise
+
+    def _recover_pending_ai_rules_write(self) -> None:
+        temporary_path = self._active_ai_rules_file.with_suffix(".json.tmp")
+        if not temporary_path.is_file():
+            return
+
+        try:
+            temporary_is_newer = (
+                not self._active_ai_rules_file.exists()
+                or temporary_path.stat().st_mtime
+                > self._active_ai_rules_file.stat().st_mtime
+            )
+            pending_rules = json.loads(
+                temporary_path.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError, RecursionError):
+            temporary_path.unlink(missing_ok=True)
+            return
+
+        if (
+            temporary_is_newer
+            and isinstance(pending_rules, list)
+            and len(pending_rules) <= 100
+            and all(
+                self._is_persistable_ai_rule(rule)
+                for rule in pending_rules
+            )
+        ):
+            try:
+                self._write_active_ai_rules(
+                    [dict(rule) for rule in pending_rules]
+                )
+                print(
+                    "DEBUG [MainWindow]: Recovered pending active AI rules "
+                    f"write to {self._active_ai_rules_file}",
+                    flush=True,
+                )
+                return
+            except OSError as exc:
+                print(
+                    "DEBUG [MainWindow]: Pending AI rules recovery failed: "
+                    f"{exc}",
+                    flush=True,
+                )
+                return
+
+        temporary_path.unlink(missing_ok=True)
+
+    @classmethod
+    def _is_persistable_ai_rule(cls, value: object) -> bool:
+        if not isinstance(value, dict):
+            return False
+        if set(value) != {
+            "rule_id",
+            "description",
+            "rule_type",
+            "parameters",
+        }:
+            return False
+        return (
+            cls._is_ai_rule_id(value.get("rule_id"))
+            and isinstance(value.get("description"), str)
+            and isinstance(value.get("rule_type"), str)
+            and isinstance(value.get("parameters"), dict)
+        )
+
+    @staticmethod
+    def _is_ai_rule_id(value: object) -> bool:
+        if not isinstance(value, str) or not value.startswith("ai_rule_"):
+            return False
+        return value.removeprefix("ai_rule_").isdigit()
 
     def _sync_calendar_revoke_all_button(self) -> None:
         """

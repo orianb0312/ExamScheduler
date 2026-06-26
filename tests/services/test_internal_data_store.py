@@ -124,6 +124,60 @@ def test_cache_with_outdated_version_is_rejected(tmp_path):
     assert store.load_if_current(courses_file, dates_file) is None
 
 
+def test_internal_store_retries_transient_windows_replace_lock(
+    tmp_path,
+    monkeypatch,
+):
+    courses_file, dates_file = _write_source_files(tmp_path)
+    cache_file = tmp_path / "processed_input.json"
+    store = InternalDataStore(cache_file)
+    data = _loaded_data()
+    real_replace = __import__("os").replace
+    attempts = 0
+
+    def intermittently_locked_replace(source, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError(5, "Access is denied")
+        real_replace(source, target)
+
+    monkeypatch.setattr(
+        "src.services.internal_data_store.os.replace",
+        intermittently_locked_replace,
+    )
+    monkeypatch.setattr(
+        "src.services.internal_data_store.time.sleep",
+        lambda _delay: None,
+    )
+
+    store.save(courses_file, dates_file, data.courses, data.exam_periods)
+
+    assert attempts == 3
+    assert store.load_if_current(courses_file, dates_file) is not None
+
+
+def test_file_loading_continues_when_optional_cache_cannot_be_saved(tmp_path):
+    courses_file, dates_file = _write_source_files(tmp_path)
+    parser = _FakeParserAdapter(_loaded_data())
+
+    class _LockedStore:
+        def load_if_current(self, _courses_file, _dates_file):
+            return None
+
+        def save(self, *_args):
+            raise PermissionError(5, "Access is denied")
+
+    result = FileLoadingService(
+        parser_adapter=parser,
+        internal_store=_LockedStore(),
+    ).load_selected_files(courses_file, dates_file)
+
+    assert parser.call_count == 1
+    assert result.loaded_data.course_count == 1
+    assert result.loaded_data.exam_period_count == 1
+
+
 class _FakeParserAdapter:
     def __init__(self, data: LoadedSchedulerInput) -> None:
         self._data = data

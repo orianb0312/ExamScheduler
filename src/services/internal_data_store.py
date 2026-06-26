@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -23,6 +26,8 @@ from src.models.scheduling import DateExclusion, ExamPeriod
 
 CACHE_VERSION = 1
 DEFAULT_INTERNAL_DATA_FILE = Path(".exam_scheduler_cache") / "processed_input.json"
+_REPLACE_ATTEMPTS = 6
+_INITIAL_RETRY_DELAY_SECONDS = 0.025
 
 
 @dataclass(frozen=True)
@@ -122,14 +127,20 @@ class InternalDataStore:
             "exam_periods": [_exam_period_to_dict(period) for period in exam_periods],
         }
 
-        # Student note: write to a temporary file first so a crash will not leave
-        # a half-written cache file behind.
-        temp_file = self._storage_file.with_suffix(self._storage_file.suffix + ".tmp")
-        temp_file.write_text(
+        # Use a unique file in the destination directory. A fixed ".tmp" name
+        # lets concurrent loads overwrite one another, while Windows/OneDrive
+        # may also hold the destination briefly during synchronization.
+        temp_file = _write_temporary_payload(
+            self._storage_file,
             json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
-        temp_file.replace(self._storage_file)
+        try:
+            _replace_with_retry(temp_file, self._storage_file)
+        finally:
+            try:
+                temp_file.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def get_last_source_paths(self) -> tuple[Path, Path] | None:
         """Extract the last used file paths from the internal data without loading all records."""
@@ -164,6 +175,40 @@ def _source_fingerprints(
         "courses_file": _file_fingerprint(courses_file),
         "exam_dates_file": _file_fingerprint(exam_dates_file),
     }
+
+
+def _write_temporary_payload(storage_file: Path, text: str) -> Path:
+    file_descriptor, temp_name = tempfile.mkstemp(
+        dir=storage_file.parent,
+        prefix=f".{storage_file.name}.",
+        suffix=".tmp",
+    )
+    temp_file = Path(temp_name)
+    try:
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as file:
+            file.write(text)
+            file.flush()
+            os.fsync(file.fileno())
+    except Exception:
+        try:
+            temp_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    return temp_file
+
+
+def _replace_with_retry(source: Path, target: Path) -> None:
+    delay = _INITIAL_RETRY_DELAY_SECONDS
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(delay)
+            delay *= 2
 
 
 def _file_fingerprint(path: str | Path) -> dict[str, str]:

@@ -19,6 +19,6 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     project_root = Path(__file__).resolve().parents[2]
     window = MainWindow(project_root=project_root)
-    window.show()
+    window.show_resizable_maximized()
 
     return app.exec()

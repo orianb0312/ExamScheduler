@@ -17,6 +17,7 @@ project.
 - `ExamScheduler_Test_Specification_v1_0.docx` - Word version of the formal test specification.
 - `organization_plan.md` - current structure notes and recommended cleanup steps.
 - `layer_boundaries.md` - ownership rules for PyQt6 UI, services/adapters, and v1.0 logic.
+- `ai_copilot_sdd.md` - local AI Copilot layout, guardrails, confirmation, and CLI export notes.
 
 ## Current Main Entry Point
 

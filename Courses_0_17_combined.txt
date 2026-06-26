@@ -1,0 +1,51 @@
+$$$$
+Physics 1
+83102
+Prof. O. Some
+83101,1,FALL,Obligatory
+83102,1,FALL,Obligatory
+Exam
+$$$$
+Calculus 1
+83112
+Dr. Erez Scheiner
+83101,1,FALL,Obligatory
+83102,1,FALL,Obligatory
+Exam
+$$$$
+Software Project
+83533
+Dr. Terry Bell
+83101,3,SPRI,Elective
+83108,2,SPRI,Obligatory
+Project
+$$$$
+Course P1
+83701
+Prof. P1
+83101,1,FALL,Obligatory
+Exam
+$$$$
+Course P2
+83702
+Prof. P2
+83102,1,FALL,Obligatory
+Exam
+$$$$
+Course P3
+83703
+Prof. P3
+83103,1,FALL,Obligatory
+Exam
+$$$$
+Course P4
+83704
+Prof. P4
+83104,1,FALL,Obligatory
+Exam
+$$$$
+Course P5
+83705
+Prof. P5
+83105,1,FALL,Obligatory
+Exam

@@ -6,6 +6,8 @@ from typing import Any, Dict
 
 from src.parser.IParser import IParser
 from src.parser.file_parser import FileParser
+from src.rules.ai_copilot_rule import AICopilotRule
+from src.services.ai_constraint_export_service import export_ai_constraint
 from src.workflow import (
     load_domain_context,
     run_complete_auto_workflow,
@@ -124,6 +126,30 @@ def parse_args() -> argparse.Namespace:
     # Optional V1 constraints file, using the same $$$$ chunk format as the GUI writes.
     parser.add_argument("--constraints-file", type=Path, default=None)
     parser.add_argument(
+        "--ai-rules-file",
+        type=Path,
+        default=None,
+        help="Absolute path to validated active AI scheduling rules.",
+    )
+    ai_constraint_source = parser.add_mutually_exclusive_group()
+    ai_constraint_source.add_argument(
+        "--ai-constraint-json",
+        default=None,
+        help="Validated JSON object produced by the local AI constraint parser.",
+    )
+    ai_constraint_source.add_argument(
+        "--ai-constraint-json-file",
+        type=Path,
+        default=None,
+        help="File containing one JSON object produced by the local AI parser.",
+    )
+    parser.add_argument(
+        "--export-ai-constraint-file",
+        type=Path,
+        default=None,
+        help="Export the parsed AI constraint JSON as a validated AI rules file.",
+    )
+    parser.add_argument(
         "--sorting-file",
         "--sort-file",
         dest="sorting_file",
@@ -178,6 +204,25 @@ def _format_cli_error(exc: Exception) -> str:
 def main() -> int:
     args = parse_args()
 
+    if args.export_ai_constraint_file is not None:
+        raw_ai_constraint = args.ai_constraint_json
+        if args.ai_constraint_json_file is not None:
+            raw_ai_constraint = args.ai_constraint_json_file.read_text(
+                encoding="utf-8"
+            )
+        if raw_ai_constraint is None:
+            raise ValueError(
+                "--ai-constraint-json or --ai-constraint-json-file is required "
+                "when exporting an AI constraint."
+            )
+        output_path = export_ai_constraint(
+            raw_ai_constraint,
+            args.export_ai_constraint_file,
+            AICopilotRule.validate_rule_record,
+        )
+        print(f"AI constraint file: {output_path}")
+        return 0
+
     # Create a dynamic CLI overrides dictionary to forward into the workflows.
     # Pack the explicit file paths so the workflow can prioritize them over the config file values.
     cli_overrides = {
@@ -185,6 +230,7 @@ def main() -> int:
         "dates_file": args.dates_file,
         # Keep this with the other file overrides so config and CLI behave alike.
         "constraints_file": args.constraints_file,
+        "ai_rules_file": args.ai_rules_file,
         "sorting_file": args.sorting_file,
         "user_file": args.user_file,
     }
