@@ -770,3 +770,25 @@ QLabel#constraintSaveStatus[state="success"] {
 QLabel#constraintSaveStatus[state="error"] {
     color: #ff9d97;
 }
+QWidget#loadingView {
+    background: #1f2024;
+}
+
+QProgressBar#loadingProgress {
+    background: #2b2d33;
+    border: 1px solid #5c626d;
+    border-radius: 4px;
+    text-align: center;
+    color: transparent;
+}
+
+QProgressBar#loadingProgress::chunk {
+    background-color: #3b78e7;
+    border-radius: 3px;
+}
+
+QLabel#loadingLogLabel {
+    color: #aeb7c6;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
