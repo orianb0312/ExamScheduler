@@ -6,6 +6,7 @@ import json
 import os
 import time
 from collections.abc import Callable
+from datetime import date, timedelta
 from pathlib import Path
 
 from PyQt6.QtCore import QUrl
@@ -117,13 +118,15 @@ class MainWindow(QMainWindow):
         self.input_panel.attach_schedules_page(self.output_view)
         self._stack.addWidget(self.input_panel)
         self._stack.addWidget(self.loading_view)
-        self._stack.addWidget(self.output_view)
         self.setCentralWidget(self._stack)
 
     def _connect_signals(self) -> None:
         self.input_panel.data_load_requested.connect(self._load_selected_files)
         self.input_panel.run_requested.connect(self._start_cli_run)
         self.input_panel.cancel_requested.connect(self._cancel_process)
+        self.input_panel.input_changed.connect(
+            self._stop_active_lazy_run_for_input_edit
+        )
         self.loading_view.cancel_button.clicked.connect(self._cancel_process)
         self.input_panel.view_calendar_requested.connect(self._show_calendar_screen)
         self.input_panel.dashboard_view_results_requested.connect(
@@ -371,7 +374,25 @@ class MainWindow(QMainWindow):
         self._runner.cancel()
         self.input_panel.set_running(False)
         self.output_view.set_running(False)
-        self._show_input_screen()
+        self.input_panel.show_program_page()
+        self._stack.setCurrentWidget(self.input_panel)
+
+    def _stop_active_lazy_run_for_input_edit(self) -> None:
+        if (
+            self._active_run_config is None
+            or not self._active_run_config.lazy_schedules
+            or not self._runner.is_running()
+        ):
+            return
+
+        self._ignore_stale_runner_result = True
+        self._pending_run_after_stale_stop = None
+        self._stay_on_input_after_lazy_stop = False
+        self._active_run_config = None
+        self._runner.send_input_line(LAZY_STOP_COMMAND)
+        self.input_panel.set_running(False)
+        self.output_view.set_running(False)
+        self.output_view.set_more_available(False)
 
     def _handle_started(self) -> None:
         # Disable input controls and prepare output screens for execution state
@@ -634,39 +655,61 @@ class MainWindow(QMainWindow):
         self,
         schedule: ScheduleSystem | None,
     ) -> tuple[ExamPeriodViewModel, ...]:
-        return tuple(
-            ExamPeriodViewModel(
-                semester_label=period.semester.value,
-                term_label=period.term.value,
-                start_date=period.start_date,
-                end_date=period.end_date,
-                exclusions=tuple(
-                    ExclusionViewModel(
-                        start_date=exclusion.start_date,
-                        end_date=exclusion.end_date,
-                    )
-                    for exclusion in period.exclusions
-                ),
-                scheduled_exams=_scheduled_exam_view_models_for_period(
-                    self._calendar_data_service,
-                    schedule,
-                    period.semester.value,
-                    period.term.value,
-                    period.start_date,
-                    period.end_date,
+        active_ai_rules = self._read_active_ai_rules()
+        view_models = []
+        for period in self.input_panel.exam_periods:
+            exclusions = tuple(
+                ExclusionViewModel(
+                    start_date=exclusion.start_date,
+                    end_date=exclusion.end_date,
+                )
+                for exclusion in period.exclusions
+            ) + self._ai_calendar_exclusions_for_period(period, active_ai_rules)
+            view_models.append(
+                ExamPeriodViewModel(
+                    semester_label=period.semester.value,
+                    term_label=period.term.value,
+                    start_date=period.start_date,
+                    end_date=period.end_date,
+                    exclusions=exclusions,
+                    scheduled_exams=_scheduled_exam_view_models_for_period(
+                        self._calendar_data_service,
+                        schedule,
+                        period.semester.value,
+                        period.term.value,
+                        period.start_date,
+                        period.end_date,
+                    ),
                 ),
             )
-            for period in self.input_panel.exam_periods
-        )
+        return tuple(view_models)
+
+    def _ai_calendar_exclusions_for_period(
+        self,
+        period,
+        active_ai_rules: list[dict],
+    ) -> tuple[ExclusionViewModel, ...]:
+        exclusions: list[ExclusionViewModel] = []
+        seen: set[tuple[date, date | None]] = set()
+        for rule in active_ai_rules:
+            parameters = rule.get("parameters")
+            if not isinstance(parameters, dict):
+                continue
+
+            for exclusion in _global_ai_calendar_exclusions_for_rule(
+                str(rule.get("rule_type", "")),
+                parameters,
+                period.start_date,
+                period.end_date,
+            ):
+                key = (exclusion.start_date, exclusion.end_date)
+                if key in seen:
+                    continue
+                seen.add(key)
+                exclusions.append(exclusion)
+        return tuple(exclusions)
 
     def _show_input_screen(self) -> None:
-        if (
-            self._active_run_config is not None
-            and self._active_run_config.lazy_schedules
-            and self._runner.is_running()
-        ):
-            self._stay_on_input_after_lazy_stop = True
-            self._runner.send_input_line(LAZY_STOP_COMMAND)
         self.input_panel.show_program_page()
         self._stack.setCurrentWidget(self.input_panel)
 
@@ -704,6 +747,7 @@ class MainWindow(QMainWindow):
             return
 
         current_rules = self._read_active_ai_rules()
+        original_rules = list(current_rules)
         operation = rule_dict.get("operation")
         if operation == "upsert" and set(rule_dict) == {"operation", "rule"}:
             persisted_rule = rule_dict.get("rule")
@@ -752,6 +796,13 @@ class MainWindow(QMainWindow):
             f"{self._active_ai_rules_file}",
             flush=True,
         )
+        if current_rules != original_rules:
+            self._stop_active_lazy_run_for_input_edit()
+            if (
+                self._stack.currentWidget() is self.input_panel
+                and self.input_panel.is_calendar_page_visible()
+            ):
+                self._load_exam_period_calendar()
 
     def _initialize_active_ai_rules(self) -> None:
         self._active_ai_rules_file.parent.mkdir(parents=True, exist_ok=True)
@@ -968,6 +1019,116 @@ class MainWindow(QMainWindow):
         if result.skipped_without_date:
             message += f" Skipped {result.skipped_without_date} exam(s) without dates."
         return message
+
+
+_AI_WEEKDAY_INDEXES = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+
+
+def _global_ai_calendar_exclusions_for_rule(
+    rule_type: str,
+    parameters: dict,
+    period_start: date,
+    period_end: date,
+) -> tuple[ExclusionViewModel, ...]:
+    if not _is_global_calendar_scope(parameters):
+        return ()
+
+    if rule_type == "exclude_day":
+        return _exclude_day_calendar_exclusions(
+            parameters,
+            period_start,
+            period_end,
+        )
+
+    if rule_type == "exclude_period":
+        return _exclude_period_calendar_exclusions(
+            parameters,
+            period_start,
+            period_end,
+        )
+
+    return ()
+
+
+def _is_global_calendar_scope(parameters: dict) -> bool:
+    return not any(key in parameters for key in ("course", "lecturer", "program"))
+
+
+def _exclude_day_calendar_exclusions(
+    parameters: dict,
+    period_start: date,
+    period_end: date,
+) -> tuple[ExclusionViewModel, ...]:
+    if "date" in parameters:
+        excluded_date = _parse_ai_iso_date(parameters.get("date"))
+        if excluded_date is None or not period_start <= excluded_date <= period_end:
+            return ()
+        return (ExclusionViewModel(excluded_date, None),)
+
+    weekday = str(parameters.get("weekday", "")).casefold()
+    weekday_index = _AI_WEEKDAY_INDEXES.get(weekday)
+    if weekday_index is None:
+        return ()
+
+    return tuple(
+        ExclusionViewModel(current_date, None)
+        for current_date in _period_dates(period_start, period_end)
+        if current_date.weekday() == weekday_index
+    )
+
+
+def _exclude_period_calendar_exclusions(
+    parameters: dict,
+    period_start: date,
+    period_end: date,
+) -> tuple[ExclusionViewModel, ...]:
+    if "month" in parameters:
+        month = parameters.get("month")
+        year = parameters.get("year")
+        if not isinstance(month, int):
+            return ()
+        return tuple(
+            ExclusionViewModel(current_date, None)
+            for current_date in _period_dates(period_start, period_end)
+            if current_date.month == month
+            and (year is None or current_date.year == year)
+        )
+
+    start_date = _parse_ai_iso_date(parameters.get("start_date"))
+    end_date = _parse_ai_iso_date(parameters.get("end_date"))
+    if start_date is None or end_date is None:
+        return ()
+
+    clipped_start = max(period_start, start_date)
+    clipped_end = min(period_end, end_date)
+    if clipped_start > clipped_end:
+        return ()
+    return (ExclusionViewModel(clipped_start, clipped_end),)
+
+
+def _parse_ai_iso_date(value: object) -> date | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _period_dates(period_start: date, period_end: date):
+    current_date = period_start
+    while current_date <= period_end:
+        yield current_date
+        current_date += timedelta(days=1)
+
 
 def _to_scheduled_exam_view_model(exam: ScheduleExamDisplay) -> ScheduledExamViewModel:
     if exam.exam_date is None:

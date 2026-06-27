@@ -194,6 +194,12 @@ def test_main_window_keeps_calendar_and_output_screens_separate(tmp_path, qtbot:
     assert isinstance(window.output_view, OutputView)
     assert window.calendar_view is not window.output_view
     assert window.calendar_view is window.input_panel.calendar_view
+    assert window._stack.indexOf(window.output_view) == -1
+
+    window._show_output_screen()
+
+    assert window._stack.currentWidget() is window.input_panel
+    assert window.input_panel.is_schedules_page_visible()
 
 
 def test_calendar_tab_stays_inside_fixed_input_menu(tmp_path, qtbot: QtBot) -> None:
@@ -333,11 +339,118 @@ def test_back_from_output_stays_on_input_after_lazy_process_finishes(
     window._show_output_screen()
 
     qtbot.mouseClick(window.output_view.back_button, Qt.MouseButton.LeftButton)
-    runner.running = False
-    window._handle_finished(0, "NormalExit")
+
+    assert runner.sent_lines == []
+    assert runner.running
+    assert window._stack.currentWidget() is window.input_panel
+    assert not window.input_panel.run_button.isEnabled()
+
+
+def test_calendar_edit_after_lazy_results_stops_waiting_scheduler(
+    tmp_path,
+    qtbot: QtBot,
+) -> None:
+    created_runners: list[_FakeProcessRunner] = []
+
+    def create_runner(parent) -> _FakeProcessRunner:
+        runner = _FakeProcessRunner(parent)
+        created_runners.append(runner)
+        return runner
+
+    window = MainWindow(
+        project_root=tmp_path,
+        process_runner_factory=create_runner,
+    )
+    qtbot.addWidget(window)
+    window.input_panel.notify_data_loaded(
+        LoadedSchedulerInput(
+            courses=(),
+            exam_periods=(
+                ExamPeriod(
+                    semester=Semester.FALL,
+                    term=Term.ALEPH,
+                    start_date=date(2026, 1, 1),
+                    end_date=date(2026, 1, 3),
+                ),
+            ),
+            programs=(),
+        )
+    )
+    window.input_panel.replace_program_list(["83101"])
+    window.input_panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+
+    qtbot.mouseClick(window.input_panel.run_button, Qt.MouseButton.LeftButton)
+    runner = created_runners[0]
+    window.output_view.add_systems([
+        _schedule_with_exam("Algorithms", 10001, date(2026, 1, 2))
+    ])
+    window._show_output_screen()
+
+    qtbot.mouseClick(
+        window.input_panel.nav_tabs["Calendar"],
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert runner.sent_lines == []
+    assert not window.input_panel.run_button.isEnabled()
+    assert window._stack.currentWidget() is window.input_panel
+    assert window.input_panel.is_calendar_page_visible()
+
+    window._toggle_calendar_day(0, date(2026, 1, 2))
 
     assert runner.sent_lines == [LAZY_STOP_COMMAND]
-    assert window._stack.currentWidget() is window.input_panel
+    assert window.input_panel.run_button.isEnabled()
+    assert window.input_panel.run_button.text() == "Generate Schedules"
+
+    runner.running = False
+    window._handle_finished(0, "NormalExit")
+    qtbot.mouseClick(
+        window.input_panel.nav_tabs["Programs"],
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert runner.sent_lines == [LAZY_STOP_COMMAND]
+    assert window.input_panel.run_button.isEnabled()
+    assert window.input_panel.run_button.text() == "Generate Schedules"
+
+
+def test_global_ai_exclude_day_marks_calendar_day_excluded(
+    tmp_path,
+    qtbot: QtBot,
+) -> None:
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    window.input_panel.notify_data_loaded(
+        LoadedSchedulerInput(
+            courses=(),
+            exam_periods=(
+                ExamPeriod(
+                    semester=Semester.FALL,
+                    term=Term.ALEPH,
+                    start_date=date(2026, 1, 1),
+                    end_date=date(2026, 1, 4),
+                ),
+            ),
+            programs=(),
+        )
+    )
+
+    window.handle_new_ai_constraint(
+        {
+            "operation": "upsert",
+            "rule": {
+                "rule_id": "ai_rule_1",
+                "description": "Exclude Friday from exam scheduling",
+                "rule_type": "exclude_day",
+                "parameters": {"weekday": "Friday"},
+            },
+        }
+    )
+
+    period = window._build_schedule_period_view_models(None)[0]
+
+    assert period.is_date_excluded(date(2026, 1, 2))
+    assert not period.is_date_excluded(date(2026, 1, 1))
 
 
 def test_output_view_selected_schedule_follows_visible_page(qtbot: QtBot) -> None:

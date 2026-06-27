@@ -59,6 +59,7 @@ class InputPanel(QWidget):
     ai_constraint_requested = pyqtSignal(dict)
     dashboard_view_results_requested = pyqtSignal()
     dashboard_next_batch_requested = pyqtSignal()
+    input_changed = pyqtSignal()
 
     def __init__(self, project_root: Path, parent=None) -> None:
         super().__init__(parent)
@@ -221,6 +222,7 @@ class InputPanel(QWidget):
         # Every valid change flows straight into the state, exactly like the
         # program selector. The runtime file is written later, at generate time.
         self._scheduler_input_state.set_constraints(parameters)
+        self.input_changed.emit()
 
     @property
     def ai_copilot_rules(self) -> dict[str, dict]:
@@ -1132,6 +1134,7 @@ class InputPanel(QWidget):
         self.selected_programs_vm.set_selected_program_ids(program_ids)
         details = self.selected_programs_vm.get_selected_program_details()
         self.selected_programs_panel.update_display(details)
+        self.input_changed.emit()
 
     def _open_program_courses(self, program_id: str) -> None:
         try:
@@ -1158,14 +1161,17 @@ class InputPanel(QWidget):
     def exclude_calendar_day(self, period_index: int, day) -> None:
         # Calendar edits go through the same state object used to build scheduler input.
         self._exclude_calendar_day(period_index, day)
+        self.input_changed.emit()
 
     def restore_calendar_day(self, period_index: int, day) -> None:
         # Restoring a date is the same state change as removing an exclusion from the file data.
         self._restore_calendar_day(period_index, day)
+        self.input_changed.emit()
 
     def update_calendar_period_dates(self, period_index: int, start_date, end_date) -> None:
         # Date edits reshape the period, so the calendar must be rebuilt after this succeeds.
         self._set_period_dates(period_index, start_date, end_date)
+        self.input_changed.emit()
 
     def _exclude_calendar_day(self, period_index: int, day) -> None:
         self._scheduler_input_state.exclude_day(period_index, day)
