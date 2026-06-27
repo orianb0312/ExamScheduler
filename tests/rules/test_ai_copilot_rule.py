@@ -81,6 +81,11 @@ def test_exclude_day_and_lecturer_rules_enforce_weekdays(tmp_path):
                     "lecturer_unavailable",
                     {"lecturer": "Cohen", "weekday": "Sunday"},
                 ),
+                _record(
+                    "ai_rule_3",
+                    "lecturer_unavailable",
+                    {"lecturer": "Cohen", "month": 1, "day": 15},
+                ),
             ],
         )
     )
@@ -93,6 +98,8 @@ def test_exclude_day_and_lecturer_rules_enforce_weekdays(tmp_path):
     )
     assert not rule.is_valid({physics: date(2026, 1, 8)})
     assert not rule.is_valid({algorithms: date(2026, 1, 4)})
+    assert not rule.is_valid({algorithms: date(2026, 1, 15)})
+    assert rule.is_valid({algorithms: date(2026, 1, 16)})
 
 
 def test_program_limit_and_global_spacing_are_enforced(tmp_path):
@@ -171,6 +178,25 @@ def test_month_and_date_range_exclusions_are_enforced(tmp_path):
     )
     assert not range_rule.is_valid({algorithms: date(2026, 3, 15)})
     assert range_rule.is_valid({algorithms: date(2026, 3, 21)})
+
+
+def test_lecturer_period_rule_matches_last_name_with_initial(tmp_path):
+    algorithms = _course(10001, "Algorithms", "Prof. O. Some")
+    rule = AICopilotRule(
+        _rule_file(
+            tmp_path,
+            [
+                _record(
+                    "ai_rule_1",
+                    "exclude_period",
+                    {"lecturer": "Some", "month": 1},
+                )
+            ],
+        )
+    )
+
+    assert not rule.is_valid({algorithms: date(2026, 1, 15)})
+    assert rule.is_valid({algorithms: date(2026, 2, 15)})
 
 
 def test_tampered_records_are_rejected_without_disabling_valid_rules(tmp_path):

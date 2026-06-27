@@ -9,6 +9,8 @@ from src.services.cli_run_service import (
 )
 from src.services.process_resource_logger import ProcessResourceLogger
 
+CANCEL_FORCE_KILL_TIMEOUT_MS = 1500
+
 try:
     from PyQt6.QtCore import QObject, QProcess, QTimer, pyqtSignal
 
@@ -91,9 +93,26 @@ class ProcessRunner(QObject):
     def cancel(self) -> None:
         if self._process.state() == QProcess.ProcessState.NotRunning:
             return
+        process_id = int(self._process.processId())
         if self._resource_logger is not None:
             self._resource_logger.record_event("cancel_requested")
         self._process.terminate()
+        QTimer.singleShot(
+            CANCEL_FORCE_KILL_TIMEOUT_MS,
+            lambda: self._kill_cancelled_process_if_needed(process_id),
+        )
+
+    def _kill_cancelled_process_if_needed(self, process_id: int) -> None:
+        if self._process.state() == QProcess.ProcessState.NotRunning:
+            return
+        if int(self._process.processId()) != process_id:
+            return
+        if self._resource_logger is not None:
+            self._resource_logger.record_event(
+                "force_kill_after_cancel",
+                detail=str(process_id),
+            )
+        self._process.kill()
 
     def send_input_line(self, line: str) -> None:
         if self._process.state() == QProcess.ProcessState.NotRunning:

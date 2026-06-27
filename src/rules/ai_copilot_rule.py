@@ -57,8 +57,8 @@ class AICopilotRule(ISchedulingRule):
         },
         "lecturer_unavailable": {
             "required": {"lecturer"},
-            "allowed": {"lecturer", "date", "weekday"},
-            "one_of": {"date", "weekday"},
+            "allowed": {"lecturer", "date", "weekday", "month", "day", "year"},
+            "one_of": set(),
         },
         "program_limit": {
             "required": {"program", "max_exams_per_day"},
@@ -282,6 +282,17 @@ class AICopilotRule(ISchedulingRule):
             if "year" in parameters and not has_month:
                 return False
 
+        if rule_type == "lecturer_unavailable":
+            has_date = "date" in parameters
+            has_weekday = "weekday" in parameters
+            has_month_day = {"month", "day"}.issubset(keys)
+            if sum((has_date, has_weekday, has_month_day)) != 1:
+                return False
+            if ("month" in parameters) != ("day" in parameters):
+                return False
+            if "year" in parameters and not has_month_day:
+                return False
+
         for name in ("course", "lecturer"):
             if name in parameters and not cls._is_safe_text(
                 parameters[name],
@@ -323,12 +334,23 @@ class AICopilotRule(ISchedulingRule):
             or not 1 <= parameters["month"] <= 12
         ):
             return False
+        if "day" in parameters and (
+            not isinstance(parameters["day"], int)
+            or isinstance(parameters["day"], bool)
+            or not 1 <= parameters["day"] <= 31
+        ):
+            return False
         if "year" in parameters and (
             not isinstance(parameters["year"], int)
             or isinstance(parameters["year"], bool)
             or not 1900 <= parameters["year"] <= 2200
         ):
             return False
+        if {"month", "day"}.issubset(keys):
+            try:
+                date(2000, int(parameters["month"]), int(parameters["day"]))
+            except ValueError:
+                return False
 
         numeric_constraints = {
             "max_exams_per_day": "max_exams_per_day",
@@ -357,6 +379,15 @@ class AICopilotRule(ISchedulingRule):
             weekday = str(parameters["weekday"]).casefold()
             return exam_date.weekday() == cls._WEEKDAYS[weekday]
         if "month" in parameters:
+            if "day" in parameters:
+                return (
+                    exam_date.month == parameters["month"]
+                    and exam_date.day == parameters["day"]
+                    and (
+                        "year" not in parameters
+                        or exam_date.year == parameters["year"]
+                    )
+                )
             return (
                 exam_date.month == parameters["month"]
                 and (
@@ -413,7 +444,9 @@ class AICopilotRule(ISchedulingRule):
             for word in cls._normalize_words(requested).split()
             if word not in cls._PERSON_TITLES
         ]
-        return bool(requested_words) and instructor_words == requested_words
+        if not requested_words or len(requested_words) > len(instructor_words):
+            return False
+        return instructor_words[-len(requested_words):] == requested_words
 
     @staticmethod
     def _normalize_words(value: str) -> str:

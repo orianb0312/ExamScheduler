@@ -47,6 +47,13 @@ class ScheduleCache:
             for system in batch
         ]
 
+    def page_number_for_system(self, target: ScheduleSystem) -> int | None:
+        """Return the one-based page containing the exact schedule object."""
+        for batch_index, batch in enumerate(self._batches, start=1):
+            if any(system is target for system in batch):
+                return batch_index
+        return None
+
     def replace(self, systems: Iterable[ScheduleSystem]) -> None:
         """Replace the cache while preserving the configured batch size."""
         self.clear()

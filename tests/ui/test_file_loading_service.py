@@ -1,8 +1,9 @@
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 
+from src.services.cli_run_service import CliRunConfig
 from src.services.file_loading_service import DataLoadMode, FileLoadingError, FileLoadingService
 from src.ui.program_selection_widget import PROGRAM_ID_ROLE
 from src.ui.main_window import MainWindow
@@ -75,6 +76,39 @@ SUMM,Gimel
 01-09-2026, 10-09-2026
 05-09-2026 Saturday
 """
+
+
+class _FakeProcessRunner(QObject):
+    stdout_received = pyqtSignal(str)
+    stderr_received = pyqtSignal(str)
+    process_started = pyqtSignal()
+    process_finished = pyqtSignal(int, str)
+    process_error = pyqtSignal(str)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.running = False
+        self.cancel_count = 0
+
+    def start(self, config: CliRunConfig) -> None:
+        del config
+        self.running = True
+        self.process_started.emit()
+
+    def is_running(self) -> bool:
+        return self.running
+
+    def cancel(self) -> None:
+        self.cancel_count += 1
+        # QProcess.terminate() is asynchronous; the process remains running
+        # until Qt later emits finished.
+
+    def send_input_line(self, line: str) -> None:
+        del line
+
+    def finish(self, exit_code: int = 0, status: str = "NormalExit") -> None:
+        self.running = False
+        self.process_finished.emit(exit_code, status)
 
 
 def _write_input_files(
@@ -326,6 +360,61 @@ def test_main_window_loads_file_loader_selection_into_memory(tmp_path, qtbot):
     assert window.loaded_input_data is not None
     assert window.loaded_input_data.course_count == 2
     assert "Replaced loaded data with 2 courses" in window.input_panel.file_loader.error_label.text()
+
+
+def test_loading_files_stops_stale_scheduler_and_reenables_generate(tmp_path, qtbot):
+    courses_file, exam_dates_file = _write_input_files(tmp_path)
+    runners: list[_FakeProcessRunner] = []
+
+    def create_runner(parent) -> _FakeProcessRunner:
+        runner = _FakeProcessRunner(parent)
+        runners.append(runner)
+        return runner
+
+    window = MainWindow(
+        project_root=tmp_path,
+        process_runner_factory=create_runner,
+    )
+    qtbot.addWidget(window)
+
+    window._start_cli_run(
+        CliRunConfig(
+            project_root=tmp_path,
+            mode="complete-write",
+            lazy_schedules=True,
+        )
+    )
+
+    assert runners[0].running
+    assert not window.input_panel.run_button.isEnabled()
+    assert window.input_panel.run_button.text() == "Generating Schedules..."
+
+    window.input_panel.file_loader.set_courses_path(str(courses_file))
+    window.input_panel.file_loader.set_exam_dates_path(str(exam_dates_file))
+    qtbot.mouseClick(
+        window.input_panel.file_loader.load_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert runners[0].cancel_count == 1
+    assert runners[0].running
+    assert window.input_panel.run_button.isEnabled()
+    assert window.input_panel.run_button.text() == "Generate Schedules"
+    assert window.loaded_input_data is not None
+
+    window._start_cli_run(
+        CliRunConfig(
+            project_root=tmp_path,
+            mode="complete-write",
+            lazy_schedules=True,
+        )
+    )
+    assert runners[0].running
+    assert not window.input_panel.run_button.isEnabled()
+
+    runners[0].finish(1, "Terminated")
+    assert runners[0].running
+    assert not window.input_panel.run_button.isEnabled()
 
 
 def test_main_window_default_startup_load_does_not_show_success_message(tmp_path, qtbot):

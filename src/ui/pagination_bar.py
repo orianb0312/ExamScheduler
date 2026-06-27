@@ -123,6 +123,10 @@ class PaginationBar(QWidget):
     def page_count(self) -> int:
         return self._page_count
 
+    @property
+    def can_request_more(self) -> bool:
+        return self._can_request_more and self._page_count > 0
+
     def set_page_count(self, page_count: int) -> None:
         self._page_count = max(0, page_count)
         if self._page_count == 0:

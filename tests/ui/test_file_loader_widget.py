@@ -88,6 +88,20 @@ def test_input_panel_uses_dashboard_shell_layout(tmp_path, qtbot):
     ] == ["Dashboard", "Programs", "Courses", "Calendar", "Settings", "Schedules"]
 
 
+def test_generate_footer_is_available_on_programs_and_settings_only(tmp_path, qtbot):
+    panel = InputPanel(project_root=tmp_path)
+    qtbot.addWidget(panel)
+
+    panel.show_program_page()
+    assert not panel.run_button.isHidden()
+
+    panel.show_settings_page()
+    assert not panel.run_button.isHidden()
+
+    panel.show_dashboard_page()
+    assert panel.run_button.isHidden()
+
+
 def test_input_panel_home_image_fills_lower_page_area(tmp_path, qtbot):
     panel = InputPanel(project_root=tmp_path)
     qtbot.addWidget(panel)

@@ -34,11 +34,13 @@ from src.services.constraint_settings_policy import (
     ConstraintValidation,
 )
 from src.services.file_loading_service import LoadedSchedulerInput
+from src.services.dashboard_analytics_service import DashboardAnalyticsService
 from src.services.scheduler_input_state import SchedulerInputState
 from src.ui.ai_copilot_widget import AICopilotWidget
 from src.ui.ai_copilot_worker import AICopilotWorker
 from src.ui.calendar_view_panel import CalendarView
 from src.ui.constraint_settings_widget import ConstraintSettingsWidget
+from src.ui.dashboard_view import ExamSchedulerDashboard
 from src.ui.file_loader_widget import FileLoaderWidget
 from src.ui.program_selection_widget import MAX_SELECTED_PROGRAMS, ProgramSelectionWidget
 from src.ui.selected_programs_panel import SelectedProgramsPanel
@@ -55,6 +57,8 @@ class InputPanel(QWidget):
     data_load_requested = pyqtSignal(str, str, str, str)
     view_calendar_requested = pyqtSignal()
     ai_constraint_requested = pyqtSignal(dict)
+    dashboard_view_results_requested = pyqtSignal()
+    dashboard_next_batch_requested = pyqtSignal()
 
     def __init__(self, project_root: Path, parent=None) -> None:
         super().__init__(parent)
@@ -63,6 +67,7 @@ class InputPanel(QWidget):
             project_root / "outputs" / "ui_runtime"
         )
         self._run_config_builder = SchedulerRunConfigBuilder(self._scheduler_input_state)
+        self._dashboard_analytics = DashboardAnalyticsService()
         self.selected_programs_vm = SelectedProgramsViewModel()
 
         self.mode_combo = QComboBox()
@@ -77,7 +82,7 @@ class InputPanel(QWidget):
         self.file_loader.set_courses_path(self.course_file_edit.text())
         self.file_loader.set_exam_dates_path(self.dates_file_edit.text())
         self.nav_tabs = {
-            "Dashboard": self._nav_button("Dashboard", enabled=False),
+            "Dashboard": self._nav_button("Dashboard"),
             "Programs": self._nav_button("Programs", active=True),
             "Courses": self._nav_button("Courses", enabled=False),
             "Calendar": self._nav_button("Calendar", enabled=False),
@@ -88,11 +93,19 @@ class InputPanel(QWidget):
         self.view_calendar_button.setEnabled(True)
         self.settings_button = self.nav_tabs["Settings"]
         self.ai_copilot = AICopilotWidget(self)
+        self.analytics_dashboard = ExamSchedulerDashboard(self)
+        self.analytics_dashboard.view_results_requested.connect(
+            self.dashboard_view_results_requested.emit
+        )
+        self.analytics_dashboard.next_batch_requested.connect(
+            self.dashboard_next_batch_requested.emit
+        )
         self._ai_copilot_worker: AICopilotWorker | None = None
         self._ai_copilot_rules: dict[str, dict] = {}
         self._next_ai_copilot_rule_number = 1
         self._compact_dashboard_layout: bool | None = None
         self._compact_dashboard_height: bool | None = None
+        self._schedules_page: QWidget | None = None
         self.calendar_view = CalendarView(show_back_button=False)
         self.constraint_settings = ConstraintSettingsWidget()
         self.period_indexes_edit = QLineEdit()
@@ -142,10 +155,20 @@ class InputPanel(QWidget):
     def show_program_page(self) -> None:
         self._content_stack.setCurrentWidget(self._program_page)
         self._set_active_nav("Programs")
+        self._set_run_footer_visible(True)
+
+    def show_dashboard_page(self) -> None:
+        self._content_stack.setCurrentWidget(self._dashboard_page)
+        self._set_active_nav("Dashboard")
+        self._set_run_footer_visible(False)
+
+    def is_dashboard_page_visible(self) -> bool:
+        return self._content_stack.currentWidget() is self._dashboard_page
 
     def show_calendar_page(self) -> None:
         self._content_stack.setCurrentWidget(self.calendar_view)
         self._set_active_nav("Calendar")
+        self._set_run_footer_visible(False)
 
     def is_calendar_page_visible(self) -> bool:
         return self._content_stack.currentWidget() is self.calendar_view
@@ -153,9 +176,37 @@ class InputPanel(QWidget):
     def show_settings_page(self) -> None:
         self._content_stack.setCurrentWidget(self.constraint_settings)
         self._set_active_nav("Settings")
+        self._set_run_footer_visible(True)
 
     def is_settings_page_visible(self) -> bool:
         return self._content_stack.currentWidget() is self.constraint_settings
+
+    def attach_schedules_page(self, schedules_page: QWidget) -> None:
+        if self._schedules_page is schedules_page:
+            return
+        if self._schedules_page is not None:
+            raise RuntimeError("Schedules page is already attached.")
+        self._schedules_page = schedules_page
+        self._content_stack.addWidget(schedules_page)
+
+    def set_schedules_available(self, available: bool) -> None:
+        self.nav_tabs["Schedules"].setEnabled(available)
+        if not available and self.is_schedules_page_visible():
+            self.show_program_page()
+
+    def show_schedules_page(self) -> None:
+        if self._schedules_page is None:
+            return
+        self.set_schedules_available(True)
+        self._content_stack.setCurrentWidget(self._schedules_page)
+        self._set_active_nav("Schedules")
+        self._set_run_footer_visible(False)
+
+    def is_schedules_page_visible(self) -> bool:
+        return (
+            self._schedules_page is not None
+            and self._content_stack.currentWidget() is self._schedules_page
+        )
 
     @property
     def constraint_parameters(self) -> dict[str, int]:
@@ -186,12 +237,15 @@ class InputPanel(QWidget):
         root_layout.addWidget(self._build_top_navigation())
 
         self._content_stack = QStackedWidget()
+        self._dashboard_page = self._build_dashboard_page()
         self._program_page = self._build_program_page()
+        self._content_stack.addWidget(self._dashboard_page)
         self._content_stack.addWidget(self._program_page)
         # Calendar lives inside the input shell so the top menu does not jump between pages.
         self._content_stack.addWidget(self.calendar_view)
         # Settings shares the same shell so the top navigation stays consistent.
         self._content_stack.addWidget(self.constraint_settings)
+        self._content_stack.setCurrentWidget(self._program_page)
         root_layout.addWidget(self._content_stack, 1)
 
         self.run_button.setMinimumWidth(190)
@@ -201,12 +255,26 @@ class InputPanel(QWidget):
             QSizePolicy.Policy.Fixed,
         )
 
-        run_action_layout = QHBoxLayout()
-        run_action_layout.setContentsMargins(28, 14, 28, 18)
-        run_action_layout.addStretch(1)
-        run_action_layout.addWidget(self.run_button, 2)
-        run_action_layout.addStretch(1)
-        root_layout.addLayout(run_action_layout)
+        self._run_action_layout = QHBoxLayout()
+        self._run_action_layout.setContentsMargins(28, 14, 28, 18)
+        self._run_action_layout.addStretch(1)
+        self._run_action_layout.addWidget(self.run_button, 2)
+        self._run_action_layout.addStretch(1)
+        root_layout.addLayout(self._run_action_layout)
+
+    def _build_dashboard_page(self) -> QScrollArea:
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("inputPanelScrollArea")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.analytics_dashboard, 1)
+        scroll_area.setWidget(content)
+        return scroll_area
 
     def _build_program_page(self) -> QScrollArea:
         # Keep the main content scrollable so the submit button stays visible.
@@ -505,9 +573,11 @@ class InputPanel(QWidget):
         self.program_selector.limitMessageChanged.connect(self._set_program_selection_message)
         self.run_button.clicked.connect(self._emit_run_requested)
         self.cancel_button.clicked.connect(self.cancel_requested.emit)
+        self.nav_tabs["Dashboard"].clicked.connect(self.show_dashboard_page)
         self.nav_tabs["Programs"].clicked.connect(self.show_program_page)
         self.view_calendar_button.clicked.connect(self.view_calendar_requested.emit)
         self.settings_button.clicked.connect(self.show_settings_page)
+        self.nav_tabs["Schedules"].clicked.connect(self.show_schedules_page)
         self.ai_copilot.message_submitted.connect(self._start_ai_copilot_worker)
         self.ai_copilot.constraint_generated.connect(
             self.ai_constraint_requested.emit
@@ -518,6 +588,54 @@ class InputPanel(QWidget):
         self.constraint_settings.settings_changed.connect(self._store_constraint_parameters)
         self.selected_programs_panel.program_detail_requested.connect(
             self._open_program_courses
+        )
+
+    def _set_run_footer_visible(self, visible: bool) -> None:
+        self.run_button.setVisible(visible)
+        if visible:
+            self._run_action_layout.setContentsMargins(28, 14, 28, 18)
+        else:
+            self._run_action_layout.setContentsMargins(0, 0, 0, 0)
+
+    def refresh_analytics_dashboard(
+        self,
+        schedule,
+        current_batch_schedule=None,
+        active_priorities=(),
+        *,
+        total_schedules: int | None = None,
+        current_page: int = 0,
+        can_request_more: bool = False,
+    ) -> None:
+        snapshot = self._dashboard_analytics.build_snapshot(
+            schedule,
+            current_batch_schedule=current_batch_schedule,
+            active_priorities=active_priorities,
+            total_schedules=total_schedules,
+            current_page=current_page,
+        )
+        self.analytics_dashboard.update_metrics(
+            snapshot.total_schedules,
+            snapshot.fitness_score,
+            snapshot.min_study_gap,
+            snapshot.current_batch_score,
+        )
+        self.analytics_dashboard.update_chart_data(
+            snapshot.chart_dates,
+            snapshot.chart_values,
+        )
+        self.analytics_dashboard.update_insights(
+            snapshot.winning_text,
+            snapshot.bottleneck_text,
+        )
+        self.analytics_dashboard.set_pagination(
+            snapshot.chunk_number,
+            snapshot.start_index,
+            snapshot.end_index,
+        )
+        self.analytics_dashboard.set_action_state(
+            has_results=schedule is not None,
+            can_request_more=can_request_more,
         )
 
     def _start_ai_copilot_worker(self, user_text: str) -> None:
@@ -747,9 +865,20 @@ class InputPanel(QWidget):
                     f'{parameters.get("start_date", "start date")} through '
                     f'{parameters.get("end_date", "end date")}'
                 )
+            if parameters.get("lecturer"):
+                return f'Exclude {period} for lecturer {parameters["lecturer"]}'
+            if parameters.get("course"):
+                return f'Exclude {period} for {parameters["course"]}'
+            if parameters.get("program"):
+                return f'Exclude {period} for program {parameters["program"]}'
             return f"Exclude {period} from exam scheduling"
         if rule_type == "lecturer_unavailable":
-            day = parameters.get("date") or parameters.get("weekday") or "day"
+            day = (
+                parameters.get("date")
+                or parameters.get("weekday")
+                or InputPanel._format_ai_month_day(parameters)
+                or "day"
+            )
             return (
                 f'Lecturer {parameters.get("lecturer", "unknown")} '
                 f"unavailable on {day}"
@@ -764,6 +893,34 @@ class InputPanel(QWidget):
                 f'Minimum {parameters.get("min_days", "N")} days between exams'
             )
         return "AI-created scheduling rule"
+
+    @staticmethod
+    def _format_ai_month_day(parameters: dict) -> str | None:
+        if "month" not in parameters or "day" not in parameters:
+            return None
+        month_names = (
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        )
+        try:
+            month = month_names[int(parameters["month"]) - 1]
+            day = int(parameters["day"])
+        except (TypeError, ValueError, IndexError):
+            return None
+        value = f"{month} {day}"
+        if parameters.get("year"):
+            value = f'{value}, {parameters["year"]}'
+        return value
 
     def _create_ai_copilot_rule(self, rule: dict) -> None:
         if not self._is_valid_ai_copilot_rule(rule):

@@ -18,6 +18,8 @@ project.
 - `organization_plan.md` - current structure notes and recommended cleanup steps.
 - `layer_boundaries.md` - ownership rules for PyQt6 UI, services/adapters, and v1.0 logic.
 - `ai_copilot_sdd.md` - local AI Copilot layout, guardrails, confirmation, and CLI export notes.
+- `analytics_dashboard_manual.md` - user manual for the Dashboard tab analytics viewport,
+  density charts, and rule-justification cards.
 
 ## Current Main Entry Point
 

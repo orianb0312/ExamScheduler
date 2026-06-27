@@ -83,6 +83,8 @@ class MainWindow(QMainWindow):
         self._active_run_config: CliRunConfig | None = None
         self._selected_schedule: ScheduleSystem | None = None
         self._stay_on_input_after_lazy_stop = False
+        self._ignore_stale_runner_result = False
+        self._pending_run_after_stale_stop: CliRunConfig | None = None
 
         self.input_panel = InputPanel(project_root=project_root)
         self.calendar_view = self.input_panel.calendar_view
@@ -111,8 +113,8 @@ class MainWindow(QMainWindow):
         self.showMaximized()
 
     def _build_layout(self) -> None:
+        self.input_panel.attach_schedules_page(self.output_view)
         self._stack.addWidget(self.input_panel)
-        self._stack.addWidget(self.output_view)
         self.setCentralWidget(self._stack)
 
     def _connect_signals(self) -> None:
@@ -120,6 +122,12 @@ class MainWindow(QMainWindow):
         self.input_panel.run_requested.connect(self._start_cli_run)
         self.input_panel.cancel_requested.connect(self._runner.cancel)
         self.input_panel.view_calendar_requested.connect(self._show_calendar_screen)
+        self.input_panel.dashboard_view_results_requested.connect(
+            self._show_top_schedule_screen
+        )
+        self.input_panel.dashboard_next_batch_requested.connect(
+            self._request_next_schedule_batch_from_dashboard
+        )
         self.input_panel.ai_constraint_requested.connect(
             self.handle_new_ai_constraint
         )
@@ -130,6 +138,9 @@ class MainWindow(QMainWindow):
         self.output_view.more_requested.connect(self._request_next_schedule_batch)
         self.output_view.save_requested.connect(self._save_selected_schedule)
         self.output_view.selected_schedule_changed.connect(self._set_selected_schedule)
+        self.output_view.sorting_priority_widget.priority_changed.connect(
+            lambda _priority: self._refresh_analytics_dashboard()
+        )
         self._runner.process_started.connect(self._handle_started)
         self._runner.stdout_received.connect(self._handle_stdout)
         self._runner.stderr_received.connect(self._handle_stderr)
@@ -215,6 +226,7 @@ class MainWindow(QMainWindow):
         course_mode: str,
         exam_dates_mode: str,
     ) -> None:
+        self._stop_stale_run_for_file_reload()
         try:
             result = self._file_loading_service.load_selected_files(
                 courses_path,
@@ -228,6 +240,7 @@ class MainWindow(QMainWindow):
 
         loaded_data = result.loaded_data
         self._refresh_output_adapter(loaded_data)
+        self._clear_scheduler_results_for_new_input()
 
         self.input_panel.set_data_load_success(
             loaded_data.course_count,
@@ -244,6 +257,25 @@ class MainWindow(QMainWindow):
 
         self.input_panel.notify_data_loaded(loaded_data)
         self._load_exam_period_calendar()
+
+    def _stop_stale_run_for_file_reload(self) -> None:
+        self._pending_run_after_stale_stop = None
+        if self._runner.is_running():
+            self._ignore_stale_runner_result = True
+            self._runner.cancel()
+
+        self._active_run_config = None
+        self._stay_on_input_after_lazy_stop = False
+        self._parser.reset()
+        self.input_panel.set_running(False)
+        self.output_view.set_running(False)
+        self.output_view.set_more_available(False)
+
+    def _clear_scheduler_results_for_new_input(self) -> None:
+        self._selected_schedule = None
+        self.output_view.clear()
+        self.input_panel.set_schedules_available(False)
+        self._refresh_analytics_dashboard()
 
     def _load_exam_period_calendar(
         self,
@@ -303,12 +335,28 @@ class MainWindow(QMainWindow):
         self._load_exam_period_calendar(selected_period_index=period_index)
 
     def _start_cli_run(self, config: CliRunConfig) -> None:
+        if self._runner.is_running():
+            if self._ignore_stale_runner_result:
+                self._pending_run_after_stale_stop = config
+                self.input_panel.set_running(True)
+                self.output_view.set_more_available(False)
+                return
+
+            self._toast.show_message("The scheduler is already running.")
+            return
+
+        self._start_cli_run_now(config)
+
+    def _start_cli_run_now(self, config: CliRunConfig) -> None:
+        self._ignore_stale_runner_result = False
+        self._pending_run_after_stale_stop = None
         self._active_run_config = config
         self._stay_on_input_after_lazy_stop = False
         self._refresh_output_adapter(self.loaded_input_data)
         self._parser.reset()
         self.output_view.clear()
         self.output_view.set_more_available(False)
+        self.input_panel.set_schedules_available(False)
         if config.mode == "complete-count":
             self._show_output_screen()
         self._runner.start(config)
@@ -318,6 +366,9 @@ class MainWindow(QMainWindow):
         self.output_view.set_running(True)
 
     def _handle_stdout(self, text: str) -> None:
+        if self._ignore_stale_runner_result:
+            return
+
         schedule_total = parse_schedule_total(text)
         if schedule_total is not None:
             self.output_view.set_schedule_total(schedule_total)
@@ -338,13 +389,30 @@ class MainWindow(QMainWindow):
             self._show_output_screen()
             self.output_view.set_stream_progress(self.output_view.cache.system_count)
             self.output_view.set_more_available(True)
+            self._refresh_analytics_dashboard()
         elif not _looks_like_schedule_output(text):
             self.output_view.append_log(text)
 
     def _handle_stderr(self, text: str) -> None:
+        if self._ignore_stale_runner_result:
+            return
+
         self.output_view.append_log(text)
 
     def _handle_finished(self, exit_code: int, status: str) -> None:
+        if self._ignore_stale_runner_result:
+            pending_run = self._pending_run_after_stale_stop
+            self._ignore_stale_runner_result = False
+            self._pending_run_after_stale_stop = None
+            self._parser.reset()
+            self.input_panel.set_running(False)
+            self.output_view.set_running(False)
+            self.output_view.set_more_available(False)
+            self._refresh_analytics_dashboard()
+            if pending_run is not None:
+                self._start_cli_run_now(pending_run)
+            return
+
         self.output_view.add_systems(
             _systems_with_scheduled_exams(
                 self._output_adapter.convert(self._parser.flush())
@@ -352,6 +420,7 @@ class MainWindow(QMainWindow):
         )
         self.input_panel.set_running(False)
         self.output_view.set_more_available(False)
+        self._refresh_analytics_dashboard()
         if self._stay_on_input_after_lazy_stop:
             self._stay_on_input_after_lazy_stop = False
             self.output_view.set_finished(exit_code, status)
@@ -375,8 +444,14 @@ class MainWindow(QMainWindow):
         )
 
     def _handle_error(self, message: str) -> None:
+        if self._ignore_stale_runner_result:
+            self.input_panel.set_running(False)
+            self.output_view.set_more_available(False)
+            return
+
         self.input_panel.set_running(False)
         self.output_view.set_more_available(False)
+        self._refresh_analytics_dashboard()
         if self._stay_on_input_after_lazy_stop:
             self._stay_on_input_after_lazy_stop = False
             self.output_view.set_error(message)
@@ -390,6 +465,12 @@ class MainWindow(QMainWindow):
             return
 
         self._runner.send_input_line(LAZY_NEXT_COMMAND)
+
+    def _request_next_schedule_batch_from_dashboard(self) -> None:
+        self._show_output_screen()
+        if not self.output_view.request_next_generated_batch():
+            self._toast.show_message("No next schedule batch is available.")
+        self._refresh_analytics_dashboard()
 
     def _save_selected_schedule(self) -> None:
         schedule = self.output_view.selected_schedule
@@ -495,6 +576,8 @@ class MainWindow(QMainWindow):
 
     def _show_no_exam_schedules_toast(self) -> None:
         self.output_view.clear()
+        self.input_panel.set_schedules_available(False)
+        self.input_panel.show_program_page()
         self._stack.setCurrentWidget(self.input_panel)
         self._toast.show_message(NO_EXAM_SCHEDULES_MESSAGE)
 
@@ -506,6 +589,7 @@ class MainWindow(QMainWindow):
 
     def _set_selected_schedule(self, schedule: ScheduleSystem | None) -> None:
         self._selected_schedule = schedule
+        self._refresh_analytics_dashboard()
         self.output_view.set_schedule_calendar(
             self._build_schedule_period_view_models(schedule)
         )
@@ -514,6 +598,21 @@ class MainWindow(QMainWindow):
             and self.input_panel.is_calendar_page_visible()
         ):
             self._load_exam_period_calendar()
+
+    def _refresh_analytics_dashboard(self) -> None:
+        total_schedules = (
+            self.output_view.schedule_total
+            or self.output_view.cache.system_count
+            or None
+        )
+        self.input_panel.refresh_analytics_dashboard(
+            self.output_view.best_schedule_so_far,
+            current_batch_schedule=self.output_view.current_batch_best_schedule,
+            active_priorities=self.output_view.best_schedule_priority,
+            total_schedules=total_schedules,
+            current_page=self.output_view.pagination_bar.current_page,
+            can_request_more=self.output_view.can_request_more,
+        )
 
     def _build_schedule_period_view_models(
         self,
@@ -561,8 +660,13 @@ class MainWindow(QMainWindow):
         self.input_panel.show_calendar_page()
         self._stack.setCurrentWidget(self.input_panel)
 
+    def _show_top_schedule_screen(self) -> None:
+        self.output_view.show_best_schedule_so_far()
+        self._show_output_screen()
+
     def _show_output_screen(self) -> None:
-        self._stack.setCurrentWidget(self.output_view)
+        self.input_panel.show_schedules_page()
+        self._stack.setCurrentWidget(self.input_panel)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

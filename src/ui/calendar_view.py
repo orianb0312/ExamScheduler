@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from src.ui.calendar_view_panel import CalendarPeriodList
 from src.ui.pagination_bar import PaginationBar
+from src.ui.schedule_best_tracker import ScheduleBestTracker
 from src.sorting.schedule_priority import (
     SchedulePrioritySorter,
     sortable_exams_from_display_system,
@@ -46,7 +47,10 @@ class OutputView(QWidget):
         # The output screen pages through schedules one by one.
         self.cache = ScheduleCache(batch_size=1)
         self._generated_systems: list[ScheduleSystem] = []
+        self._current_batch_systems: list[ScheduleSystem] = []
         self._schedule_sorter = SchedulePrioritySorter()
+        self._best_schedule_tracker = ScheduleBestTracker(self._schedule_sorter)
+        self._current_batch_best_tracker = ScheduleBestTracker(self._schedule_sorter)
         self._sort_panel_open = False
         self._sort_panel_width = 480
         self._selected_schedule: ScheduleSystem | None = None
@@ -84,6 +88,9 @@ class OutputView(QWidget):
 
     def clear(self) -> None:
         self._generated_systems.clear()
+        self._current_batch_systems.clear()
+        self._best_schedule_tracker.reset(self.sorting_priority_widget.priority)
+        self._current_batch_best_tracker.reset(self.sorting_priority_widget.priority)
         self.cache.clear()
         self.schedule_label.setText("No schedule selected")
         self.calendar_body.set_empty_text(DEFAULT_EMPTY_SCHEDULE_TEXT)
@@ -113,6 +120,9 @@ class OutputView(QWidget):
 
     def set_empty_result(self, message: str) -> None:
         self._generated_systems.clear()
+        self._current_batch_systems.clear()
+        self._best_schedule_tracker.reset(self.sorting_priority_widget.priority)
+        self._current_batch_best_tracker.reset(self.sorting_priority_widget.priority)
         self.cache.clear()
         self._set_selected_schedule(None)
         self._pending_more_page = None
@@ -134,6 +144,14 @@ class OutputView(QWidget):
     def schedule_total(self) -> int | None:
         return self._schedule_total
 
+    @property
+    def can_request_more(self) -> bool:
+        return self.pagination_bar.can_request_more
+
+    @property
+    def best_schedule_priority(self) -> tuple[str, ...]:
+        return self._best_schedule_tracker.priority
+
     def set_schedule_total(self, total: int | None) -> None:
         self._schedule_total = total if total and total > 0 else None
         self.pagination_bar.set_total_page_count(self._schedule_total)
@@ -148,6 +166,22 @@ class OutputView(QWidget):
             return
 
         self._generated_systems.extend(systems)
+        requested_priority = self.sorting_priority_widget.priority
+        self._current_batch_systems.extend(systems)
+        if not self._current_batch_best_tracker.matches_priority(requested_priority):
+            self._current_batch_best_tracker.rebuild(
+                self._current_batch_systems,
+                requested_priority,
+            )
+        else:
+            self._current_batch_best_tracker.update_batch(systems)
+        if not self._best_schedule_tracker.matches_priority(requested_priority):
+            self._best_schedule_tracker.rebuild(
+                self._generated_systems,
+                requested_priority,
+            )
+        else:
+            self._best_schedule_tracker.update_batch(systems)
         self._replace_cache_with_current_sort()
         self.pagination_bar.set_page_count(self.cache.batch_count)
         if (
@@ -160,6 +194,14 @@ class OutputView(QWidget):
 
     def _apply_sort_priority(self, _priority: tuple[str, ...]) -> None:
         self._replace_cache_with_current_sort()
+        self._best_schedule_tracker.rebuild(
+            self._generated_systems,
+            self.sorting_priority_widget.priority,
+        )
+        self._current_batch_best_tracker.rebuild(
+            self._current_batch_systems,
+            self.sorting_priority_widget.priority,
+        )
         self.pagination_bar.set_page_count(self.cache.batch_count)
         if self.cache.batch_count:
             self.pagination_bar.set_current_page(1)
@@ -183,6 +225,14 @@ class OutputView(QWidget):
     @property
     def selected_schedule(self) -> ScheduleSystem | None:
         return self._selected_schedule
+
+    @property
+    def best_schedule_so_far(self) -> ScheduleSystem | None:
+        return self._best_schedule_tracker.best_schedule
+
+    @property
+    def current_batch_best_schedule(self) -> ScheduleSystem | None:
+        return self._current_batch_best_tracker.best_schedule
 
     def _build_layout(self) -> None:
         root_layout = QVBoxLayout(self)
@@ -237,9 +287,28 @@ class OutputView(QWidget):
     def _request_more_systems(self) -> None:
         self._request_schedule_page(self.pagination_bar.current_page + 1)
 
+    def start_new_generated_batch(self) -> None:
+        self._current_batch_systems.clear()
+        self._current_batch_best_tracker.reset(self.sorting_priority_widget.priority)
+
+    def show_best_schedule_so_far(self) -> None:
+        schedule = self.best_schedule_so_far
+        if schedule is None:
+            return
+        page_number = self.cache.page_number_for_system(schedule)
+        if page_number is not None:
+            self.pagination_bar.set_current_page(page_number)
+
+    def request_next_generated_batch(self) -> bool:
+        if not self.can_request_more:
+            return False
+        self._request_schedule_page(self.pagination_bar.page_count + 1)
+        return True
+
     def _request_schedule_page(self, page_number: int) -> None:
         # The next batch arrives later from QProcess, so keep the requested page.
         self._pending_more_page = page_number
+        self.start_new_generated_batch()
         self.set_more_available(False)
         self.status_label.setText("Generating next 1,000 schedule systems...")
         self.more_requested.emit()

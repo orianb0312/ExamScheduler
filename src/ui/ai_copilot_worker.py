@@ -46,6 +46,10 @@ SCHEMA & EXAMPLES:
   Output: {"action": "exclude_period", "start_date": "2026-07-01", "end_date": "2026-07-10"}
 - User: "Professor Cohen cannot teach on 2026-07-15"
   Output: {"action": "lecturer_unavailable", "lecturer": "Cohen", "date": "2026-07-15"}
+- User: "Professor Cohen unavailable on Jan 15"
+  Output: {"action": "lecturer_unavailable", "lecturer": "Cohen", "month": 1, "day": 15}
+- User: "Professor Cohen unavailable in January"
+  Output: {"action": "exclude_period", "lecturer": "Cohen", "month": 1}
 - User: "Limit program 83101 to 2 exams a day"
   Output: {"action": "program_limit", "program": "83101", "max_exams_per_day": 2}
 - User: "Keep at least 3 days between exams"
@@ -91,10 +95,10 @@ STATE HANDLING:
         },
         "lecturer_unavailable": {
             "name": "LecturerUnavailable",
-            "description": "Mark a lecturer unavailable on one date or weekday.",
+            "description": "Mark a lecturer unavailable on one date, month/day, or weekday.",
             "required": ("lecturer",),
-            "one_of": ("date", "weekday"),
-            "allowed": ("lecturer", "date", "weekday"),
+            "one_of": (),
+            "allowed": ("lecturer", "date", "weekday", "month", "day", "year"),
         },
         "program_limit": {
             "name": "ProgramLimit",
@@ -269,21 +273,38 @@ STATE HANDLING:
     )
     _MONTH_NAMES = {
         "january": 1,
+        "jan": 1,
         "february": 2,
+        "feb": 2,
         "march": 3,
+        "mar": 3,
         "april": 4,
+        "apr": 4,
         "may": 5,
         "june": 6,
+        "jun": 6,
         "july": 7,
+        "jul": 7,
         "august": 8,
+        "aug": 8,
         "september": 9,
+        "sep": 9,
+        "sept": 9,
         "october": 10,
+        "oct": 10,
         "november": 11,
+        "nov": 11,
         "december": 12,
+        "dec": 12,
     }
+    _MONTH_NAME_PATTERN = (
+        r"january|jan\.?|february|feb\.?|march|mar\.?|april|apr\.?|"
+        r"may|june|jun\.?|july|jul\.?|august|aug\.?|september|sept?\.?|"
+        r"october|oct\.?|november|nov\.?|december|dec\.?"
+    )
     _SEMANTIC_REVERT_RE = re.compile(
         r"\b(?:allow|permit|restore|resume|enable)\b.{0,30}\bexams?\b|"
-        r"\bexams?\b.{0,30}\b(?:allowed|permitted|restored|enabled)\b|"
+        r"\bexams?\b.{0,30}\b(?<!not\s)(?:allowed|permitted|restored|enabled)\b|"
         r"(?:אפשר|התיר|התר|החזר).{0,30}(?:בחינות|מבחנים)",
         re.IGNORECASE,
     )
@@ -307,7 +328,8 @@ STATE HANDLING:
         ),
         re.compile(
             r"\b(?:allow|permit|restore|resume|enable)\b.{0,30}\bexams?\b|"
-            r"\bexams?\b.{0,30}\b(?:allowed|permitted|restored|enabled)\b",
+            r"\bexams?\b.{0,30}\b(?<!not\s)(?:allowed|permitted|restored|enabled)\b|"
+            r"\b(?:off limits|not allowed|not permitted|forbidden)\b",
             re.IGNORECASE,
         ),
         re.compile(
@@ -751,6 +773,17 @@ STATE HANDLING:
             if "year" in parameters and not has_month:
                 return False
 
+        if rule_type == "lecturer_unavailable":
+            has_date = "date" in parameters
+            has_weekday = "weekday" in parameters
+            has_month_day = {"month", "day"}.issubset(parameters)
+            if sum((has_date, has_weekday, has_month_day)) != 1:
+                return False
+            if ("month" in parameters) != ("day" in parameters):
+                return False
+            if "year" in parameters and not has_month_day:
+                return False
+
         for date_key in ("date", "start_date", "end_date"):
             if date_key not in parameters:
                 continue
@@ -782,10 +815,21 @@ STATE HANDLING:
             or not 1 <= parameters["month"] <= 12
         ):
             return False
+        if "day" in parameters and (
+            not isinstance(parameters["day"], int)
+            or isinstance(parameters["day"], bool)
+            or not 1 <= parameters["day"] <= 31
+        ):
+            return False
         if "year" in parameters and (
             not isinstance(parameters["year"], int)
             or isinstance(parameters["year"], bool)
             or not 1900 <= parameters["year"] <= 2200
+        ):
+            return False
+        if {"month", "day"}.issubset(parameters) and not cls._is_valid_month_day(
+            int(parameters["month"]),
+            int(parameters["day"]),
         ):
             return False
         if "program" in parameters and (
@@ -1060,8 +1104,9 @@ STATE HANDLING:
             self._finish()
             return
 
-        deterministic_payload = self._deterministic_exclusion_payload(
-            sanitized_text
+        deterministic_payload = (
+            self._deterministic_lecturer_unavailable_payload(sanitized_text)
+            or self._deterministic_exclusion_payload(sanitized_text)
         )
         if deterministic_payload is not None:
             normalized_rule = self._normalized_rule_signature(
@@ -1151,11 +1196,184 @@ STATE HANDLING:
         return any(pattern.search(text) for pattern in cls._SUPPORTED_INTENT_PATTERNS)
 
     @classmethod
+    def _deterministic_lecturer_unavailable_payload(
+        cls,
+        text: str,
+    ) -> dict[str, object] | None:
+        normalized = cls._normalize_unicode(text).casefold()
+        if not cls._has_lecturer_unavailable_intent(normalized):
+            return None
+
+        lecturer = cls._extract_lecturer_name(text)
+        if lecturer is None:
+            return None
+
+        date_payload = cls._date_or_weekday_payload_from_text(normalized)
+        if date_payload is None:
+            period_payload = cls._month_period_payload_from_text(normalized)
+            if period_payload is None:
+                return None
+            return {
+                "action": "exclude_period",
+                "lecturer": lecturer,
+                **period_payload,
+            }
+
+        return {
+            "action": "lecturer_unavailable",
+            "lecturer": lecturer,
+            **date_payload,
+        }
+
+    @classmethod
+    def _has_lecturer_unavailable_intent(cls, normalized: str) -> bool:
+        lecturer_title = r"(?:lecturer|professor|prof\.?|doctor|dr\.?|instructor)"
+        if re.search(rf"\b{lecturer_title}\b", normalized) is None:
+            return False
+        return any(
+            re.search(pattern, normalized, re.IGNORECASE) is not None
+            for pattern in (
+                r"\b(?:unavailable|not available|cannot|can't|cant|will not|won't)\b",
+                rf"\bno\b.{{0,80}}\b{lecturer_title}\b.{{0,80}}\bexams?\b",
+                rf"\bno\s+exams?\b.{{0,80}}\b{lecturer_title}\b",
+            )
+        )
+
+    @classmethod
+    def _extract_lecturer_name(cls, text: str) -> str | None:
+        title = r"(?:lecturer|professor|prof\.?|doctor|dr\.?|instructor)"
+        stop = (
+            r"(?=\s+(?:is\s+)?(?:unavailable|not\s+available|cannot|can't|"
+            r"cant|will\s+not|won't|does\s+not|doesn't|exams?\b|on\b)|$)"
+        )
+        patterns = (
+            rf"\b{title}\s+(?P<name>[A-Za-z][A-Za-z .'\-]{{0,80}}?){stop}",
+            rf"\bno\s+exams?\s+(?:for|with|by)\s+{title}\s+"
+            rf"(?P<name>[A-Za-z][A-Za-z .'\-]{{0,80}}?){stop}",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match is None:
+                continue
+            name = cls._clean_person_name(match.group("name"))
+            if name:
+                return name
+        return None
+
+    @classmethod
+    def _clean_person_name(cls, value: str) -> str:
+        words = re.findall(r"[A-Za-z][A-Za-z'\-]*", value)
+        clean_words = [
+            word
+            for word in words
+            if word.casefold().rstrip(".") not in {"dr", "doctor", "prof", "professor"}
+        ]
+        return " ".join(word.capitalize() for word in clean_words)
+
+    @classmethod
+    def _date_or_weekday_payload_from_text(
+        cls,
+        normalized: str,
+    ) -> dict[str, object] | None:
+        requested_dates = cls._ISO_DATE_SEARCH_RE.findall(normalized)
+        if len(requested_dates) == 1:
+            try:
+                date.fromisoformat(requested_dates[0])
+            except ValueError:
+                return None
+            return {"date": requested_dates[0]}
+
+        requested_weekday = next(
+            (
+                weekday
+                for weekday in cls._WEEKDAY_NAMES
+                if re.search(rf"\b{weekday}s?\b", normalized)
+            ),
+            None,
+        )
+        if requested_weekday is not None:
+            return {"weekday": requested_weekday.title()}
+
+        month_day = cls._month_day_payload_from_text(normalized)
+        if month_day is not None:
+            return month_day
+        return None
+
+    @classmethod
+    def _month_day_payload_from_text(
+        cls,
+        normalized: str,
+    ) -> dict[str, object] | None:
+        month_first = re.search(
+            rf"\b(?P<month>{cls._MONTH_NAME_PATTERN})\s+"
+            r"(?P<day>[0-3]?\d)(?:st|nd|rd|th)?"
+            r"(?:,\s*(?P<year>(?:19|20|21|22)\d{2}))?\b",
+            normalized,
+            re.IGNORECASE,
+        )
+        day_first = re.search(
+            r"\b(?P<day>[0-3]?\d)(?:st|nd|rd|th)?\s+"
+            rf"(?P<month>{cls._MONTH_NAME_PATTERN})"
+            r"(?:,\s*(?P<year>(?:19|20|21|22)\d{2}))?\b",
+            normalized,
+            re.IGNORECASE,
+        )
+        match = month_first or day_first
+        if match is None:
+            return None
+
+        month = cls._MONTH_NAMES.get(match.group("month").rstrip(".").casefold())
+        day = int(match.group("day"))
+        year_text = match.groupdict().get("year")
+        if month is None or not cls._is_valid_month_day(month, day):
+            return None
+
+        payload: dict[str, object] = {"month": month, "day": day}
+        if year_text is not None:
+            payload["year"] = int(year_text)
+        return payload
+
+    @classmethod
+    def _month_period_payload_from_text(
+        cls,
+        normalized: str,
+    ) -> dict[str, object] | None:
+        match = re.search(
+            rf"\b(?P<month>{cls._MONTH_NAME_PATTERN})"
+            r"(?:\s+(?P<year>(?:19|20|21|22)\d{2}))?\b",
+            normalized,
+            re.IGNORECASE,
+        )
+        if match is None:
+            return None
+
+        month = cls._MONTH_NAMES.get(match.group("month").rstrip(".").casefold())
+        if month is None:
+            return None
+        payload: dict[str, object] = {"month": month}
+        year_text = match.groupdict().get("year")
+        if year_text is not None:
+            payload["year"] = int(year_text)
+        return payload
+
+    @staticmethod
+    def _is_valid_month_day(month: int, day: int) -> bool:
+        try:
+            date(2000, month, day)
+        except ValueError:
+            return False
+        return True
+
+    @classmethod
     def _deterministic_exclusion_payload(
         cls,
         text: str,
     ) -> dict[str, object] | None:
         normalized = cls._normalize_unicode(text).casefold()
+        weekday_payload = cls._deterministic_weekday_exclusion_payload(normalized)
+        if weekday_payload is not None:
+            return weekday_payload
+
         if re.search(
             r"\b(?:no exams?|do not schedule exams?|exclude exams?|"
             r"block exams?|avoid exams?)\b",
@@ -1231,6 +1449,35 @@ STATE HANDLING:
             return payload
 
         return None
+
+    @classmethod
+    def _deterministic_weekday_exclusion_payload(
+        cls,
+        normalized: str,
+    ) -> dict[str, object] | None:
+        requested_weekday = next(
+            (
+                weekday
+                for weekday in cls._WEEKDAY_NAMES
+                if re.search(rf"\b{weekday}s?\b", normalized)
+            ),
+            None,
+        )
+        if requested_weekday is None:
+            return None
+
+        exclusion_patterns = (
+            rf"\b{requested_weekday}s?\b.{{0,24}}\b(?:off limits|not allowed|"
+            r"not permitted|forbidden|blocked|unavailable)\b",
+            rf"\b(?:off limits|not allowed|not permitted|forbidden|blocked|"
+            rf"unavailable)\b.{{0,24}}\b{requested_weekday}s?\b",
+        )
+        if not any(re.search(pattern, normalized) for pattern in exclusion_patterns):
+            return None
+        return {
+            "action": "exclude_day",
+            "weekday": requested_weekday.title(),
+        }
 
     def _matching_semantic_revert_rule_id(self, text: str) -> str | None:
         normalized = self._normalize_unicode(text).casefold()

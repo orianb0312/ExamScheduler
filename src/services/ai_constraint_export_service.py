@@ -81,9 +81,19 @@ def _describe_constraint(action: str, parameters: dict) -> str:
         period = parameters.get("month") or (
             f'{parameters.get("start_date")} through {parameters.get("end_date")}'
         )
+        if parameters.get("lecturer"):
+            return f'Exclude period {period} for lecturer {parameters["lecturer"]}'
+        if parameters.get("course"):
+            return f'Exclude period {period} for {parameters["course"]}'
+        if parameters.get("program"):
+            return f'Exclude period {period} for program {parameters["program"]}'
         return f"Exclude period {period}"
     if action == "lecturer_unavailable":
-        day = parameters.get("date") or parameters.get("weekday")
+        day = (
+            parameters.get("date")
+            or parameters.get("weekday")
+            or _format_month_day(parameters)
+        )
         return f'Lecturer {parameters.get("lecturer")} unavailable on {day}'
     if action == "program_limit":
         return (
@@ -93,3 +103,31 @@ def _describe_constraint(action: str, parameters: dict) -> str:
     if action == "exam_spacing":
         return f'Minimum {parameters.get("min_days")} days between exams'
     return "Unsupported AI scheduling rule"
+
+
+def _format_month_day(parameters: dict) -> str | None:
+    if "month" not in parameters or "day" not in parameters:
+        return None
+    month_names = (
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    )
+    try:
+        month = month_names[int(parameters["month"]) - 1]
+        day = int(parameters["day"])
+    except (TypeError, ValueError, IndexError):
+        return None
+    value = f"{month} {day}"
+    if parameters.get("year"):
+        value = f'{value}, {parameters["year"]}'
+    return value

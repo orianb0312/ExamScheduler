@@ -430,6 +430,77 @@ def test_common_global_exclusions_do_not_depend_on_model(
     assert process.program is None
 
 
+@pytest.mark.parametrize(
+    "user_text",
+    [
+        "Friday is off limits",
+        "Friday is not allowed",
+    ],
+)
+def test_weekday_negative_phrasing_creates_exclusion_not_revert(user_text):
+    worker, process = create_worker(
+        user_text,
+        chatbot_rules={
+            "ai_rule_3": {
+                "description": "Exclude Thursday from exam scheduling",
+                "rule_type": "exclude_day",
+                "parameters": {"weekday": "Thursday"},
+            }
+        },
+    )
+    constraints = []
+    worker.constraint_ready.connect(constraints.append)
+
+    worker.start()
+
+    assert constraints == [
+        {"action": "exclude_day", "weekday": "Friday"}
+    ]
+    assert process.program is None
+
+
+@pytest.mark.parametrize(
+    "user_text",
+    [
+        "Professor Cohen unavailable on Jan 15",
+        "No Professor Cohen Exams on Jan 15",
+    ],
+)
+def test_common_lecturer_date_requests_do_not_depend_on_model(user_text):
+    worker, process = create_worker(user_text)
+    constraints = []
+    worker.constraint_ready.connect(constraints.append)
+
+    worker.start()
+
+    assert constraints == [
+        {
+            "action": "lecturer_unavailable",
+            "lecturer": "Cohen",
+            "month": 1,
+            "day": 15,
+        }
+    ]
+    assert process.program is None
+
+
+def test_common_lecturer_month_request_does_not_depend_on_model():
+    worker, process = create_worker("Professor Some unavailable on January")
+    constraints = []
+    worker.constraint_ready.connect(constraints.append)
+
+    worker.start()
+
+    assert constraints == [
+        {
+            "action": "exclude_period",
+            "lecturer": "Some",
+            "month": 1,
+        }
+    ]
+    assert process.program is None
+
+
 def test_unmapped_request_over_50_characters_is_blocked(qtbot, tmp_path):
     request = "Please write a detailed pizza recipe with many ingredients"
     worker, process = create_worker(
