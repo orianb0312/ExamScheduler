@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from PyQt6.QtCore import Qt
-
+from unittest.mock import MagicMock, patch
 from src.ui.main_window import MainWindow
 from src.services.cli_run_service import CliRunConfig
 
@@ -240,9 +240,8 @@ def test_ui_post_process_file_loading_responsiveness(tmp_path, qtbot):
 def test_ui_shows_processing_indicator_when_process_is_active(tmp_path, qtbot):
     """
     Requirement Verification:
-    - Add a simple loading indicator, status label, or progress message.
-    - Show the indicator when QProcess starts.
-    - Hide or update the indicator when QProcess finishes.
+    - Show the dedicated loading view overlay when QProcess starts.
+    - Hide or transition the loading view when QProcess finishes.
     """
     window = MainWindow(project_root=tmp_path)
     qtbot.addWidget(window)
@@ -252,11 +251,38 @@ def test_ui_shows_processing_indicator_when_process_is_active(tmp_path, qtbot):
 
     window._handle_started()
 
-    assert window.input_panel.run_button.text() == "Generating Schedules..."
+    # Verify that stack switches layout to loading view overlay correctly
+    assert window._stack.currentWidget() is window.loading_view
     assert window.input_panel.run_button.isEnabled() is False
-    assert window.output_view.status_label.text() == "Running..."
+    assert window.input_panel.run_button.text() == "Generating Schedules..."
 
     window._handle_finished(0, "NormalExit")
 
     assert window.input_panel.run_button.text() == "Generate Schedules"
     assert window.input_panel.run_button.isEnabled() is True
+
+
+def test_loading_view_cancel_button_stops_process(tmp_path, qtbot):
+    # Create a mock for the ProcessRunner
+    mock_runner = MagicMock()
+
+    # Inject the mock directly via the factory parameter.
+    # This avoids brittle string-based patching and guarantees
+    # the signals bind to our mock.
+    window = MainWindow(
+        project_root=tmp_path,
+        process_runner_factory=lambda parent: mock_runner
+    )
+    qtbot.addWidget(window)
+
+    # Simulate process start to display the loading view overlay
+    window._handle_started()
+
+    # Verify we actually transitioned to the loading screen
+    assert window._stack.currentWidget() is window.loading_view
+
+    # Click the cancel button on the loading screen
+    qtbot.mouseClick(window.loading_view.cancel_button, Qt.MouseButton.LeftButton)
+
+    # Verify that the cancel signal was properly forwarded to the runner exactly once
+    mock_runner.cancel.assert_called_once()

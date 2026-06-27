@@ -1,7 +1,8 @@
 """QProcess wrapper for running the existing CLI through OS pipes."""
 
 from __future__ import annotations
-
+import os
+import subprocess
 from src.services.cli_run_service import (
     CliCommandBuilder,
     CliRunConfig,
@@ -113,6 +114,25 @@ class ProcessRunner(QObject):
                 detail=str(process_id),
             )
         self._process.kill()
+
+        pid = self._process.processId()
+
+        # 1. Aggressive OS-level kill to destroy the process tree (including children)
+        if os.name == 'nt':  # Windows
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', str(pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        else:  # Linux (e.g. WSL / Ubuntu) or Mac
+            try:
+                import signal
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+        # 2. Forcefully close all I/O communication pipes with the process
+        self._process.close()
 
     def send_input_line(self, line: str) -> None:
         if self._process.state() == QProcess.ProcessState.NotRunning:

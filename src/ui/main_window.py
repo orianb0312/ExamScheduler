@@ -43,7 +43,7 @@ from src.services.schedule_calendar_export_service import (
     CalendarExportResult,
     ScheduleCalendarExportService,
 )
-
+from src.ui.loading_view import LoadingView
 
 NO_EXAM_SCHEDULES_MESSAGE = (
     "No exam schedules were generated for the selected programs. "
@@ -89,6 +89,7 @@ class MainWindow(QMainWindow):
         self.input_panel = InputPanel(project_root=project_root)
         self.calendar_view = self.input_panel.calendar_view
         self.output_view = OutputView()
+        self.loading_view = LoadingView()
         self._stack = QStackedWidget()
 
         self._build_layout()
@@ -115,12 +116,15 @@ class MainWindow(QMainWindow):
     def _build_layout(self) -> None:
         self.input_panel.attach_schedules_page(self.output_view)
         self._stack.addWidget(self.input_panel)
+        self._stack.addWidget(self.loading_view)
+        self._stack.addWidget(self.output_view)
         self.setCentralWidget(self._stack)
 
     def _connect_signals(self) -> None:
         self.input_panel.data_load_requested.connect(self._load_selected_files)
         self.input_panel.run_requested.connect(self._start_cli_run)
-        self.input_panel.cancel_requested.connect(self._runner.cancel)
+        self.input_panel.cancel_requested.connect(self._cancel_process)
+        self.loading_view.cancel_button.clicked.connect(self._cancel_process)
         self.input_panel.view_calendar_requested.connect(self._show_calendar_screen)
         self.input_panel.dashboard_view_results_requested.connect(
             self._show_top_schedule_screen
@@ -361,9 +365,21 @@ class MainWindow(QMainWindow):
             self._show_output_screen()
         self._runner.start(config)
 
+    def _cancel_process(self) -> None:
+        # Handle manual cancellation, stop the runner, and reset UI states immediately
+        self._stay_on_input_after_lazy_stop = True
+        self._runner.cancel()
+        self.input_panel.set_running(False)
+        self.output_view.set_running(False)
+        self._show_input_screen()
+
     def _handle_started(self) -> None:
+        # Disable input controls and prepare output screens for execution state
         self.input_panel.set_running(True)
         self.output_view.set_running(True)
+        self.loading_view.reset()
+        # Seamlessly transition stack widget to display the dedicated loading view
+        self._stack.setCurrentWidget(self.loading_view)
 
     def _handle_stdout(self, text: str) -> None:
         if self._ignore_stale_runner_result:
