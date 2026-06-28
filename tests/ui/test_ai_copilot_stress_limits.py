@@ -361,7 +361,7 @@ def test_repeated_good_security_bad_good_cycles_do_not_poison_state(tmp_path):
         )
         assert unrelated_constraints == []
         assert unrelated_responses == [FALLBACK]
-        assert unrelated_process.program == "ollama-test"
+        assert unrelated_process.program is None
 
         month_constraints, month_responses, month_process = _run_request(
             "No exams in January",

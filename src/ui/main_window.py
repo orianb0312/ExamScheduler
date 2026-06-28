@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from collections.abc import Callable
@@ -50,6 +51,8 @@ NO_EXAM_SCHEDULES_MESSAGE = (
     "No exam schedules were generated for the selected programs. "
     "Check that the selected courses include exam assessments."
 )
+
+LOGGER = logging.getLogger(__name__)
 
 ProcessRunnerFactory = Callable[[object], ProcessRunner]
 
@@ -759,10 +762,9 @@ class MainWindow(QMainWindow):
 
     def handle_new_ai_constraint(self, rule_dict: dict) -> None:
         """Persist one validated upsert or removal event from the copilot."""
-        print(
-            "DEBUG [MainWindow]: Received constraint event: "
-            f"{json.dumps(rule_dict, ensure_ascii=True, sort_keys=True)}",
-            flush=True,
+        LOGGER.debug(
+            "Received AI constraint event: %s",
+            json.dumps(rule_dict, ensure_ascii=True, sort_keys=True),
         )
         if not isinstance(rule_dict, dict):
             return
@@ -802,21 +804,13 @@ class MainWindow(QMainWindow):
         try:
             self._write_active_ai_rules(current_rules)
         except OSError as exc:
-            print(
-                "DEBUG [MainWindow]: Failed to save active AI rules: "
-                f"{exc}",
-                flush=True,
-            )
+            LOGGER.warning("Failed to save active AI rules: %s", exc)
             self._toast.show_message(
                 "The AI rule was processed, but its file could not be saved. "
                 "Please try again."
             )
             return
-        print(
-            "DEBUG [MainWindow]: Saved active AI rules to "
-            f"{self._active_ai_rules_file}",
-            flush=True,
-        )
+        LOGGER.debug("Saved active AI rules to %s", self._active_ai_rules_file)
         if current_rules != original_rules:
             self._stop_active_lazy_run_for_input_edit()
             if (
@@ -911,18 +905,13 @@ class MainWindow(QMainWindow):
                 self._write_active_ai_rules(
                     [dict(rule) for rule in pending_rules]
                 )
-                print(
-                    "DEBUG [MainWindow]: Recovered pending active AI rules "
-                    f"write to {self._active_ai_rules_file}",
-                    flush=True,
+                LOGGER.debug(
+                    "Recovered pending active AI rules write to %s",
+                    self._active_ai_rules_file,
                 )
                 return
             except OSError as exc:
-                print(
-                    "DEBUG [MainWindow]: Pending AI rules recovery failed: "
-                    f"{exc}",
-                    flush=True,
-                )
+                LOGGER.warning("Pending AI rules recovery failed: %s", exc)
                 return
 
         temporary_path.unlink(missing_ok=True)

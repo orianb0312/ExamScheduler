@@ -136,11 +136,11 @@ def _layer1_attacks() -> tuple[str, ...]:
 
 def _layer2_requests() -> tuple[str, ...]:
     return (
-        "Schedule Algorithms exam on 2026-07-15",
-        "Set Data Structures exam date to 2026-07-16",
-        "Fix System Design exam on 2026-07-17",
-        "Schedule Developer Tools exam on 2026-07-18",
-        "Please schedule Prompt Engineering exam on 2026-07-19",
+        "Please help classify the Algorithms exam scheduling request",
+        "Please help classify the Data Structures exam scheduling request",
+        "Please help classify the System Design exam scheduling request",
+        "Please help classify the Developer Tools exam scheduling request",
+        "Please help classify the Prompt Engineering exam scheduling request",
     )
 
 

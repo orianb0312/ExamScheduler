@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date
 from pathlib import Path
@@ -11,6 +12,9 @@ from src.models.academic import Course
 from src.services.constraint_settings_policy import (
     is_constraint_integer_allowed,
 )
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AICopilotRule(ISchedulingRule):
@@ -76,15 +80,10 @@ class AICopilotRule(ISchedulingRule):
         self.ai_rules_filepath = Path(ai_rules_filepath).expanduser().resolve()
         self.ai_constraints = self._load_ai_rules(self.ai_rules_filepath)
         self._application_logged = False
-        print(
-            "DEBUG [Algorithm]: Loading active AI rules from "
-            f"{self.ai_rules_filepath}",
-            flush=True,
-        )
-        print(
-            "DEBUG [Algorithm]: Loaded "
-            f"{len(self.ai_constraints)} validated active AI rule(s)",
-            flush=True,
+        LOGGER.debug("Loading active AI rules from %s", self.ai_rules_filepath)
+        LOGGER.debug(
+            "Loaded %s validated active AI rule(s)",
+            len(self.ai_constraints),
         )
 
     @classmethod
@@ -122,10 +121,7 @@ class AICopilotRule(ISchedulingRule):
 
         try:
             if filepath.stat().st_size > self.MAX_FILE_BYTES:
-                print(
-                    "DEBUG [Algorithm]: AI rules file exceeds the safe size limit",
-                    flush=True,
-                )
+                LOGGER.warning("AI rules file exceeds the safe size limit")
                 return []
             payload = json.loads(
                 filepath.read_text(encoding="utf-8"),
@@ -133,17 +129,11 @@ class AICopilotRule(ISchedulingRule):
                 parse_constant=self._reject_non_finite_number,
             )
         except (OSError, json.JSONDecodeError, ValueError, RecursionError) as exc:
-            print(
-                f"DEBUG [Algorithm]: Rejected invalid AI rules file: {exc}",
-                flush=True,
-            )
+            LOGGER.warning("Rejected invalid AI rules file: %s", exc)
             return []
 
         if not isinstance(payload, list) or len(payload) > self.MAX_RULES:
-            print(
-                "DEBUG [Algorithm]: Rejected AI rules file with invalid root schema",
-                flush=True,
-            )
+            LOGGER.warning("Rejected AI rules file with invalid root schema")
             return []
 
         validated_rules: list[dict] = []
@@ -151,10 +141,7 @@ class AICopilotRule(ISchedulingRule):
         for record in payload:
             validated = self.validate_rule_record(record)
             if validated is None or validated["rule_id"] in seen_rule_ids:
-                print(
-                    "DEBUG [Algorithm]: Skipped an invalid or duplicate AI rule",
-                    flush=True,
-                )
+                LOGGER.debug("Skipped an invalid or duplicate AI rule")
                 continue
             seen_rule_ids.add(validated["rule_id"])
             validated_rules.append(validated)
@@ -165,19 +152,18 @@ class AICopilotRule(ISchedulingRule):
             return True
 
         if not self._application_logged:
-            print(
-                "DEBUG [Algorithm]: Applying "
-                f"{len(self.ai_constraints)} active AI rule(s)",
-                flush=True,
+            LOGGER.debug(
+                "Applying %s active AI rule(s)",
+                len(self.ai_constraints),
             )
             self._application_logged = True
 
         for rule in self.ai_constraints:
             if not self._rule_is_valid(rule, attempt_state):
-                print(
-                    "DEBUG [Algorithm]: AI rule rejected scheduling branch: "
-                    f"{rule['rule_id']} ({rule['rule_type']})",
-                    flush=True,
+                LOGGER.debug(
+                    "AI rule rejected scheduling branch: %s (%s)",
+                    rule["rule_id"],
+                    rule["rule_type"],
                 )
                 return False
         return True

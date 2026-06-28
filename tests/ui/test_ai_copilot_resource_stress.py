@@ -70,7 +70,7 @@ class _MemorySampler:
 def test_chatbot_rejects_inference_before_oom(tmp_path, qtbot):
     process = _FakeProcess()
     worker = AICopilotWorker(
-        "Schedule Physics on 2026-07-15",
+        "Please help with the Physics exam schedule",
         process=process,
         ollama_program="ollama-test",
         model_name="test-model",
@@ -93,7 +93,7 @@ def test_chatbot_rejects_inference_before_oom(tmp_path, qtbot):
 def test_chatbot_reports_runtime_oom_without_changing_rules(tmp_path, qtbot):
     process = _FakeProcess()
     worker = AICopilotWorker(
-        "Schedule Physics on 2026-07-15",
+        "Please help with the Physics exam schedule",
         process=process,
         ollama_program="ollama-test",
         model_name="test-model",
@@ -120,7 +120,7 @@ def test_chatbot_reports_runtime_oom_without_changing_rules(tmp_path, qtbot):
 def test_chatbot_forces_process_stop_after_timeout(tmp_path, qtbot):
     process = _FakeProcess()
     worker = AICopilotWorker(
-        "Schedule Physics on 2026-07-15",
+        "Please help with the Physics exam schedule",
         process=process,
         ollama_program="ollama-test",
         model_name="test-model",
@@ -147,7 +147,7 @@ def test_chatbot_forces_process_stop_after_timeout(tmp_path, qtbot):
 def test_chatbot_missing_model_fails_closed(tmp_path, qtbot):
     process = _FakeProcess()
     worker = AICopilotWorker(
-        "Schedule Physics on 2026-07-15",
+        "Please help with the Physics exam schedule",
         process=process,
         ollama_program="missing-ollama",
         model_name="test-model",

@@ -209,8 +209,8 @@ class PaginationBar(QWidget):
             self._set_page_button(self.last_page_button, page_number=0, active=False)
             return
 
-        # Student note: showing millions of buttons would freeze the screen,
-        # so the ruler keeps page 1, then shows the current page area and the tail.
+        # Showing millions of buttons would freeze the screen, so the ruler keeps
+        # page 1, then shows the current page area and the tail.
         display_page_count = self._display_page_count()
         window_start = self._current_page
         window_end = min(window_start + PAGE_RULER_VISIBLE_NUMBERS - 1, display_page_count)

@@ -95,8 +95,8 @@ class ProgramSelectionWidget(QListWidget):
         if item is None or not _item_is_enabled(item):
             return
 
-        # Student note: Qt already toggles real checkbox clicks, so only row/text
-        # clicks need this manual toggle.
+        # Qt already toggles real checkbox clicks, so only row/text clicks need
+        # this manual toggle.
         if item.checkState() == previous_state:
             item.setCheckState(_opposite_check_state(item.checkState()))
 
