@@ -306,6 +306,18 @@ class MainWindow(QMainWindow):
             return
 
         period = periods[period_index]
+        if self._is_day_excluded_by_ai_rule(period, day):
+            self._toast.show_message(
+                "This day is excluded by an active AI rule. "
+                "Revert or clear the AI rule before allowing this day.",
+            )
+            self.calendar_view.update_day_status(
+                period_index,
+                day,
+                is_excluded=True,
+            )
+            return
+
         # The model already defines validity; the UI just flips the current state.
         is_excluding = period.is_date_valid(day)
         try:
@@ -709,6 +721,15 @@ class MainWindow(QMainWindow):
                 exclusions.append(exclusion)
         return tuple(exclusions)
 
+    def _is_day_excluded_by_ai_rule(self, period, day: date) -> bool:
+        return any(
+            _exclusion_contains_date(exclusion, day)
+            for exclusion in self._ai_calendar_exclusions_for_period(
+                period,
+                self._read_active_ai_rules(),
+            )
+        )
+
     def _show_input_screen(self) -> None:
         self.input_panel.show_program_page()
         self._stack.setCurrentWidget(self.input_panel)
@@ -1056,6 +1077,12 @@ def _global_ai_calendar_exclusions_for_rule(
         )
 
     return ()
+
+
+def _exclusion_contains_date(exclusion: ExclusionViewModel, current_date: date) -> bool:
+    if exclusion.end_date is None:
+        return exclusion.start_date == current_date
+    return exclusion.start_date <= current_date <= exclusion.end_date
 
 
 def _is_global_calendar_scope(parameters: dict) -> bool:

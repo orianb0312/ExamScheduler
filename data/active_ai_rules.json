@@ -1,10 +1,1 @@
-[
-  {
-    "rule_id": "ai_rule_1",
-    "description": "Exclude Thursday from exam scheduling",
-    "rule_type": "exclude_day",
-    "parameters": {
-      "weekday": "Thursday"
-    }
-  }
-]
+[]

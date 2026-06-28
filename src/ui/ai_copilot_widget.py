@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from html import escape
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -133,6 +133,8 @@ class AICopilotWidget(QWidget):
             not processing and self._active_rule_count > 0
         )
         self.send_button.setText("Working..." if processing else "Send")
+        if not processing:
+            QTimer.singleShot(0, self.input_field.setFocus)
 
     def set_active_rules(self, rules: dict[str, dict]) -> None:
         """Show a compact, persistent summary of the currently loaded AI rules."""

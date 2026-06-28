@@ -711,6 +711,10 @@ class InputPanel(QWidget):
                 self._revert_ai_copilot_rule(rule_id)
             return
 
+        if action == "clear_ai_rules":
+            self._confirm_clear_all_ai_copilot_rules()
+            return
+
         if action in AICopilotWorker.SUPPORTED_RULE_DEFINITIONS:
             parameters = {
                 key: value
