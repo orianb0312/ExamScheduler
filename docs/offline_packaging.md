@@ -26,6 +26,35 @@ starts the scheduler backend through `QProcess` using `python main.py`; shipping
 a portable Python runtime keeps that boundary working exactly as it works in
 development.
 
+## Wizard Installer With Model Choice
+
+For the Windows 10/11 release installer, use the dual-model Inno Setup build:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build_dual_model_installer.ps1 `
+  -WheelhouseSource dist\wheelhouse `
+  -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+```
+
+The generated wizard lets the user choose:
+
+- Recommended: `llama3.1:8b-instruct-q4_K_M`
+- Lightweight: `qwen3:4b`
+- Both models
+
+The builder explicitly excludes `outputs`, `performance_logs`,
+`test_master_output`, `.git`, `src/archive`, pytest caches, and `__pycache__`.
+It also exports only the selected Ollama model manifests/blobs needed for Llama
+and Qwen, not the entire local `%USERPROFILE%\.ollama\models` cache.
+
+Current staged payload location:
+
+```text
+dist\ExamSchedulerInstaller\payload
+```
+
+Current staged payload size is about 7.18 GiB before installer compression.
+
 ## What Must Be Bundled
 
 - Python runtime for Windows x64, unless the target PC already has a compatible
