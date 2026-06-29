@@ -168,6 +168,10 @@ class MainWindow(QMainWindow):
             self._revoke_all_app_calendar_entries
         )
 
+        self.output_view.best_schedule_changed.connect(
+            self._show_new_best_schedule_toast
+        )
+
     @property
     def loaded_input_data(self) -> LoadedSchedulerInput | None:
         return self._file_loading_service.loaded_data
@@ -1029,6 +1033,11 @@ class MainWindow(QMainWindow):
         if result.skipped_without_date:
             message += f" Skipped {result.skipped_without_date} exam(s) without dates."
         return message
+
+    def _show_new_best_schedule_toast(self, schedule: ScheduleSystem) -> None:
+        self._toast.show_message(
+            f"New best overall schedule found: Schedule #{schedule.number}."
+        )
 
 
 _AI_WEEKDAY_INDEXES = {

@@ -41,6 +41,7 @@ class OutputView(QWidget):
     calendar_revoke_all_requested = pyqtSignal()
 
     selected_schedule_changed = pyqtSignal(object)
+    best_schedule_changed = pyqtSignal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -165,6 +166,8 @@ class OutputView(QWidget):
         if not systems:
             return
 
+        old_best = self.best_schedule_so_far
+
         self._generated_systems.extend(systems)
         requested_priority = self.sorting_priority_widget.priority
         self._current_batch_systems.extend(systems)
@@ -182,6 +185,11 @@ class OutputView(QWidget):
             )
         else:
             self._best_schedule_tracker.update_batch(systems)
+        new_best = self.best_schedule_so_far
+
+        if old_best is not None and new_best is not None and new_best is not old_best:
+            self.best_schedule_changed.emit(new_best)
+
         self._replace_cache_with_current_sort()
         self.pagination_bar.set_page_count(self.cache.batch_count)
         if (
