@@ -664,6 +664,7 @@ class MainWindow(QMainWindow):
         self.input_panel.refresh_analytics_dashboard(
             self.output_view.best_schedule_so_far,
             current_batch_schedule=self.output_view.current_batch_best_schedule,
+            previous_best_schedule=self.output_view.previous_best_schedule,
             active_priorities=self.output_view.best_schedule_priority,
             total_schedules=total_schedules,
             current_page=self.output_view.pagination_bar.current_page,

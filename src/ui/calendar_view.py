@@ -52,6 +52,7 @@ class OutputView(QWidget):
         self._schedule_sorter = SchedulePrioritySorter()
         self._best_schedule_tracker = ScheduleBestTracker(self._schedule_sorter)
         self._current_batch_best_tracker = ScheduleBestTracker(self._schedule_sorter)
+        self._previous_best_schedule: ScheduleSystem | None = None
         self._sort_panel_open = False
         self._sort_panel_width = 480
         self._selected_schedule: ScheduleSystem | None = None
@@ -92,6 +93,7 @@ class OutputView(QWidget):
         self._current_batch_systems.clear()
         self._best_schedule_tracker.reset(self.sorting_priority_widget.priority)
         self._current_batch_best_tracker.reset(self.sorting_priority_widget.priority)
+        self._previous_best_schedule = None
         self.cache.clear()
         self.schedule_label.setText("No schedule selected")
         self.calendar_body.set_empty_text(DEFAULT_EMPTY_SCHEDULE_TEXT)
@@ -124,6 +126,7 @@ class OutputView(QWidget):
         self._current_batch_systems.clear()
         self._best_schedule_tracker.reset(self.sorting_priority_widget.priority)
         self._current_batch_best_tracker.reset(self.sorting_priority_widget.priority)
+        self._previous_best_schedule = None
         self.cache.clear()
         self._set_selected_schedule(None)
         self._pending_more_page = None
@@ -188,6 +191,7 @@ class OutputView(QWidget):
         new_best = self.best_schedule_so_far
 
         if old_best is not None and new_best is not None and new_best is not old_best:
+            self._previous_best_schedule = old_best
             self.best_schedule_changed.emit(new_best)
 
         self._replace_cache_with_current_sort()
@@ -202,6 +206,7 @@ class OutputView(QWidget):
 
     def _apply_sort_priority(self, _priority: tuple[str, ...]) -> None:
         self._replace_cache_with_current_sort()
+        self._previous_best_schedule = None
         self._best_schedule_tracker.rebuild(
             self._generated_systems,
             self.sorting_priority_widget.priority,
@@ -241,6 +246,10 @@ class OutputView(QWidget):
     @property
     def current_batch_best_schedule(self) -> ScheduleSystem | None:
         return self._current_batch_best_tracker.best_schedule
+
+    @property
+    def previous_best_schedule(self) -> ScheduleSystem | None:
+        return self._previous_best_schedule
 
     def _build_layout(self) -> None:
         root_layout = QVBoxLayout(self)

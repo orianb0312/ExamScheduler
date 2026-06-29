@@ -603,6 +603,7 @@ class InputPanel(QWidget):
         self,
         schedule,
         current_batch_schedule=None,
+        previous_best_schedule=None,
         active_priorities=(),
         *,
         total_schedules: int | None = None,
@@ -612,6 +613,7 @@ class InputPanel(QWidget):
         snapshot = self._dashboard_analytics.build_snapshot(
             schedule,
             current_batch_schedule=current_batch_schedule,
+            previous_best_schedule=previous_best_schedule,
             active_priorities=active_priorities,
             total_schedules=total_schedules,
             current_page=current_page,

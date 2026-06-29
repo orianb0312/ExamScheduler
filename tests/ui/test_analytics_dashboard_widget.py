@@ -315,7 +315,9 @@ def test_dashboard_keeps_best_schedule_so_far_across_generated_iterations(
     dashboard = window.input_panel.analytics_dashboard
     assert dashboard.fitness_card.value_label.text() == "Schedule #3"
     assert dashboard.health_card.value_label.text() == "Schedule #3"
-    assert "Best schedule so far #3 contains 2 exams" in (
-        dashboard.insights.winning_card.body_label.text()
-    )
-    assert "Mandatory min gap: 11" in dashboard.insights.winning_card.body_label.text()
+    winning_text = dashboard.insights.winning_card.body_label.text()
+    assert "Best schedule so far #3 contains 2 exams" in winning_text
+    assert "Mandatory min gap: 11" in winning_text
+    assert "- Previous overall best was schedule #1." in winning_text
+    assert "- New overall best is schedule #3." in winning_text
+    assert "- Mandatory min gap improved from 9 to 11." in winning_text

@@ -43,6 +43,7 @@ class DashboardAnalyticsService:
         schedule: ScheduleSystem | None,
         *,
         current_batch_schedule: ScheduleSystem | None = None,
+        previous_best_schedule: ScheduleSystem | None = None,
         active_priorities: Sequence[str] = (),
         total_schedules: int | None = None,
         current_page: int = 0,
@@ -84,6 +85,11 @@ class DashboardAnalyticsService:
             current_batch_schedule,
             active_priorities,
         )
+        previous_best_report = _report_for_schedule(
+            self._engine,
+            previous_best_schedule,
+            active_priorities,
+        )
         chunk_number, start_index, end_index = _pagination_values(
             total_schedules,
             current_page,
@@ -100,6 +106,8 @@ class DashboardAnalyticsService:
                 schedule,
                 current_batch_report,
                 current_batch_schedule,
+                previous_best_report,
+                previous_best_schedule,
             ),
             bottleneck_text=_bottleneck_text(report),
             chunk_number=chunk_number,
@@ -191,6 +199,8 @@ def _winning_text(
     schedule: ScheduleSystem,
     current_batch_report: ScheduleAnalyticsReport | None,
     current_batch_schedule: ScheduleSystem | None,
+    previous_best_report: ScheduleAnalyticsReport | None,
+    previous_best_schedule: ScheduleSystem | None,
 ) -> str:
     text = (
         f"Best schedule so far #{schedule.number} contains {report.exam_count} exams "
@@ -198,20 +208,78 @@ def _winning_text(
         f"{_fitness_text(report, schedule)}. "
         f"{_busiest_day_summary(report)} {_tightest_gap_summary(report)}"
     ).strip()
+    comparison_bullets = _previous_best_comparison_bullets(
+        report,
+        schedule,
+        previous_best_report,
+        previous_best_schedule,
+    )
+    if comparison_bullets:
+        text = f"{text}\n" + "\n".join(comparison_bullets)
+
     if current_batch_report is None or current_batch_schedule is None:
         return text
 
     current_score = _fitness_text(current_batch_report, current_batch_schedule)
     if current_batch_schedule.number == schedule.number:
         return (
-            f"{text} The latest batch also contains this global winner, so no "
+            f"{text}\nThe latest batch also contains this global winner, so no "
             "earlier schedule is currently beating it."
         )
     return (
-        f"{text} Current batch best is schedule #{current_batch_schedule.number} "
+        f"{text}\nCurrent batch best is schedule #{current_batch_schedule.number} "
         f"with {current_score}, so the latest batch is useful but has not "
         "overtaken the best-so-far schedule."
     )
+
+
+def _previous_best_comparison_bullets(
+    report: ScheduleAnalyticsReport,
+    schedule: ScheduleSystem,
+    previous_report: ScheduleAnalyticsReport | None,
+    previous_schedule: ScheduleSystem | None,
+) -> tuple[str, ...]:
+    if previous_report is None or previous_schedule is None:
+        return ()
+    if previous_schedule.number == schedule.number:
+        return ()
+
+    bullets = [
+        f"- Previous overall best was schedule #{previous_schedule.number}.",
+        f"- New overall best is schedule #{schedule.number}.",
+    ]
+    tied_metrics: list[str] = []
+    previous_metrics = {
+        metric.key: metric
+        for metric in previous_report.metric_values
+    }
+
+    for metric in report.metric_values:
+        previous_metric = previous_metrics.get(metric.key)
+        if previous_metric is None:
+            continue
+        if metric.value > previous_metric.value:
+            if tied_metrics:
+                bullets.append(
+                    "- Higher-priority metric(s) stayed tied: "
+                    + ", ".join(tied_metrics)
+                    + "."
+                )
+            bullets.append(
+                f"- {metric.title} improved from "
+                f"{_format_metric(previous_metric.value)} to "
+                f"{_format_metric(metric.value)}."
+            )
+            return tuple(bullets)
+        if metric.value == previous_metric.value:
+            tied_metrics.append(
+                f"{metric.title} {_format_metric(metric.value)}"
+            )
+
+    bullets.append(
+        "- It ranks higher after comparing the active priority metrics in order."
+    )
+    return tuple(bullets)
 
 
 def _bottleneck_text(report: ScheduleAnalyticsReport) -> str:
