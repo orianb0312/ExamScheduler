@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 from src.services.schedule_output_service import ScheduleSystem
 from src.sorting.schedule_priority import (
@@ -12,12 +12,19 @@ from src.sorting.schedule_priority import (
     sortable_exams_from_display_system,
 )
 
+ScoreProvider = Callable[[ScheduleSystem, tuple[str, ...]], tuple[float, ...]]
+
 
 class ScheduleBestTracker:
     """Keep a rolling best schedule without copying or re-sorting all systems."""
 
-    def __init__(self, sorter: SchedulePrioritySorter | None = None) -> None:
+    def __init__(
+        self,
+        sorter: SchedulePrioritySorter | None = None,
+        score_provider: ScoreProvider | None = None,
+    ) -> None:
         self._sorter = sorter or SchedulePrioritySorter()
+        self._score_provider = score_provider
         self._priority: tuple[str, ...] = ()
         self._best_schedule: ScheduleSystem | None = None
         self._best_score: tuple[float, ...] = ()
@@ -51,10 +58,13 @@ class ScheduleBestTracker:
             self._consider(schedule)
 
     def _consider(self, schedule: ScheduleSystem) -> None:
-        score = self._sorter.score_tuple(
-            sortable_exams_from_display_system(schedule),
-            self._priority,
-        )
+        if self._score_provider is None:
+            score = self._sorter.score_tuple(
+                sortable_exams_from_display_system(schedule),
+                self._priority,
+            )
+        else:
+            score = self._score_provider(schedule, self._priority)
         if self._best_schedule is None or score > self._best_score:
             self._best_schedule = schedule
             self._best_score = score

@@ -1,24 +1,22 @@
+"""Scheduling-period domain objects and exam-date validation helpers."""
+
+from datetime import date
 from dataclasses import dataclass, field
 from typing import List, Optional
-from datetime import date
-from src.models.enums import Semester, Term
+
 from src.models.academic import Course
+from src.models.enums import Semester, Term
 
 
 @dataclass
 class DateExclusion:
-    """
-    Represents a single date or a range of dates where exams cannot be scheduled.
-    Handles 'Excluded' records like Saturdays or holidays (e.g., Purim).
-    """
+    """Single date or date range where exams cannot be scheduled."""
+
     start_date: date
     end_date: Optional[date] = None
 
     def is_date_excluded(self, check_date: date):
-        """
-            Checks if a specific date falls within this exclusion period.
-            Returns True if the date is blocked.
-        """
+        """Return True when the date falls inside this blocked range."""
         if self.end_date:
             return self.start_date <= check_date <= self.end_date
 
@@ -27,10 +25,8 @@ class DateExclusion:
 
 @dataclass
 class ExamPeriod:
-    """
-        Represents the available window for scheduling exams for a specific semester and Moed.
-        Corresponds to the 'Exam Period' file structure in the requirements.
-    """
+    """Available exam window for one semester and term from the dates file."""
+
     semester: Semester
     term: Term
     start_date: date
@@ -57,5 +53,5 @@ class ExamPeriod:
 
 
 def filter_exam_courses(courses: List[Course]) -> List[Course]:
-    """ Return only courses that require exam scheduling"""
+    """Return only courses whose evaluation strategy requires exam scheduling."""
     return [course for course in courses if course.needs_exam_slot()]

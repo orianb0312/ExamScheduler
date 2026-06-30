@@ -18,7 +18,13 @@ from src.services.day_status_service import (
 
 
 class SchedulerInputState:
-    """Keep selected programs and expose them through the existing file input flow."""
+    """Bridge desktop state back into the existing file-based scheduler flow.
+
+    The Stage 3 UI owns editable program, calendar, and constraint state, while
+    the proven backend still expects text files. This object is the adapter that
+    serializes the current UI state into runtime files immediately before a
+    local CLI run starts.
+    """
 
     def __init__(self, runtime_dir: Path) -> None:
         self._runtime_dir = runtime_dir
@@ -115,6 +121,7 @@ class SchedulerInputState:
 
 
 def format_courses(courses: Sequence[Course]) -> str:
+    """Serialize edited course objects using the legacy V1 course-file contract."""
     blocks: list[str] = []
     for course in courses:
         lines = [

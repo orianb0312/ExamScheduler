@@ -1,7 +1,9 @@
+"""V1 academic conflict rule implemented through the shared rule interface."""
+
 from datetime import date
-from typing import Dict, List
+from typing import Dict
 from src.interfaces import ISchedulingRule
-from src.models.academic import Course, ProgramAffiliation
+from src.models.academic import Course
 from src.models.enums import RequirementType
 
 
@@ -12,7 +14,8 @@ class AcademicConflictRule(ISchedulingRule):
     """
 
     def is_valid(self, attempt_state: Dict[Course, date]) -> bool:
-        # Check only for courses assigned on the exact same date
+        """Reject same-day conflicts for cohorts where at least one course is mandatory."""
+        # Grouping by date keeps the common no-conflict path small.
         dates_to_courses = {}
         for course, exam_date in attempt_state.items():
             if exam_date not in dates_to_courses:
@@ -31,6 +34,7 @@ class AcademicConflictRule(ISchedulingRule):
         return True
 
     def _has_critical_conflict(self, c1: Course, c2: Course) -> bool:
+        """Return True when two courses share a cohort and need separate days."""
         for aff1 in c1.affiliations:
             for aff2 in c2.affiliations:
                 # Checking if they are in the same program in the same year

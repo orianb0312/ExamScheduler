@@ -6,6 +6,8 @@ project.
 ## Files
 
 - `project_overview.md` - current system purpose, workflows, modes, and used files.
+- `software_design_document.md` - formal SDD with UI/UX, menus, OOP class
+  architecture, and readability guidance for Stage 3 packaging acceptance.
 - `diagrams.md` - Mermaid diagrams for workflow, use cases, classes, and sequences.
 - `diagram_exports/` - exported SVG, PNG, HTML, and PDF diagram files.
 - `testing_and_validation.md` - test status, validation strategy, and useful commands.

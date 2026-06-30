@@ -1,3 +1,5 @@
+"""Main desktop input shell, top navigation menu, and run configuration UI."""
+
 from __future__ import annotations
 
 import json
@@ -51,6 +53,12 @@ _MIN_COMPACT_LOWER_PANEL_HEIGHT = 144
 
 
 class InputPanel(QWidget):
+    """Compose the Stage 3 UI pages and emit application-level user intents.
+
+    Widgets in this shell collect input and emit signals; they do not call the
+    scheduler directly. MainWindow listens to those signals and coordinates
+    services, QProcess execution, and result rendering.
+    """
 
     run_requested = pyqtSignal(CliRunConfig)
     cancel_requested = pyqtSignal()
@@ -308,7 +316,8 @@ class InputPanel(QWidget):
         return scroll_area
 
     def _build_top_navigation(self) -> QWidget:
-        # This is visual navigation for the new shell; routing can be added later.
+        # The SDD menu model lives here: one stable shell with page widgets
+        # swapped underneath, so users do not lose context between tabs.
         nav = QWidget()
         nav.setObjectName("topNavigation")
         layout = QHBoxLayout(nav)

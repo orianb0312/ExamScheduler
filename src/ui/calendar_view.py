@@ -17,7 +17,9 @@ from src.ui.calendar_view_panel import CalendarPeriodList
 from src.ui.pagination_bar import PaginationBar
 from src.ui.schedule_best_tracker import ScheduleBestTracker
 from src.sorting.schedule_priority import (
+    DEFAULT_SORT_PRIORITY,
     SchedulePrioritySorter,
+    normalize_sort_priority,
     sortable_exams_from_display_system,
 )
 from src.ui.sorting_priority_widget import SortingPriorityWidget
@@ -26,6 +28,10 @@ from src.ui.view_models import ExamPeriodViewModel
 
 
 DEFAULT_EMPTY_SCHEDULE_TEXT = "No possible schedule is available yet."
+_DEFAULT_SCORE_INDEX = {
+    criterion_key: index
+    for index, criterion_key in enumerate(DEFAULT_SORT_PRIORITY)
+}
 
 
 class OutputView(QWidget):
@@ -50,8 +56,15 @@ class OutputView(QWidget):
         self._generated_systems: list[ScheduleSystem] = []
         self._current_batch_systems: list[ScheduleSystem] = []
         self._schedule_sorter = SchedulePrioritySorter()
-        self._best_schedule_tracker = ScheduleBestTracker(self._schedule_sorter)
-        self._current_batch_best_tracker = ScheduleBestTracker(self._schedule_sorter)
+        self._sort_score_cache: dict[int, tuple[float, ...]] = {}
+        self._best_schedule_tracker = ScheduleBestTracker(
+            self._schedule_sorter,
+            score_provider=self._score_for_schedule,
+        )
+        self._current_batch_best_tracker = ScheduleBestTracker(
+            self._schedule_sorter,
+            score_provider=self._score_for_schedule,
+        )
         self._previous_best_schedule: ScheduleSystem | None = None
         self._sort_panel_open = False
         self._sort_panel_width = 480
@@ -94,6 +107,7 @@ class OutputView(QWidget):
         self._best_schedule_tracker.reset(self.sorting_priority_widget.priority)
         self._current_batch_best_tracker.reset(self.sorting_priority_widget.priority)
         self._previous_best_schedule = None
+        self._sort_score_cache.clear()
         self.cache.clear()
         self.schedule_label.setText("No schedule selected")
         self.calendar_body.set_empty_text(DEFAULT_EMPTY_SCHEDULE_TEXT)
@@ -127,6 +141,7 @@ class OutputView(QWidget):
         self._best_schedule_tracker.reset(self.sorting_priority_widget.priority)
         self._current_batch_best_tracker.reset(self.sorting_priority_widget.priority)
         self._previous_best_schedule = None
+        self._sort_score_cache.clear()
         self.cache.clear()
         self._set_selected_schedule(None)
         self._pending_more_page = None
@@ -172,6 +187,7 @@ class OutputView(QWidget):
         old_best = self.best_schedule_so_far
 
         self._generated_systems.extend(systems)
+        self._cache_sort_scores(systems)
         requested_priority = self.sorting_priority_widget.priority
         self._current_batch_systems.extend(systems)
         if not self._current_batch_best_tracker.matches_priority(requested_priority):
@@ -194,7 +210,10 @@ class OutputView(QWidget):
             self._previous_best_schedule = old_best
             self.best_schedule_changed.emit(new_best)
 
-        self._replace_cache_with_current_sort()
+        if requested_priority:
+            self._replace_cache_with_current_sort()
+        else:
+            self.cache.extend(systems)
         self.pagination_bar.set_page_count(self.cache.batch_count)
         if (
             self._pending_more_page is not None
@@ -227,12 +246,50 @@ class OutputView(QWidget):
             self.cache.replace(self._generated_systems)
             return
 
-        self.cache.replace(
-            self._schedule_sorter.sort(
-                self._generated_systems,
-                priority,
-                sortable_exams_from_display_system,
+        self.cache.replace(self._sorted_systems(priority))
+
+    def _sorted_systems(self, priority: tuple[str, ...]) -> list[ScheduleSystem]:
+        return [
+            system
+            for _key, system in sorted(
+                (
+                    (self._sort_key_for_system(index, system, priority), system)
+                    for index, system in enumerate(self._generated_systems)
+                ),
+                key=lambda item: item[0],
             )
+        ]
+
+    def _sort_key_for_system(
+        self,
+        original_index: int,
+        schedule: ScheduleSystem,
+        priority: tuple[str, ...],
+    ) -> tuple[float, ...]:
+        scores = self._score_for_schedule(schedule, priority)
+        return tuple(-score for score in scores) + (float(original_index),)
+
+    def _cache_sort_scores(self, systems: list[ScheduleSystem]) -> None:
+        for system in systems:
+            self._score_for_schedule(system, DEFAULT_SORT_PRIORITY)
+
+    def _score_for_schedule(
+        self,
+        schedule: ScheduleSystem,
+        priority: tuple[str, ...],
+    ) -> tuple[float, ...]:
+        clean_priority = normalize_sort_priority(priority)
+        cached_scores = self._sort_score_cache.get(id(schedule))
+        if cached_scores is None:
+            cached_scores = self._schedule_sorter.score_tuple(
+                sortable_exams_from_display_system(schedule),
+                DEFAULT_SORT_PRIORITY,
+            )
+            self._sort_score_cache[id(schedule)] = cached_scores
+
+        return tuple(
+            cached_scores[_DEFAULT_SCORE_INDEX[criterion_key]]
+            for criterion_key in clean_priority
         )
 
     @property

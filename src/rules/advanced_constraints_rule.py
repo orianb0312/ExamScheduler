@@ -1,3 +1,5 @@
+"""Stage 3 advanced hard constraints implemented as one scheduler rule object."""
+
 from datetime import date
 from typing import Dict
 from src.interfaces import ISchedulingRule

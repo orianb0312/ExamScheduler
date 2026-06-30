@@ -105,6 +105,50 @@ def test_output_view_reorders_cached_schedules_when_priority_changes(
     assert threshold_state.constraints == {"max_exams_per_day": 2}
 
 
+def test_output_view_applies_high_page_sort_from_cached_scores(qtbot: QtBot) -> None:
+    cohort = ScheduleExamCohort(
+        program_id=83101,
+        year=1,
+        requirement_type="Obligatory",
+    )
+    narrow_gap = _system(
+        1,
+        (
+            _exam("One", date(2026, 1, 1), cohort),
+            _exam("Two", date(2026, 1, 2), cohort),
+        ),
+    )
+    medium_gap = _system(
+        2,
+        (
+            _exam("Three", date(2026, 1, 1), cohort),
+            _exam("Four", date(2026, 1, 4), cohort),
+        ),
+    )
+    wide_gap = _system(
+        3,
+        (
+            _exam("Five", date(2026, 1, 1), cohort),
+            _exam("Six", date(2026, 1, 10), cohort),
+        ),
+    )
+
+    view = OutputView()
+    qtbot.addWidget(view)
+    view.add_systems([narrow_gap, medium_gap, wide_gap])
+    view.pagination_bar.set_current_page(3)
+
+    def fail_score_recalculation(*_args, **_kwargs):
+        raise AssertionError("runtime sorting should reuse cached schedule scores")
+
+    view._schedule_sorter.score_tuple = fail_score_recalculation
+
+    view.sorting_priority_widget.set_priority([MANDATORY_MIN_GAP])
+
+    assert view.pagination_bar.current_page == 1
+    assert view.cache.get_page(1)[0] is wide_gap
+
+
 def test_sorting_priority_widget_can_disable_and_enable_criteria(qtbot: QtBot) -> None:
     widget = SortingPriorityWidget()
     qtbot.addWidget(widget)

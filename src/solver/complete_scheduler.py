@@ -1,3 +1,10 @@
+"""Complete-system scheduling, lazy streaming, and memory-bounded storage.
+
+This module extends the period scheduler into full yearly systems by combining
+period-level schedules through Cartesian products. Stage 3 UI callers use the
+streaming APIs so huge result sets can be paged without freezing the desktop.
+"""
+
 import struct
 import tempfile
 import time
@@ -27,6 +34,12 @@ DEFAULT_OUTPUT_BUFFER_BYTES = 16 * 1024 * 1024
 
 @dataclass(frozen=True)
 class _CourseKey:
+    """
+    Identity-preserving adapter used only when calling rule objects.
+
+    Course.__eq__ is based on course_id, so duplicate IDs would otherwise
+    collapse inside rule dictionaries.
+    """
     index: int
     course: Course
 
@@ -35,6 +48,8 @@ class _CourseKey:
 
 
 class ScheduleSource(Protocol):
+    """Indexable source for period assignments used by complete-system products."""
+
     def __len__(self) -> int:
         ...
 
@@ -355,6 +370,8 @@ def _iter_index_product_counts(counts: Sequence[int]) -> Iterator[List[int]]:
 
 @dataclass(frozen=True)
 class PeriodScheduleSet:
+    """One exam period plus its generated schedules and cached formatting parts."""
+
     period: ExamPeriod
     courses: List[Course]
     schedules: ScheduleSource
@@ -402,6 +419,8 @@ class PeriodScheduleSet:
 
 @dataclass(frozen=True)
 class CompleteSystemResult:
+    """Summary returned by count, write, and auto-write complete-system modes."""
+
     output_path: Optional[Path]
     period_course_counts: List[int]
     period_schedule_counts: List[int]
@@ -414,12 +433,16 @@ class CompleteSystemResult:
 
 @dataclass(frozen=True)
 class GeneratedCompleteSystem:
+    """One formatted complete-system item emitted by a lazy stream."""
+
     number: int
     text: str
 
 
 @dataclass(frozen=True)
 class CompleteSystemStream:
+    """Owns the generated-system iterator and closes backing stores on exit."""
+
     period_course_counts: List[int]
     period_schedule_counts: List[int]
     complete_system_count: int
@@ -483,6 +506,7 @@ class CompleteSystemScheduler:
         self,
         period_course_sets: Sequence[tuple[ExamPeriod, List[Course]]],
     ) -> CompleteSystemResult:
+        """Count the Cartesian product without materializing all schedules."""
         started_at = time.perf_counter()
         schedule_sets = self._build_period_schedule_sets(
             period_course_sets,
@@ -506,6 +530,7 @@ class CompleteSystemScheduler:
         max_systems: Optional[int] = None,
         sort_priority: Sequence[str] = (),
     ) -> CompleteSystemStream:
+        """Return a lazy stream used by the CLI and PyQt paging protocol."""
         schedule_sets = self._build_period_schedule_sets(period_course_sets)
         complete_count = self._product_count(schedule_sets)
         formatted_caches = self._build_formatted_schedule_caches(schedule_sets)

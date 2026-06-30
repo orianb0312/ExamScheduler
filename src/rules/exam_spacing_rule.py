@@ -1,3 +1,5 @@
+"""Stage 3 minimum-spacing constraints for mandatory and cohort exams."""
+
 from datetime import date
 from typing import Dict
 from src.interfaces import ISchedulingRule
