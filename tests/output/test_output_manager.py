@@ -1,5 +1,6 @@
 import unittest
 import os
+import sys
 import json
 import shutil
 import tempfile
@@ -121,11 +122,22 @@ class TestOutputManagerUltimate(unittest.TestCase):
                 os.remove(self.master_path)
             except PermissionError:
                 pass
-        def force_remove(func, path, excinfo):
+
+        # Clear any read-only flag so locked files can still be removed
+        # (notably on Windows), then delete via the recursive remover.
+        def _force_remove(func, path, _exc):
             import stat
             os.chmod(path, stat.S_IWRITE)
             func(path)
-        shutil.rmtree(self.test_dir, onexc=force_remove)
+
+        # shutil.rmtree renamed the error callback from `onerror` to `onexc`
+        # in Python 3.12 (`onerror` is deprecated and slated for removal in
+        # 3.14). Pick the right keyword for the running interpreter so the
+        # test works on Python 3.10+ regardless of version.
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(self.test_dir, onexc=_force_remove)
+        else:
+            shutil.rmtree(self.test_dir, onerror=_force_remove)
 
         self.manager.export({})  # Should recreate
         self.assertTrue(self.master_path.exists())
