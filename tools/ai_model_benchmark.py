@@ -39,7 +39,7 @@ SUPPORTED ACTIONS:
 - exclude_period: {"action":"exclude_period","month":1} or {"action":"exclude_period","start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD"}; optional scope keys are course, lecturer, and program.
 - lecturer_unavailable: {"action":"lecturer_unavailable","lecturer":"Last Name","date":"YYYY-MM-DD"}; weekday, month/day, and month are also allowed.
 - program_limit: {"action":"program_limit","program":"83101","max_exams_per_day":2}. The program must be a numeric program ID. If only a program name is provided, clarify.
-- exam_spacing: {"action":"exam_spacing","min_days":3}
+- exam_spacing: {"action":"exam_spacing","min_days":3}. Interpret gap, spacing, buffer, minimum gap, minimum days, days apart, and days between as the minimum calendar-day distance between exams. In spacing requests, tests and finals mean exams.
 - already_active: {"action":"already_active"} if the requested rule exactly matches an active AI-created rule.
 - revert_rule: {"action":"revert_rule","rule_id":"ai_rule_1"} only for a matching rule in SESSION RULES CREATED BY THIS CHATBOT.
 - system_inquiry: {"action":"system_inquiry","topic":"supported_rules"}, {"action":"system_inquiry","topic":"active_ai_rules"}, or {"action":"system_inquiry","topic":"base_rules"}.
@@ -49,6 +49,11 @@ IMMUTABLE RULES:
 - Base-file and academic conflict rules are read-only. If asked to modify or remove them, output: {"error":"protected_constraint"}.
 - For allow, permit, restore, resume, or enable requests, treat the request as a semantic revert and return the matching ai_rule_* from the session rules.
 - Return only one JSON object. Do not wrap it in Markdown.
+
+EXAMPLES:
+- "Minimum gap 5 days" -> {"action":"exam_spacing","min_days":5}
+- "Minimum 5 days gap" -> {"action":"exam_spacing","min_days":5}
+- "Minimum days between tests 5 days" -> {"action":"exam_spacing","min_days":5}
 """
 
 SUPPORTED_ERRORS = {
