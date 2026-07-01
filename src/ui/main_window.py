@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
         process_runner_factory: ProcessRunnerFactory | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("ExamScheduler v2.0")
+        self.setWindowTitle("ExamScheduler v3.4.1")
         self.resize(1200, 760)
         self.setMinimumSize(820, 620)
 

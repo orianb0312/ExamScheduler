@@ -54,6 +54,11 @@ SCHEMA & EXAMPLES:
   Output: {"action": "program_limit", "program": "83101", "max_exams_per_day": 2}
 - User: "Keep at least 3 days between exams"
   Output: {"action": "exam_spacing", "min_days": 3}
+- User: "Minimum gap 5 days"
+  Output: {"action": "exam_spacing", "min_days": 5}
+- For spacing, treat "gap", "spacing", "buffer", "minimum gap",
+  "minimum days", and "days between" as the same intent.
+- Treat "tests" and "finals" as other words for "exams".
 
 STATE HANDLING:
 - Always check the request against Current Active Rules.
@@ -412,7 +417,13 @@ STATE HANDLING:
         ),
         re.compile(
             r"\b(?:spacing|gap|days? between|minimum days?)\b.{0,30}"
-            r"\bexams?\b",
+            r"\b(?:exams?|tests?)\b|"
+            r"\b(?:minimum|at\s+least|keep|leave|ensure|make\s+sure)\b"
+            r".{0,30}\b(?:gap|spacing)\b.{0,30}\bdays?\b|"
+            r"\b(?:minimum|at\s+least|keep|leave|ensure|make\s+sure)\b"
+            r".{0,30}\bdays?\b.{0,30}\b(?:gap|spacing)\b|"
+            r"\b(?:gap|spacing)\b.{0,30}\bdays?\b|"
+            r"\bdays?\b.{0,30}\b(?:gap|spacing)\b",
             re.IGNORECASE,
         ),
         re.compile(r"\b(?:revert|undo|remove|cancel)\b.{0,20}\bai_rule_\d+\b", re.IGNORECASE),
@@ -1007,19 +1018,21 @@ STATE HANDLING:
 
     @classmethod
     def _matches_direct_threat(cls, text: str) -> bool:
-        deobfuscated = text.casefold().translate(cls._LEET_TRANSLATION)
-        if (
-            cls._JAVASCRIPT_RE.search(deobfuscated)
-            or cls._SQL_COMMAND_RE.search(deobfuscated)
-            or any(
-                pattern.search(deobfuscated)
-                for pattern in (
-                    *cls._RED_TEAM_PATTERNS,
-                    *cls._CODE_INJECTION_PATTERNS,
+        normalized = text.casefold()
+        deobfuscated = normalized.translate(cls._LEET_TRANSLATION)
+        for candidate in (normalized, deobfuscated):
+            if (
+                cls._JAVASCRIPT_RE.search(candidate)
+                or cls._SQL_COMMAND_RE.search(candidate)
+                or any(
+                    pattern.search(candidate)
+                    for pattern in (
+                        *cls._RED_TEAM_PATTERNS,
+                        *cls._CODE_INJECTION_PATTERNS,
+                    )
                 )
-            )
-        ):
-            return True
+            ):
+                return True
 
         compact_text = re.sub(r"[\W_]+", "", deobfuscated)
         return any(
@@ -1455,23 +1468,43 @@ STATE HANDLING:
         text: str,
     ) -> dict[str, object] | None:
         normalized = cls._normalize_unicode(text).casefold()
-        spacing_signal = (
-            "between exams" in normalized
-            or "between the exams" in normalized
-            or re.search(r"\bfrom\s+one\s+exam\s+to\s+the\s+next\b", normalized)
-            is not None
+        spacing_signal = re.search(
+            r"\bbetween\s+(?:the\s+)?(?:exams?|tests?)\b|"
+            r"\bfrom\s+one\s+(?:exam|test)\s+to\s+the\s+next\b|"
+            r"\b(?:minimum|at\s+least|keep|leave|ensure|make\s+sure)\b"
+            r".{0,30}\b(?:gap|spacing)\b.{0,30}\bdays?\b|"
+            r"\b(?:minimum|at\s+least|keep|leave|ensure|make\s+sure)\b"
+            r".{0,30}\bdays?\b.{0,30}\b(?:gap|spacing)\b|"
+            r"\b(?:gap|spacing)\b.{0,30}\bdays?\b|"
+            r"\bdays?\b.{0,30}\b(?:gap|spacing)\b",
+            normalized,
         )
-        if not spacing_signal:
+        if spacing_signal is None:
             return None
         if not re.search(r"\b(?:keep|make|ensure|at\s+least|minimum|gap|spacing|days?)\b", normalized):
             return None
         number_source = re.sub(
-            r"\bone\s+exam\s+to\s+the\s+next\b",
+            r"\bone\s+(?:exam|test)\s+to\s+the\s+next\b",
             "exam to the next",
             normalized,
         )
         min_days = cls._extract_small_positive_number(number_source)
         if min_days is None:
+            return None
+        number_tokens = [
+            str(min_days),
+            *(
+                word
+                for word, value in cls._NUMBER_WORDS.items()
+                if value == min_days
+            ),
+        ]
+        number_pattern = "|".join(re.escape(token) for token in number_tokens)
+        if not re.search(
+            rf"\b(?:{number_pattern})\b.{{0,15}}\bdays?\b|"
+            rf"\bdays?\b.{{0,15}}\b(?:{number_pattern})\b",
+            number_source,
+        ):
             return None
         return {
             "action": "exam_spacing",
@@ -2313,6 +2346,12 @@ STATE HANDLING:
             "- A program_limit rule MUST identify the program with its numeric "
             "program ID. If the user provides only a program name, request "
             "clarification for the numeric ID.\n"
+            "- For exam_spacing, interpret gap, spacing, buffer, minimum gap, "
+            "minimum days, days apart, and days between as requests for the "
+            "minimum number of calendar days between exams.\n"
+            "- For exam_spacing, tests and finals mean exams. Terse scheduler "
+            'phrases like "minimum gap 5 days" or "minimum 5 days gap" are '
+            "valid exam_spacing requests.\n"
             "- Never modify, override, disable, or remove base-file rules or base "
             "settings. They are immutable context only.\n"
             "- For a supported scheduling rule, set action directly to one of "
@@ -2358,6 +2397,10 @@ STATE HANDLING:
             '"weekday":"Sunday"}.\n'
             '- "Please fix Algorithms on 2026-07-15" -> '
             '{"action":"fix_date","course":"Algorithms","date":"2026-07-15"}.\n'
+            '- "Minimum gap 5 days" -> '
+            '{"action":"exam_spacing","min_days":5}.\n'
+            '- "Minimum days between tests 5 days" -> '
+            '{"action":"exam_spacing","min_days":5}.\n'
             '- "Can you tell me which rules are supported?" -> system_inquiry '
             'with topic "supported_rules".\n'
             '- "Schedule every exam in room 101" -> unsupported_constraint.\n'
@@ -2419,6 +2462,12 @@ STATE HANDLING:
             "security_violation.\n"
             "- If a program limit names a program without a numeric ID, ask for "
             "the numeric program ID.\n"
+            "- For exam_spacing, gap, spacing, buffer, minimum gap, minimum days, "
+            "days apart, and days between mean the minimum calendar-day distance "
+            "between exams.\n"
+            "- In exam_spacing requests, tests and finals mean exams. Terse "
+            'phrases like "minimum gap 5 days" and "minimum 5 days gap" are '
+            "valid exam_spacing requests.\n"
             "- Natural dates must be converted to ISO YYYY-MM-DD.\n\n"
             "Examples:\n"
             'Physics belongs on 2026-07-15 => '
@@ -2430,7 +2479,11 @@ STATE HANDLING:
             'The Algorithms final must not happen during August => '
             '{"action":"exclude_period","course":"Algorithms","month":8}\n'
             'Leave four days from one exam to the next => '
-            '{"action":"exam_spacing","min_days":4}\n\n'
+            '{"action":"exam_spacing","min_days":4}\n'
+            'Minimum gap 5 days => '
+            '{"action":"exam_spacing","min_days":5}\n'
+            'Minimum days between tests 5 days => '
+            '{"action":"exam_spacing","min_days":5}\n\n'
             "Read-only base rules:\n"
             f"{json.dumps(base_rules, ensure_ascii=False)}\n\n"
             "Current base settings:\n"

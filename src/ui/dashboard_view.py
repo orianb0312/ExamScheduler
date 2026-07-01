@@ -370,7 +370,7 @@ class InsightPanel(QWidget):
         header_icon.setFixedSize(34, 34)
         header_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title = QLabel("Analytical AI Insights Engine")
+        title = QLabel("Analytical Insights Engine")
         title.setObjectName("dashboardInsightHeaderTitle")
 
         header = QHBoxLayout()
