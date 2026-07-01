@@ -57,6 +57,13 @@ def test_parse_period_record():
     assert len(res["exclusions"]) == 1
     assert res["exclusions"][0]["comment"] == "Saturday"
 
+
+def test_parse_period_record_requires_an_exclusion_line():
+    # The "$$$$" separator is not part of this record text; Phase 1 still
+    # requires one excluded-date line after the period bounds.
+    with pytest.raises(ValueError, match="need at least 3"):
+        parse_period_record("FALL,Aleph\n29-01-2026, 11-03-2026")
+
 # ===========================================================================
 # 3. User Selection & Global State
 # ===========================================================================

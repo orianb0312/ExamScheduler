@@ -1,4 +1,4 @@
-"""Standalone PyQt6 UI package for ExamScheduler v2.0."""
+"""Standalone PyQt6 UI package for ExamScheduler v3.4.2."""
 
 
 def main() -> int:

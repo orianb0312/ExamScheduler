@@ -39,6 +39,26 @@ class ScheduleCache:
         for system in systems:
             self.append(system)
 
+    def all_systems(self) -> list[ScheduleSystem]:
+        """Return every cached system in current display order."""
+        return [
+            system
+            for batch in self._batches
+            for system in batch
+        ]
+
+    def page_number_for_system(self, target: ScheduleSystem) -> int | None:
+        """Return the one-based page containing the exact schedule object."""
+        for batch_index, batch in enumerate(self._batches, start=1):
+            if any(system is target for system in batch):
+                return batch_index
+        return None
+
+    def replace(self, systems: Iterable[ScheduleSystem]) -> None:
+        """Replace the cache while preserving the configured batch size."""
+        self.clear()
+        self.extend(systems)
+
     def get_batch(self, batch_index: int) -> list[ScheduleSystem]:
         """Return a zero-based batch copy."""
         if batch_index < 0 or batch_index >= self.batch_count:

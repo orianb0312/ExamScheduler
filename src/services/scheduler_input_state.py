@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from src.models.academic import Attendance, Course, Exam, Project
 from src.models.scheduling import ExamPeriod
 from src.services.day_status_service import (
     copy_exam_period,
     exclude_day,
+    format_constraints,
     format_exam_periods,
     restore_day,
     update_period_dates,
@@ -17,13 +18,20 @@ from src.services.day_status_service import (
 
 
 class SchedulerInputState:
-    """Keep selected programs and expose them through the existing file input flow."""
+    """Bridge desktop state back into the existing file-based scheduler flow.
+
+    The Stage 3 UI owns editable program, calendar, and constraint state, while
+    the proven backend still expects text files. This object is the adapter that
+    serializes the current UI state into runtime files immediately before a
+    local CLI run starts.
+    """
 
     def __init__(self, runtime_dir: Path) -> None:
         self._runtime_dir = runtime_dir
         self._selected_program_ids: tuple[str, ...] = ()
         self._courses: tuple[Course, ...] = ()
         self._exam_periods: tuple[ExamPeriod, ...] = ()
+        self._constraints: dict[str, int] = {}
 
     @property
     def selected_program_ids(self) -> tuple[str, ...]:
@@ -33,6 +41,10 @@ class SchedulerInputState:
     def exam_periods(self) -> tuple[ExamPeriod, ...]:
         return self._exam_periods
 
+    @property
+    def constraints(self) -> dict[str, int]:
+        return dict(self._constraints)
+
     def set_selected_programs(self, program_ids: Sequence[str]) -> None:
         self._selected_program_ids = tuple(str(program_id) for program_id in program_ids)
 
@@ -41,6 +53,10 @@ class SchedulerInputState:
 
     def set_exam_periods(self, periods: Sequence[ExamPeriod]) -> None:
         self._exam_periods = tuple(copy_exam_period(period) for period in periods)
+
+    def set_constraints(self, parameters: Mapping[str, int]) -> None:
+        # Store only the enabled, already-validated constraint values from the UI.
+        self._constraints = {str(key): int(value) for key, value in parameters.items()}
 
     def exclude_day(self, period_index: int, day) -> None:
         exclude_day(self._period_at(period_index), day)
@@ -84,6 +100,17 @@ class SchedulerInputState:
         )
         return exam_dates_file
 
+    def write_constraints_file(self) -> Path:
+        # Always written, even when no constraint is enabled, so the CLI can
+        # rely on the file existing. Disabled constraints render as "-".
+        self._runtime_dir.mkdir(parents=True, exist_ok=True)
+        constraints_file = self._runtime_dir / "ui_constraints.txt"
+        constraints_file.write_text(
+            format_constraints(self._constraints),
+            encoding="utf-8",
+        )
+        return constraints_file
+
     def _period_at(self, period_index: int) -> ExamPeriod:
         if period_index < 0:
             raise ValueError(f"Unknown exam period index: {period_index}")
@@ -94,6 +121,7 @@ class SchedulerInputState:
 
 
 def format_courses(courses: Sequence[Course]) -> str:
+    """Serialize edited course objects using the legacy V1 course-file contract."""
     blocks: list[str] = []
     for course in courses:
         lines = [

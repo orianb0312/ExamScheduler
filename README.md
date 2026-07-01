@@ -16,6 +16,7 @@ currently selected schedule to a readable file.
 - Complete-system counting across multiple exam periods.
 - Lazy schedule streaming in pages of 1,000 generated complete systems.
 - `QProcess` execution boundary so long scheduling runs do not freeze the UI.
+- Read-only analytics dashboard with density charts and scheduling insight cards.
 - Readable export for the currently displayed/selected schedule.
 - Architecture tests that guard UI/backend boundaries and local-only execution.
 
@@ -233,8 +234,7 @@ Project documentation is in `docs/`:
 - `docs/testing_and_validation.md`
 - `docs/test_specification.md`
 - `docs/ExamScheduler_Test_Specification_v1_0.docx`
-- `docs/ExamScheduler_v2_Progress_Presentation.pptx`
-- `docs/ExamScheduler_V2_Presentation_Restyled.pptx`
+- `docs/ExamScheduler_V2_Presentation_Final.pptx`
 
 ## Notes for Future Work
 

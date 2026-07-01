@@ -12,6 +12,8 @@ Expected config keys
 course_file : str   path to the courses plain-text file  (records separated by $$$$)
 dates_file  : str   path to the exam-period plain-text file
 user_file   : str   path to the user-selection file  e.g. "83101, 83102, 83108"
+constraints_file : str|None   optional V1 constraint settings file
+sorting_file : str|None       optional V1 sorting priority file
 
 Usage
 -----
@@ -39,6 +41,8 @@ from src.parser.IParser import (
     DATE_PATTERN,
     VALID_PROGRAM_NUMBERS,
 )
+from src.parser.constraint_file_parser import parse_constraints_text
+from src.sorting.schedule_priority import parse_sort_priority_text
 
 # ---------------------------------------------------------------------------
 # File-format constant  –  specific to the plain-text file format only
@@ -209,20 +213,26 @@ def parse_date_line(line: str) -> dict:
     return {"start_date": start_date, "end_date": end_date, "comment": comment}
 
 
-def parse_period_record(record_text: str) -> dict:
+def parse_period_record(
+    record_text: str,
+    *,
+    require_exclusion: bool = True,
+) -> dict:
     """
     Parse a single period record block into a dict.
 
     Line order:
       0    - "Semester,Moed"          e.g. "FALL,Aleph"
       1    - "start_date, end_date"   e.g. "29-01-2026, 11-03-2026"
-      2..n - Exclusion date lines     (at least one required)
+      2..n - Exclusion date lines     (at least one required by Phase 1)
     """
     lines = [ln.strip() for ln in record_text.splitlines() if ln.strip()]
 
-    if len(lines) < 3:
+    minimum_line_count = 3 if require_exclusion else 2
+    if len(lines) < minimum_line_count:
         raise ValueError(
-            f"Period record has too few lines (need at least 3, got {len(lines)}): {lines}"
+            "Period record has too few lines "
+            f"(need at least {minimum_line_count}, got {len(lines)}): {lines}"
         )
 
     header_parts = [p.strip() for p in lines[0].split(",")]
@@ -251,8 +261,11 @@ def parse_period_record(record_text: str) -> dict:
 
 
 def parse_periods_text(text: str) -> list[dict]:
-    """Parse full dates-file text into a list of period dicts."""
-    return [parse_period_record(r) for r in split_records(text)]
+    """Parse a full dates file, allowing periods with no excluded dates."""
+    return [
+        parse_period_record(record, require_exclusion=False)
+        for record in split_records(text)
+    ]
 
 
 # ===========================================================================
@@ -315,9 +328,10 @@ class FileParser(IParser):
 
     def parse_to_json(self, config: dict) -> str:
         """
-        Read all three files, validate and parse every record, then return
-        a single JSON string with three top-level keys:
-            "courses_node", "periods_node", "user_node"
+        Read the required files plus optional constraints/sorting, validate and parse
+        every record, then return a single JSON string with:
+            "courses_node", "periods_node", "user_node",
+            "constraints_node", "sorting_node"
 
         Raises
         ------
@@ -338,11 +352,27 @@ class FileParser(IParser):
         with open(config["user_file"], encoding="utf-8-sig") as fh:
             selection = parse_user_selection(fh.read())
 
+        # Constraint files are optional so old V1 runs still work unchanged.
+        constraints = {}
+        constraints_file = config.get("constraints_file")
+        if constraints_file:
+            # Re-validate here because text files can be edited outside the GUI.
+            with open(constraints_file, encoding="utf-8-sig") as fh:
+                constraints = parse_constraints_text(fh.read())
+
+        sorting_priority = []
+        sorting_file = config.get("sorting_file")
+        if sorting_file:
+            with open(sorting_file, encoding="utf-8-sig") as fh:
+                sorting_priority = list(parse_sort_priority_text(fh.read()))
+
         return json.dumps(
             {
                 "courses_node": courses,
                 "periods_node": periods,
                 "user_node":    selection,
+                "constraints_node": constraints,
+                "sorting_node": sorting_priority,
             },
             ensure_ascii=False,
             indent=2,

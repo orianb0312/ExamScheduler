@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence
 
+from src.services.analytics_export_service import DEFAULT_ANALYTICS_SCHEDULE_LIMIT
 from src.services.scheduler_input_state import SchedulerInputState
 
 
@@ -30,7 +31,15 @@ class CliRunConfig:
     time_limit_seconds: float | None = None
     course_file: Path | None = None
     dates_file: Path | None = None
+    constraints_file: Path | None = None
+    ai_rules_file: Path | None = None
+    sorting_file: Path | None = None
     user_file: Path | None = None
+    export_analytics: bool = False
+    analytics_formats: Sequence[str] = ()
+    analytics_output_dir: Path | None = None
+    analytics_base_filename: str | None = None
+    analytics_max_schedules: int = DEFAULT_ANALYTICS_SCHEDULE_LIMIT
 
 
 @dataclass(frozen=True)
@@ -72,6 +81,8 @@ class SchedulerRunConfigBuilder:
         selected_programs_file = self._input_state.write_selected_programs_file()
         runtime_courses_file = self._input_state.write_courses_file()
         runtime_dates_file = self._input_state.write_exam_dates_file()
+        # Always write this file; disabled constraints are stored as "-".
+        runtime_constraints_file = self._input_state.write_constraints_file()
 
         return CliRunConfig(
             project_root=form.project_root,
@@ -84,6 +95,11 @@ class SchedulerRunConfigBuilder:
             time_limit_seconds=time_limit,
             course_file=runtime_courses_file or _path_or_none(form.course_file_text),
             dates_file=runtime_dates_file or _path_or_none(form.dates_file_text),
+            # Passing a file keeps GUI runs on the same V1 parsing path.
+            constraints_file=runtime_constraints_file,
+            ai_rules_file=(
+                form.project_root / "data" / "active_ai_rules.json"
+            ).resolve(),
             user_file=selected_programs_file,
         )
 
@@ -161,8 +177,26 @@ def build_cli_arguments(config: CliRunConfig) -> tuple[str, list[str]]:
         args.extend(["--course-file", str(config.course_file)])
     if config.dates_file is not None:
         args.extend(["--dates-file", str(config.dates_file)])
+    if config.constraints_file is not None:
+        # The backend will parse and validate this before scheduling starts.
+        args.extend(["--constraints-file", str(config.constraints_file)])
+    if config.ai_rules_file is not None:
+        args.extend(["--ai-rules-file", str(config.ai_rules_file.resolve())])
+    if config.sorting_file is not None:
+        args.extend(["--sorting-file", str(config.sorting_file)])
     if config.user_file is not None:
         args.extend(["--user-file", str(config.user_file)])
+    # These flags are optional so the desktop runner can keep streaming runs unchanged.
+    if config.export_analytics:
+        args.append("--export-analytics")
+    for format_name in config.analytics_formats:
+        args.extend(["--analytics-format", str(format_name)])
+    if config.analytics_output_dir is not None:
+        args.extend(["--analytics-output-dir", str(config.analytics_output_dir)])
+    if config.analytics_base_filename:
+        args.extend(["--analytics-base-filename", config.analytics_base_filename])
+    if config.analytics_max_schedules != DEFAULT_ANALYTICS_SCHEDULE_LIMIT:
+        args.extend(["--analytics-max-schedules", str(config.analytics_max_schedules)])
 
     return program, args
 

@@ -1,7 +1,10 @@
 # ExamScheduler Test Specification Document
 
 ## 1. Purpose
-This document defines the test specification and execution evidence for the ExamScheduler Version 1.0 project. It covers the complete automated pytest suite in the repository.
+This document defines the original Version 1.0 baseline test specification and
+execution evidence. The repository now contains an expanded Phase 3/4 pytest
+suite; use `docs/testing_and_validation.md` and the latest local pytest summary
+as the source of truth for current test count and runtime.
 
 ## 2. Scope
 The scope includes parser and input validation, assessment type filtering, academic conflict validation, schedule generation, complete-system counting, output formatting, sorting, and end-to-end workflow behavior.
@@ -117,11 +120,11 @@ The project uses automated pytest tests at unit, integration, and system levels.
 ## 10. Executed Tests and Results
 | Check | Command / Evidence | Result |
 |---|---|---|
-| Test Collection | `.\.venv\Scripts\python.exe -m pytest --collect-only -q` | 62 tests collected |
-| Full Automated Suite | `.\.venv\Scripts\python.exe -m pytest -q` | 62 passed in 22.31 seconds |
-| Complete-System Count | `.\.venv\Scripts\python.exe main.py --mode complete-count` | 4,900,186,368 complete systems |
-| Period Workflow | `.\.venv\Scripts\python.exe main.py --mode period` | 1,084,824 period schedules across tested periods |
-| Bounded Complete-System Output | `.\.venv\Scripts\python.exe main.py --mode complete-write --max-systems 1000` | 1,000 systems written; truncation reported |
+| Test Collection | `.\.venv\Scripts\python.exe -m pytest --collect-only -q` | Use the latest local collection summary |
+| Full Automated Suite | `.\.venv\Scripts\python.exe -m pytest -q` | Full suite passed in the local submission environment |
+| Complete-System Count | `.\.venv\Scripts\python.exe main.py --mode complete-count` | Use the latest CLI output for the selected data files |
+| Period Workflow | `.\.venv\Scripts\python.exe main.py --mode period` | Period schedules generated and validated by automated tests |
+| Bounded Complete-System Output | `.\.venv\Scripts\python.exe main.py --mode complete-write --max-systems 1000` | Bounded output and truncation behavior validated |
 
 ## 11. Requirements Traceability Matrix
 | Requirement | Verified behavior | Test evidence | Status |
@@ -144,4 +147,5 @@ Run the following command from the project root:
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Expected result for the verified version: 62 tests passed, 0 failed.
+Expected result for the verified version: all collected tests pass, with no
+failures.

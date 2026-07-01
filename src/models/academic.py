@@ -1,6 +1,8 @@
+"""Academic domain objects used by parser, rules, solvers, and UI adapters."""
+
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List
-from abc import ABC, abstractmethod
 from src.models.enums import Semester, RequirementType
 
 
@@ -51,7 +53,8 @@ class ProgramAffiliation:
 
 @dataclass
 class Course:
-    # Represents an engineering faculty course.
+    """Engineering-faculty course with all program/year affiliations."""
+
     course_id: int  # 5-digit unique identifier
     name: str
     instructor: str
@@ -67,10 +70,9 @@ class Course:
         return self.course_id == other.course_id
 
     def add_affiliation(self, affiliation: ProgramAffiliation) -> None:
-        # Appends a program affiliation to the course.
+        """Attach one program/year/semester role parsed from the course file."""
         self.affiliations.append(affiliation)
-        
 
     def needs_exam_slot(self) -> bool:
-        # Returns True only if the evaluation method requires an exam slot.
+        """Return True only when the evaluation strategy requires an exam date."""
         return self.evaluation.requires_scheduling()

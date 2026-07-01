@@ -132,3 +132,39 @@ def test_run_config_uses_runtime_dates_file_when_day_state_exists(tmp_path):
     assert config.dates_file == tmp_path / "runtime" / "ui_exam_dates.txt"
     assert config.user_file == tmp_path / "runtime" / "ui_selected_programs.txt"
     assert "02-01-2026, 04-01-2026" in config.dates_file.read_text(encoding="utf-8")
+
+
+def test_run_config_writes_runtime_constraints_file(tmp_path):
+    state = SchedulerInputState(tmp_path / "runtime")
+    state.set_selected_programs(["83101"])
+    state.set_constraints(
+        {
+            "min_days_between_mandatory": 3,
+            "max_elective_conflicts": 0,
+            "max_exams_per_day": 2,
+        }
+    )
+
+    config = SchedulerRunConfigBuilder(state).build(_form(tmp_path))
+
+    assert config.constraints_file == tmp_path / "runtime" / "ui_constraints.txt"
+    assert config.ai_rules_file == (
+        tmp_path / "data" / "active_ai_rules.json"
+    ).resolve()
+    assert config.constraints_file.read_text(encoding="utf-8") == (
+        "$$$$\n"
+        "min_days_between_mandatory\n"
+        "3\n"
+        "$$$$\n"
+        "min_days_between_any\n"
+        "-\n"
+        "$$$$\n"
+        "max_elective_conflicts\n"
+        "0\n"
+        "$$$$\n"
+        "min_days_before_last_mandatory\n"
+        "-\n"
+        "$$$$\n"
+        "max_exams_per_day\n"
+        "2\n"
+    )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -15,6 +16,9 @@ from src.parser.course_factory import build_courses_from_json
 from src.parser.file_parser import parse_catalog_text, parse_periods_text
 from src.parser.period_factory import build_periods_from_json
 from src.services.internal_data_store import InternalDataSnapshot, InternalDataStore
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class FileLoadingError(ValueError):
@@ -248,7 +252,10 @@ class FileLoadingService:
                 incoming_data.exam_periods,
             )
         except OSError as exc:
-            raise FileLoadingError(f"Could not save internal data: {exc}") from exc
+            # The cache is an optimization, not part of the user's source data.
+            # A transient OneDrive/antivirus lock must not reject otherwise
+            # valid courses and exam dates.
+            LOGGER.warning("Could not save internal scheduler cache: %s", exc)
 
         return incoming_data
 

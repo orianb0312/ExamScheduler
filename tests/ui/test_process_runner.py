@@ -57,6 +57,8 @@ def test_build_cli_arguments_constructs_unbuffered_main_command():
         max_systems=1000,
         course_file=root / "data" / "courses.txt",
         dates_file=root / "data" / "dates.txt",
+        constraints_file=root / "data" / "constraints.txt",
+        ai_rules_file=root / "data" / "active_ai_rules.json",
         user_file=root / "data" / "programs.txt",
     )
 
@@ -76,6 +78,9 @@ def test_build_cli_arguments_constructs_unbuffered_main_command():
     assert "1000" in args
     assert "--course-file" in args
     assert "--dates-file" in args
+    assert "--constraints-file" in args
+    assert "--ai-rules-file" in args
+    assert str((root / "data" / "active_ai_rules.json").resolve()) in args
     assert "--user-file" in args
 
 
@@ -122,6 +127,33 @@ def test_build_cli_arguments_prefers_lazy_flag_for_lazy_runs():
 
     assert "--lazy-schedules" in args
     assert "--stream-schedules" not in args
+
+
+def test_build_cli_arguments_adds_analytics_export_options():
+    root = Path("C:/repo/ExamScheduler")
+    config = CliRunConfig(
+        project_root=root,
+        python_executable="python",
+        mode="complete-write",
+        export_analytics=True,
+        analytics_formats=("json", "csv"),
+        analytics_output_dir=root / "analytics",
+        analytics_base_filename="night_run",
+        analytics_max_schedules=12,
+    )
+
+    _program, args = build_cli_arguments(config)
+
+    assert "--export-analytics" in args
+    assert args.count("--analytics-format") == 2
+    assert "json" in args
+    assert "csv" in args
+    assert "--analytics-output-dir" in args
+    assert str(root / "analytics") in args
+    assert "--analytics-base-filename" in args
+    assert "night_run" in args
+    assert "--analytics-max-schedules" in args
+    assert "12" in args
 
 
 def test_build_cli_arguments_rejects_unknown_modes():
@@ -189,6 +221,26 @@ def test_process_runner_captures_stdout_result(
     exit_code, _status = blocker.args
     assert exit_code == 0
     assert "SUCCESS" in "".join(output_chunks)
+
+
+def test_process_runner_creates_performance_log_for_each_run(
+    tmp_path,
+    qtbot,
+    process_runner_factory,
+):
+    created_paths: list[str] = []
+    runner = process_runner_factory(["-c", "print('Complete System #1')"])
+    runner.performance_log_created.connect(created_paths.append)
+
+    with qtbot.waitSignal(runner.process_finished, timeout=3000):
+        runner.start(CliRunConfig(project_root=tmp_path))
+
+    assert created_paths == [str(runner.performance_log_path)]
+    assert runner.performance_log_path.exists()
+    log_text = runner.performance_log_path.read_text(encoding="utf-8")
+    assert "child_rss_mb" in log_text
+    assert "first_result" in log_text
+    assert "process_finished" in log_text
 
 
 def test_process_runner_emits_progress_when_stdout_is_written(

@@ -1,13 +1,22 @@
 import time
 from dataclasses import dataclass
 from datetime import date, timedelta
+from itertools import chain
 from itertools import product
-from typing import Dict, Generator, List, Set
+from typing import Dict, Generator, Iterator, List, Set
 
 from src.output.output_manager import TextOutputManager
 from src.interfaces import ISchedulingRule
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
+from src.rules.advanced_constraints_rule import AdvancedConstraintsRule
+from src.sorting.schedule_priority import (
+    SchedulePrioritySorter,
+    sortable_exams_from_assignment,
+)
+
+
+DEFAULT_SORTED_PERIOD_SCHEDULE_LIMIT = 1_000_000
 
 
 @dataclass(frozen=True)
@@ -41,20 +50,16 @@ class Scheduler:
         self.validate_full_schedules = validate_full_schedules
         self._course_keys: List[_CourseKey] = []
 
-    def run_to_output(
+    def iter_assignments(
         self,
         courses: List[Course],
         period: ExamPeriod,
-        output_manager: TextOutputManager,
-        append: bool = False,
-        write_header: bool = True,
-    ) -> int:
-        start_time = time.perf_counter()
+    ) -> Iterator[Dict[int, date]]:
         self._course_keys = [_CourseKey(index, course) for index, course in enumerate(courses)]
 
         available_dates = self._get_available_dates(period)
         if not courses or not available_dates:
-            return self._write_empty_output(output_manager, period, append, write_header)
+            return
 
         conflict_graph = self._build_conflict_graph(courses)
         components = self._get_connected_components(courses, conflict_graph)
@@ -63,8 +68,56 @@ class Scheduler:
         for component in components:
             solutions = list(self._solve_component(component, available_dates, conflict_graph))
             if not solutions:
-                return 0
+                return
             component_solutions.append(solutions)
+
+        for combination in product(*component_solutions):
+            full_assignment: Dict[int, date] = {}
+            for partial_assignment in combination:
+                full_assignment.update(partial_assignment)
+
+            # Optional guard for future rules that are not fully captured by pairwise edges.
+            if self.validate_full_schedules and not self._rules_accept_assignment(full_assignment):
+                continue
+
+            yield full_assignment
+
+    def count_assignments(self, courses: List[Course], period: ExamPeriod) -> int:
+        return sum(1 for _ in self.iter_assignments(courses, period))
+
+    def run_to_output(
+        self,
+        courses: List[Course],
+        period: ExamPeriod,
+        output_manager: TextOutputManager,
+        append: bool = False,
+        write_header: bool = True,
+        sort_priority: List[str] | tuple[str, ...] = (),
+        max_sorted_schedules: int = DEFAULT_SORTED_PERIOD_SCHEDULE_LIMIT,
+    ) -> int:
+        start_time = time.perf_counter()
+
+        available_dates = self._get_available_dates(period)
+        if not courses or not available_dates:
+            return self._write_empty_output(output_manager, period, append, write_header)
+
+        assignments = self.iter_assignments(courses, period)
+        if sort_priority:
+            assignments_to_write = self._sorted_assignments(
+                courses,
+                self._collect_assignments_for_sorting(
+                    assignments,
+                    max_sorted_schedules,
+                ),
+                sort_priority,
+            )
+            if not assignments_to_write:
+                return 0
+        else:
+            first_assignment = next(assignments, None)
+            if first_assignment is None:
+                return 0
+            assignments_to_write = chain([first_assignment], assignments)
 
         output_manager._ensure_dir_exists()
         full_path = output_manager.get_full_path()
@@ -76,17 +129,9 @@ class Scheduler:
                 f.write("OFFICIAL UNIVERSITY MASTER EXAM SCHEDULE\n")
                 f.write("=" * 65 + "\n\n")
 
-            for combination in product(*component_solutions):
-                full_assignment: Dict[int, date] = {}
-                for partial_assignment in combination:
-                    full_assignment.update(partial_assignment)
-
-                # Optional guard for future rules that are not fully captured by pairwise edges.
-                if self.validate_full_schedules and not self._rules_accept_assignment(full_assignment):
-                    continue
-
+            for assignment in assignments_to_write:
                 total_schedules += 1
-                self._write_schedule(f, total_schedules, courses, period, full_assignment)
+                self._write_schedule(f, total_schedules, courses, period, assignment)
 
         duration = time.perf_counter() - start_time
         print(
@@ -94,6 +139,42 @@ class Scheduler:
             f"Found {total_schedules:,} solutions."
         )
         return total_schedules
+
+    def _collect_assignments_for_sorting(
+        self,
+        assignments: Iterator[Dict[int, date]],
+        max_sorted_schedules: int,
+    ) -> List[Dict[int, date]]:
+        if max_sorted_schedules <= 0:
+            raise ValueError("max_sorted_schedules must be greater than zero.")
+
+        collected: List[Dict[int, date]] = []
+        for assignment in assignments:
+            if len(collected) >= max_sorted_schedules:
+                raise ValueError(
+                    "Period sorting would require materializing more than "
+                    f"{max_sorted_schedules:,} schedules in memory. "
+                    "Narrow the selected period, raise the sorted-period limit, "
+                    "or run this period without sorting."
+                )
+            collected.append(assignment)
+
+        return collected
+
+    def _sorted_assignments(
+        self,
+        courses: List[Course],
+        assignments: List[Dict[int, date]],
+        sort_priority: List[str] | tuple[str, ...],
+    ) -> List[Dict[int, date]]:
+        return SchedulePrioritySorter().sort(
+            assignments,
+            sort_priority,
+            lambda assignment: sortable_exams_from_assignment(
+                courses,
+                assignment.items(),
+            ),
+        )
 
     def _write_empty_output(
         self,
@@ -143,7 +224,8 @@ class Scheduler:
         }
 
         for rule in self.rules:
-            if not rule.is_valid(state):
+            validator = getattr(rule, "is_partial_valid", rule.is_valid)
+            if not validator(state):
                 return True
         return False
 
@@ -152,6 +234,9 @@ class Scheduler:
         courses: List[Course],
         graph: Dict[int, Set[int]],
     ) -> List[List[int]]:
+        if self._requires_global_component_search():
+            return [list(range(len(courses)))]
+
         visited = set()
         components = []
 
@@ -175,6 +260,9 @@ class Scheduler:
             components.append(component)
 
         return components
+
+    def _requires_global_component_search(self) -> bool:
+        return any(isinstance(rule, AdvancedConstraintsRule) for rule in self.rules)
 
     def _solve_component(
         self,
@@ -239,7 +327,7 @@ class Scheduler:
             if self._can_assign(course_index, exam_date, conflict_graph, current_assignment)
         )
 
-    def _can_assign(
+    """def _can_assign(
         self,
         course_index: int,
         exam_date: date,
@@ -249,16 +337,45 @@ class Scheduler:
         return all(
             current_assignment.get(conflicting_course) != exam_date
             for conflicting_course in conflict_graph[course_index]
+        )"""
+
+    def _can_assign(
+            self,
+            course_index: int,
+            exam_date: date,
+            conflict_graph: Dict[int, Set[int]],
+            current_assignment: Dict[int, date],
+    ) -> bool:
+        if any(
+                current_assignment.get(conflicting_course) == exam_date
+                for conflicting_course in conflict_graph[course_index]
+        ):
+            return False
+
+        attempt = current_assignment.copy()
+        attempt[course_index] = exam_date
+        return self._rules_accept_assignment(
+            attempt,
+            is_complete=len(attempt) == len(self._course_keys),
         )
 
-    def _rules_accept_assignment(self, assignment: Dict[int, date]) -> bool:
+    def _rules_accept_assignment(
+        self,
+        assignment: Dict[int, date],
+        is_complete: bool = True,
+    ) -> bool:
         state = {
             self._course_keys[course_index]: exam_date
             for course_index, exam_date in assignment.items()
         }
 
         for rule in self.rules:
-            if not rule.is_valid(state):
+            validator = rule.is_valid if is_complete else getattr(
+                rule,
+                "is_partial_valid",
+                rule.is_valid,
+            )
+            if not validator(state):
                 return False
         return True
 

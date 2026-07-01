@@ -17,6 +17,10 @@ class PaginationBar(QWidget):
     more_requested = pyqtSignal()
     future_page_requested = pyqtSignal(int)
     save_requested = pyqtSignal()
+    # Calendar export actions are handled by MainWindow.
+    # PaginationBar only emits user intent signals.
+    calendar_export_requested = pyqtSignal()
+    calendar_revoke_all_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -34,6 +38,19 @@ class PaginationBar(QWidget):
         self.previous_button.setFixedWidth(110)
         self.next_button.setFixedWidth(110)
         self.save_button.setFixedWidth(180)
+        # Export the currently selected schedule to the user's calendar.
+        self.calendar_export_button = QPushButton(
+            "Sync Current to Calendar"
+        )
+        # Generate a cancellation file for every calendar entry previously
+        # exported by this application.
+        self.calendar_revoke_all_button = QPushButton(
+            "Cancel All Synced Exams"
+        )
+
+        # Fixed widths help keep the toolbar layout stable.
+        self.calendar_export_button.setFixedWidth(200)
+        self.calendar_revoke_all_button.setFixedWidth(200)
         self.page_label.setMinimumWidth(90)
         self.page_label.hide()
 
@@ -78,12 +95,25 @@ class PaginationBar(QWidget):
         layout.addWidget(self.page_ruler)
         layout.addWidget(self.next_button)
         layout.addWidget(self.save_button)
+        # Calendar-related actions are displayed alongside the existing
+        # schedule actions and delegated upward through signals.
+        layout.addWidget(self.calendar_export_button)
+        layout.addWidget(self.calendar_revoke_all_button)
         layout.addStretch()
 
         self.previous_button.clicked.connect(self._go_previous)
         self.next_button.clicked.connect(self._go_next)
         self.save_button.clicked.connect(self.save_requested.emit)
         self.set_page_count(0)
+        # Forward button clicks as UI-level requests.
+        # MainWindow decides how each action is executed.
+        self.calendar_export_button.clicked.connect(
+            self.calendar_export_requested.emit
+        )
+
+        self.calendar_revoke_all_button.clicked.connect(
+            self.calendar_revoke_all_requested.emit
+        )
 
     @property
     def current_page(self) -> int:
@@ -92,6 +122,10 @@ class PaginationBar(QWidget):
     @property
     def page_count(self) -> int:
         return self._page_count
+
+    @property
+    def can_request_more(self) -> bool:
+        return self._can_request_more and self._page_count > 0
 
     def set_page_count(self, page_count: int) -> None:
         self._page_count = max(0, page_count)
@@ -159,6 +193,12 @@ class PaginationBar(QWidget):
             and (self._current_page < self._page_count or self._can_request_more)
         )
         self.save_button.setEnabled(self._page_count > 0)
+        # Calendar actions require at least one available schedule.
+        has_schedule = self._page_count > 0
+
+        self.calendar_export_button.setEnabled(
+            has_schedule
+        )
 
     def _refresh_page_ruler(self) -> None:
         if self._page_count == 0:
@@ -169,8 +209,8 @@ class PaginationBar(QWidget):
             self._set_page_button(self.last_page_button, page_number=0, active=False)
             return
 
-        # Student note: showing millions of buttons would freeze the screen,
-        # so the ruler keeps page 1, then shows the current page area and the tail.
+        # Showing millions of buttons would freeze the screen, so the ruler keeps
+        # page 1, then shows the current page area and the tail.
         display_page_count = self._display_page_count()
         window_start = self._current_page
         window_end = min(window_start + PAGE_RULER_VISIBLE_NUMBERS - 1, display_page_count)
@@ -224,6 +264,19 @@ class PaginationBar(QWidget):
         button.setObjectName("pageRulerButtonActive" if active else "pageRulerButton")
         button.style().unpolish(button)
         button.style().polish(button)
+
+    def set_calendar_revoke_all_enabled(
+            self,
+            enabled: bool,
+    ) -> None:
+        """
+        Enable or disable the global calendar cleanup action.
+
+        This button depends on registry state rather than schedule
+        availability because it only makes sense when exported
+        entries exist.
+        """
+        self.calendar_revoke_all_button.setEnabled(enabled)
 
 
 def _unique_pages(page_numbers) -> list[int]:

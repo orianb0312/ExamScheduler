@@ -1,10 +1,12 @@
 import json
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple, Any, Dict, TextIO
 
+from src.interfaces import ISchedulingRule
 from src.output.output_manager import TextOutputManager
 from src.models.academic import Course
 from src.models.scheduling import ExamPeriod
@@ -14,10 +16,14 @@ from src.parser.course_factory import CourseFactory
 from src.parser.period_factory import PeriodFactory
 from src.process_protocol import BATCH_END_MARKER, LAZY_NEXT_COMMAND, LAZY_STOP_COMMAND
 from src.rules.academic_conflict_rule import AcademicConflictRule
+from src.rules.advanced_constraints_rule import AdvancedConstraintsRule
+from src.rules.exam_spacing_rule import ExamSpacingRule
+from src.rules.ai_copilot_rule import AICopilotRule
 from src.solver.complete_scheduler import (
     DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE,
     CompleteSystemResult,
     CompleteSystemScheduler,
+    ScheduleGenerationTimedOut,
 )
 from src.solver.period_scheduler import Scheduler
 
@@ -40,6 +46,103 @@ class SchedulerRunResult:
         return sum(period.schedule_count for period in self.periods)
 
 
+@dataclass(frozen=True)
+class SchedulerDomainContext:
+    """Parsed scheduler inputs reused by workflows and post-run exports."""
+
+    parsed_data: Dict[str, Any]
+    courses: List[Course]
+    periods: List[ExamPeriod]
+    selected_programs: List[int]
+
+    @property
+    def sort_priority(self) -> Sequence[str]:
+        # Analytics and scheduling both read the exact same normalized priority list.
+        return self.parsed_data.get("sorting_node") or []
+
+
+def _parse_domain_data(
+    source_config: Dict[str, Any],
+    parser: IParser | None = None,
+) -> tuple[dict[str, Any], List[Course], List[ExamPeriod], List[int]]:
+    if parser is None:
+        parser = FileParser()
+
+    json_data = parser.parse_to_json(source_config)
+    parsed_data = json.loads(json_data)
+    courses = CourseFactory().build_all(parsed_data, "courses_node")
+    periods = PeriodFactory().build_all(parsed_data, "periods_node")
+    selected_programs = [int(program) for program in parsed_data.get("user_node", [])]
+    return parsed_data, courses, periods, selected_programs
+
+
+def _build_scheduler_rules(
+    constraints: Dict[str, int] | None,
+    ai_rules_file: Path,
+) -> List[ISchedulingRule]:
+    constraints = constraints or {}
+    rules: List[ISchedulingRule] = [AcademicConflictRule()]
+
+    if (
+        "min_days_between_mandatory" in constraints
+        or "min_days_between_any" in constraints
+    ):
+        rules.append(
+            ExamSpacingRule(
+                k_days_mandatory=constraints.get("min_days_between_mandatory", 0),
+                m_days_any=constraints.get("min_days_between_any", 0),
+            )
+        )
+
+    if any(
+        key in constraints
+        for key in (
+            "max_elective_conflicts",
+            "min_days_before_last_mandatory",
+            "max_exams_per_day",
+        )
+    ):
+        rules.append(
+            AdvancedConstraintsRule(
+                max_elective_conflicts=constraints.get(
+                    "max_elective_conflicts",
+                    sys.maxsize,
+                ),
+                min_mandatory_span=constraints.get(
+                    "min_days_before_last_mandatory",
+                    0,
+                ),
+                max_daily_exams=constraints.get(
+                    "max_exams_per_day",
+                    sys.maxsize,
+                ),
+            )
+        )
+
+    rules.append(AICopilotRule(ai_rules_file))
+
+    return rules
+
+
+def _build_workflow_rules(
+    parsed_data: Dict[str, Any],
+    output_config: Path,
+    kwargs: Dict[str, Any],
+) -> List[ISchedulingRule]:
+    configured_path = kwargs.get("ai_rules_file")
+    if configured_path is None:
+        configured_path = (
+            Path(output_config).expanduser().resolve().parent
+            / "data"
+            / "active_ai_rules.json"
+        )
+    absolute_ai_rules_path = Path(configured_path).expanduser().resolve()
+    return _build_scheduler_rules(
+        parsed_data.get("constraints_node"),
+        absolute_ai_rules_path,
+    )
+
+
 def load_domain_data(
     source_config: Dict[str, Any],
     parser: IParser | None = None,
@@ -54,20 +157,30 @@ def load_domain_data(
     parser : IParser | None
         The parser to use. Defaults to FileParser() if not provided.
     """
-    if parser is None:
-        parser = FileParser()
-
-    # The parser receives its matching configuration block directly
-    json_data = parser.parse_to_json(source_config)
-
-    courses = CourseFactory().build_all(json_data, "courses_node")
-    periods = PeriodFactory().build_all(json_data, "periods_node")
-
-    # Safe extraction of the user_node configuration
-    parsed_json = json.loads(json_data)
-    selected_programs = [int(program) for program in parsed_json.get("user_node", [])]
-
+    _parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
     return courses, periods, selected_programs
+
+
+def load_domain_context(
+        output_config: Path,
+        parser: IParser | None = None,
+        **kwargs: Any,
+) -> SchedulerDomainContext:
+    """Load the same parsed inputs used by a CLI workflow run."""
+    source_config = _resolve_source_config(output_config, kwargs)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
+    return SchedulerDomainContext(
+        parsed_data=parsed_data,
+        courses=courses,
+        periods=periods,
+        selected_programs=selected_programs,
+    )
 
 
 def filter_courses_for_period(
@@ -121,12 +234,21 @@ def _resolve_source_config(output_config: Path, kwargs: Dict[str, Any]) -> Dict[
 
     if source_type == "file":
         file_config = config_data.get("file", {})
+        # Constraints may come from config.json or from the explicit CLI flag.
+        constraints_file = kwargs.get("constraints_file") or file_config.get("constraints_file")
+        sorting_file = kwargs.get("sorting_file") or file_config.get("sorting_file")
         # Use CLI argument values if provided; otherwise, fall back to the JSON config values
-        return {
+        source_config = {
             "course_file": str(kwargs.get("course_file") or file_config.get("course_file")),
             "dates_file":  str(kwargs.get("dates_file") or file_config.get("dates_file")),
             "user_file":   str(kwargs.get("user_file") or file_config.get("user_file")),
         }
+        if constraints_file:
+            # Do not invent defaults here; parsing decides whether the file is valid.
+            source_config["constraints_file"] = str(constraints_file)
+        if sorting_file:
+            source_config["sorting_file"] = str(sorting_file)
+        return source_config
 
     # For other data source types (e.g., DB, API), return the corresponding configuration block directly
     return config_data.get(source_type, {})
@@ -140,7 +262,10 @@ def run_v1_workflow(
         **kwargs: Any,
 ) -> SchedulerRunResult:
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
 
     if period_indexes is None:
         selected_periods = periods
@@ -148,7 +273,10 @@ def run_v1_workflow(
         selected_periods = [periods[index] for index in period_indexes]
 
     output_manager = TextOutputManager(str(output_config))
-    scheduler = Scheduler(rules=[AcademicConflictRule()])
+    scheduler = Scheduler(
+        rules=_build_workflow_rules(parsed_data, output_config, kwargs)
+    )
+    sort_priority = parsed_data.get("sorting_node") or []
     period_results = []
 
     for index, period in enumerate(selected_periods):
@@ -159,6 +287,7 @@ def run_v1_workflow(
             output_manager,
             append=index > 0,
             write_header=index == 0,
+            sort_priority=sort_priority,
         )
 
         period_results.append(
@@ -183,13 +312,18 @@ def run_complete_count_workflow(
         **kwargs: Any,
 ) -> CompleteSystemResult:
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
 
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
 
-    return CompleteSystemScheduler(rules=[AcademicConflictRule()]).count_complete_systems(
+    return CompleteSystemScheduler(
+        rules=_build_workflow_rules(parsed_data, output_config, kwargs)
+    ).count_complete_systems(
         period_course_sets
     )
 
@@ -202,17 +336,23 @@ def run_complete_write_workflow(
         **kwargs: Any,
 ) -> CompleteSystemResult:
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
 
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
     output_manager = TextOutputManager(str(output_config))
 
-    return CompleteSystemScheduler(rules=[AcademicConflictRule()]).write_complete_systems(
+    return CompleteSystemScheduler(
+        rules=_build_workflow_rules(parsed_data, output_config, kwargs)
+    ).write_complete_systems(
         period_course_sets,
         output_manager,
         max_systems=max_systems,
+        sort_priority=parsed_data.get("sorting_node") or [],
     )
 
 
@@ -224,17 +364,23 @@ def run_complete_auto_workflow(
         **kwargs: Any,
 ) -> CompleteSystemResult:
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
 
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
     output_manager = TextOutputManager(str(output_config))
 
-    return CompleteSystemScheduler(rules=[AcademicConflictRule()]).write_complete_systems_auto(
+    return CompleteSystemScheduler(
+        rules=_build_workflow_rules(parsed_data, output_config, kwargs)
+    ).write_complete_systems_auto(
         period_course_sets,
         output_manager,
         time_limit_seconds=time_limit_seconds,
+        sort_priority=parsed_data.get("sorting_node") or [],
     )
 
 
@@ -291,6 +437,7 @@ def run_complete_lazy_stream_workflow(
         period_indexes: Optional[Sequence[int]] = None,
         max_systems: Optional[int] = None,
         batch_size: int = DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE,
+        time_limit_seconds: float | None = None,
         input_stream: TextIO | None = None,
         output_stream: TextIO | None = None,
         progress_stream: TextIO | None = None,
@@ -312,80 +459,195 @@ def run_complete_lazy_stream_workflow(
     started_at = time.perf_counter()
 
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
+    rules = _build_workflow_rules(parsed_data, output_config, kwargs)
+    sort_priority = parsed_data.get("sorting_node") or []
 
     progress_stream.write("Preparing lazy complete-system stream...\n")
     progress_stream.flush()
 
-    stream = CompleteSystemScheduler(rules=[AcademicConflictRule()]).stream_complete_systems(
-        period_course_sets,
-        max_systems=max_systems,
-    )
-    _write_stream_summary(output_stream, stream, time_limit_seconds=None)
+    scheduler = CompleteSystemScheduler(rules=rules)
+    total_is_exact = time_limit_seconds is None or bool(sort_priority)
+    batch_deadline: float | None = None
+    exact_count_result: CompleteSystemResult | None = None
+    count_thread: threading.Thread | None = None
+    output_lock = threading.Lock()
 
-    batches = stream.iter_batches(batch_size=batch_size)
-    written_count = 0
-    exhausted = False
+    def current_batch_deadline() -> float | None:
+        return batch_deadline
 
-    def write_next_batch() -> None:
-        nonlocal written_count, exhausted
-
-        try:
-            batch = next(batches)
-        except StopIteration:
-            exhausted = True
-            output_stream.write(f"{BATCH_END_MARKER}\n")
+    def write_stdout(text: str) -> None:
+        with output_lock:
+            output_stream.write(text)
             output_stream.flush()
+
+    def write_exact_count_update(result: CompleteSystemResult) -> None:
+        lines = [
+            f"Total complete systems: {result.complete_system_count:,}\n",
+            "Period schedule counts: "
+            + ", ".join(f"{count:,}" for count in result.period_schedule_counts)
+            + "\n\n",
+        ]
+        write_stdout("".join(lines))
+
+    def calculate_exact_count() -> None:
+        nonlocal exact_count_result
+        try:
+            progress_stream.write("Calculating exact complete-system total...\n")
+            progress_stream.flush()
+            result = CompleteSystemScheduler(rules=rules).count_complete_systems(
+                period_course_sets
+            )
+            exact_count_result = result
+            write_exact_count_update(result)
+            progress_stream.write(
+                f"Exact total ready: {result.complete_system_count:,} complete systems.\n"
+            )
+            progress_stream.flush()
+        except Exception as exc:
+            progress_stream.write(f"Exact total calculation failed: {exc}\n")
+            progress_stream.flush()
+
+    def start_exact_count_worker() -> None:
+        nonlocal count_thread
+        if total_is_exact or count_thread is not None:
             return
-
-        written_count = batch[-1].number
-        output_stream.write("".join(system.text for system in batch))
-        output_stream.write(f"{BATCH_END_MARKER}\n")
-        output_stream.flush()
-
-        progress_stream.write(
-            f"Batch ready: {written_count:,} of "
-            f"{stream.complete_system_count:,} complete systems cached.\n"
+        count_thread = threading.Thread(
+            target=calculate_exact_count,
+            name="complete-system-total-counter",
+            daemon=True,
         )
-        progress_stream.flush()
+        count_thread.start()
 
-        if written_count >= stream.complete_system_count:
-            exhausted = True
+    if total_is_exact:
+        stream = scheduler.stream_complete_systems(
+            period_course_sets,
+            max_systems=max_systems,
+            sort_priority=sort_priority,
+        )
+    else:
+        stream = scheduler.stream_complete_systems_on_demand(
+            period_course_sets,
+            max_systems=max_systems,
+            deadline=current_batch_deadline,
+        )
 
-    write_next_batch()
+    timed_out = False
+    try:
+        _write_stream_summary(
+            output_stream,
+            stream,
+            time_limit_seconds=time_limit_seconds,
+            total_is_exact=total_is_exact,
+        )
 
-    while not exhausted:
-        command = input_stream.readline()
-        if not command:
-            break
+        systems = iter(stream.systems)
+        written_count = 0
+        exhausted = False
 
-        command = command.strip().upper()
-        if command == LAZY_NEXT_COMMAND:
-            write_next_batch()
-        elif command == LAZY_STOP_COMMAND:
-            break
+        def write_next_batch() -> None:
+            nonlocal batch_deadline, written_count, exhausted, timed_out
+
+            batch = []
+            if time_limit_seconds is not None:
+                batch_deadline = time.perf_counter() + max(0.0, time_limit_seconds - 0.25)
+
+            try:
+                while len(batch) < batch_size:
+                    if (
+                        batch_deadline is not None
+                        and time.perf_counter() >= batch_deadline
+                    ):
+                        exhausted = True
+                        timed_out = True
+                        break
+                    try:
+                        batch.append(next(systems))
+                    except StopIteration:
+                        exhausted = True
+                        break
+                    except ScheduleGenerationTimedOut:
+                        exhausted = True
+                        timed_out = True
+                        break
+            finally:
+                batch_deadline = None
+
+            if not batch:
+                write_stdout(f"{BATCH_END_MARKER}\n")
+                return
+
+            written_count = batch[-1].number
+            write_stdout("".join(system.text for system in batch) + f"{BATCH_END_MARKER}\n")
+
+            progress_stream.write(
+                f"Batch ready: {written_count:,}"
+                f"{_format_total_suffix(stream, total_is_exact)} "
+                "complete systems cached.\n"
+            )
+            progress_stream.flush()
+
+            if total_is_exact and written_count >= stream.complete_system_count:
+                exhausted = True
+
+        write_next_batch()
+        start_exact_count_worker()
+
+        while not exhausted:
+            command = input_stream.readline()
+            if not command:
+                break
+
+            command = command.strip().upper()
+            if command == LAZY_NEXT_COMMAND:
+                write_next_batch()
+            elif command == LAZY_STOP_COMMAND:
+                break
+    finally:
+        stream.close()
+        if count_thread is not None:
+            count_thread.join(timeout=0.05)
 
     elapsed_seconds = time.perf_counter() - started_at
-    truncated = written_count < stream.complete_system_count
+    complete_system_count = (
+        stream.complete_system_count
+        if total_is_exact
+        else exact_count_result.complete_system_count
+        if exact_count_result is not None
+        else written_count
+    )
+    truncated = (
+        timed_out
+        or (not total_is_exact and not exhausted)
+        or (total_is_exact and written_count < stream.complete_system_count)
+    )
     progress_stream.write(
         "Lazy stream finished: "
-        f"{written_count:,} of {stream.complete_system_count:,} complete systems "
+        f"{written_count:,}{_format_total_suffix(stream, total_is_exact)} "
+        "complete systems "
         f"in {elapsed_seconds:.2f} seconds.\n"
     )
+    if timed_out:
+        progress_stream.write("Lazy stream stopped at the auto time limit.\n")
+    elif time_limit_seconds is not None and not exhausted:
+        progress_stream.write("Lazy stream stopped before all batches were requested.\n")
     progress_stream.flush()
 
     return CompleteSystemResult(
         output_path=None,
         period_course_counts=stream.period_course_counts,
         period_schedule_counts=stream.period_schedule_counts,
-        complete_system_count=stream.complete_system_count,
+        complete_system_count=complete_system_count,
         written_system_count=written_count,
         elapsed_seconds=elapsed_seconds,
         truncated=truncated,
-        auto_limit_seconds=None,
+        auto_limit_seconds=time_limit_seconds,
     )
 
 
@@ -408,43 +670,51 @@ def _run_complete_stream_workflow(
     started_at = time.perf_counter()
 
     source_config = _resolve_source_config(output_config, kwargs)
-    courses, periods, selected_programs = load_domain_data(source_config, parser=parser)
+    parsed_data, courses, periods, selected_programs = _parse_domain_data(
+        source_config,
+        parser=parser,
+    )
     period_course_sets = build_period_course_sets(
         courses, periods, selected_programs, period_indexes
     )
+    rules = _build_workflow_rules(parsed_data, output_config, kwargs)
 
     progress_stream.write("Preparing complete systems for streaming...\n")
     progress_stream.flush()
 
-    stream = CompleteSystemScheduler(rules=[AcademicConflictRule()]).stream_complete_systems(
+    stream = CompleteSystemScheduler(rules=rules).stream_complete_systems(
         period_course_sets,
         max_systems=max_systems,
+        sort_priority=parsed_data.get("sorting_node") or [],
     )
-    _write_stream_summary(output_stream, stream, time_limit_seconds)
+    try:
+        _write_stream_summary(output_stream, stream, time_limit_seconds)
 
-    deadline = None
-    if time_limit_seconds is not None:
-        # Leave a small buffer so auto mode keeps the same careful time-limit behavior.
-        deadline = started_at + max(0.0, time_limit_seconds - 0.25)
+        deadline = None
+        if time_limit_seconds is not None:
+            # Leave a small buffer so auto mode keeps the same careful time-limit behavior.
+            deadline = started_at + max(0.0, time_limit_seconds - 0.25)
 
-    written_count = 0
-    batch: list[str] = []
+        written_count = 0
+        batch: list[str] = []
 
-    for system in stream.systems:
-        if deadline is not None and time.perf_counter() >= deadline:
-            break
+        for system in stream.systems:
+            if deadline is not None and time.perf_counter() >= deadline:
+                break
 
-        written_count = system.number
-        batch.append(system.text)
+            written_count = system.number
+            batch.append(system.text)
 
-        if len(batch) >= batch_size:
+            if len(batch) >= batch_size:
+                output_stream.write("".join(batch))
+                output_stream.flush()
+                batch.clear()
+
+        if batch:
             output_stream.write("".join(batch))
             output_stream.flush()
-            batch.clear()
-
-    if batch:
-        output_stream.write("".join(batch))
-        output_stream.flush()
+    finally:
+        stream.close()
 
     truncated = written_count < stream.complete_system_count
     elapsed_seconds = time.perf_counter() - started_at
@@ -470,21 +740,42 @@ def _run_complete_stream_workflow(
     )
 
 
-def _write_stream_summary(stream_output: TextIO, stream, time_limit_seconds: float | None) -> None:
+def _write_stream_summary(
+    stream_output: TextIO,
+    stream,
+    time_limit_seconds: float | None,
+    total_is_exact: bool = True,
+) -> None:
     stream_output.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
     stream_output.write("=" * 65 + "\n")
-    stream_output.write(f"Total complete systems: {stream.complete_system_count:,}\n")
+    if total_is_exact:
+        stream_output.write(f"Total complete systems: {stream.complete_system_count:,}\n")
+    else:
+        stream_output.write(
+            "Total complete systems: calculating in background\n"
+        )
     stream_output.write(
         "Period course counts: "
         + ", ".join(f"{count:,}" for count in stream.period_course_counts)
         + "\n"
     )
-    stream_output.write(
-        "Period schedule counts: "
-        + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
-        + "\n"
-    )
+    if total_is_exact:
+        stream_output.write(
+            "Period schedule counts: "
+            + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
+            + "\n"
+        )
+    else:
+        stream_output.write(
+            "Period schedule counts: generated on demand for the visible batch\n"
+        )
     if time_limit_seconds is not None:
         stream_output.write(f"Auto time limit: {time_limit_seconds:.2f} seconds\n")
     stream_output.write("\n")
     stream_output.flush()
+
+
+def _format_total_suffix(stream, total_is_exact: bool) -> str:
+    if not total_is_exact:
+        return ""
+    return f" of {stream.complete_system_count:,}"

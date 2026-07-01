@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -7,7 +8,7 @@ from src.models.academic import Course, Exam, ProgramAffiliation
 from src.models.enums import RequirementType, Semester, Term
 from src.models.scheduling import DateExclusion, ExamPeriod
 from src.services.file_loading_service import FileLoadingService, LoadedSchedulerInput
-from src.services.internal_data_store import InternalDataStore
+from src.services.internal_data_store import CACHE_VERSION, InternalDataStore
 
 
 def test_internal_store_saves_and_loads_processed_data_when_sources_match(tmp_path):
@@ -75,6 +76,106 @@ def test_file_loading_service_reparses_when_source_files_change(tmp_path):
 
     assert second_parser.call_count == 1
     assert result.loaded_data.courses[0].course_id == 20001
+
+
+def test_is_cache_stale_detects_modified_source(tmp_path):
+    courses_file, dates_file = _write_source_files(tmp_path)
+    store = InternalDataStore(tmp_path / "processed_input.json")
+    data = _loaded_data()
+    store.save(courses_file, dates_file, data.courses, data.exam_periods)
+
+    # Identical files: the cache matches, so it is not stale.
+    assert store.is_cache_stale(courses_file, dates_file) is False
+
+    # Editing a source file changes its SHA256, so the cache is now stale.
+    courses_file.write_text("changed source content", encoding="utf-8")
+    assert store.is_cache_stale(courses_file, dates_file) is True
+
+
+def test_corrupt_cache_is_treated_as_missing_instead_of_crashing(tmp_path):
+    courses_file, dates_file = _write_source_files(tmp_path)
+    cache_file = tmp_path / "processed_input.json"
+    store = InternalDataStore(cache_file)
+
+    # Simulate a half-written or hand-corrupted cache file.
+    cache_file.write_text("{ this is not valid json", encoding="utf-8")
+
+    # A corrupt cache must not raise; it is ignored so a fresh parse can run.
+    assert store.load_if_current(courses_file, dates_file) is None
+    assert store.is_cache_stale(courses_file, dates_file) is False
+
+
+def test_cache_with_outdated_version_is_rejected(tmp_path):
+    courses_file, dates_file = _write_source_files(tmp_path)
+    cache_file = tmp_path / "processed_input.json"
+    store = InternalDataStore(cache_file)
+    data = _loaded_data()
+
+    # Save normally so the fingerprints match the current files exactly.
+    store.save(courses_file, dates_file, data.courses, data.exam_periods)
+
+    # Then bump only the version to simulate a cache from an older app build.
+    payload = json.loads(cache_file.read_text(encoding="utf-8"))
+    payload["version"] = CACHE_VERSION + 1
+    cache_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    # Even though the source files are unchanged, the version mismatch must
+    # reject the cache so the newer code re-parses instead of trusting old data.
+    assert store.load_if_current(courses_file, dates_file) is None
+
+
+def test_internal_store_retries_transient_windows_replace_lock(
+    tmp_path,
+    monkeypatch,
+):
+    courses_file, dates_file = _write_source_files(tmp_path)
+    cache_file = tmp_path / "processed_input.json"
+    store = InternalDataStore(cache_file)
+    data = _loaded_data()
+    real_replace = __import__("os").replace
+    attempts = 0
+
+    def intermittently_locked_replace(source, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError(5, "Access is denied")
+        real_replace(source, target)
+
+    monkeypatch.setattr(
+        "src.services.internal_data_store.os.replace",
+        intermittently_locked_replace,
+    )
+    monkeypatch.setattr(
+        "src.services.internal_data_store.time.sleep",
+        lambda _delay: None,
+    )
+
+    store.save(courses_file, dates_file, data.courses, data.exam_periods)
+
+    assert attempts == 3
+    assert store.load_if_current(courses_file, dates_file) is not None
+
+
+def test_file_loading_continues_when_optional_cache_cannot_be_saved(tmp_path):
+    courses_file, dates_file = _write_source_files(tmp_path)
+    parser = _FakeParserAdapter(_loaded_data())
+
+    class _LockedStore:
+        def load_if_current(self, _courses_file, _dates_file):
+            return None
+
+        def save(self, *_args):
+            raise PermissionError(5, "Access is denied")
+
+    result = FileLoadingService(
+        parser_adapter=parser,
+        internal_store=_LockedStore(),
+    ).load_selected_files(courses_file, dates_file)
+
+    assert parser.call_count == 1
+    assert result.loaded_data.course_count == 1
+    assert result.loaded_data.exam_period_count == 1
 
 
 class _FakeParserAdapter:

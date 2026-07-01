@@ -13,6 +13,8 @@ __pycache__/
 /outputs/
 /.exam_scheduler_cache/
 /test_master_output/
+/security_log.txt
+/performance_logs/
 build/
 develop-eggs/
 dist/

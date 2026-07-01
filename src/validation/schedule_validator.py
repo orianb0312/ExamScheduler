@@ -23,6 +23,8 @@ def validate_schedule(
     assignments: Iterable[ScheduledCourse],
     required_courses: Iterable[Course],
     period: ExamPeriod,
+    k_days_mandatory: int = 0,
+    m_days_any: int = 0,
 ) -> List[ValidationIssue]:
     """
     Independently validates one complete exam schedule.
@@ -41,6 +43,9 @@ def validate_schedule(
     _check_required_course_coverage(assignment_list, required_list, issues)
     _check_dates_and_evaluations(assignment_list, period, issues)
     _check_critical_conflicts(assignment_list, issues)
+    #Spacing validations (Only executes if spacing constraints are defined)
+    if k_days_mandatory > 0 or m_days_any > 0:
+        _check_spacing_conflicts(assignment_list, issues, k_days_mandatory, m_days_any)
 
     return issues
 
@@ -154,3 +159,121 @@ def _has_critical_conflict(left: Course, right: Course) -> bool:
                 return True
 
     return False
+
+def _check_spacing_conflicts(
+        assignments: List[ScheduledCourse],
+        issues: List[ValidationIssue],
+        k_days_mandatory: int,
+        m_days_any: int
+) -> None:
+    """
+    Validates the generated matrix against the defined V2.0 spacing constraints.
+    Appends a ValidationIssue if any two exams are scheduled too close together.
+    """
+    for left_index in range(len(assignments)):
+        left = assignments[left_index]
+        for right in assignments[left_index + 1:]:
+            # Absolute calendar difference between the two exam dates
+            delta_days = abs((left.exam_date - right.exam_date).days)
+
+            for l_aff in left.course.affiliations:
+                for r_aff in right.course.affiliations:
+                    # Spacing constraints apply only when courses share a study program and year
+                    if l_aff.program_id == r_aff.program_id and l_aff.year == r_aff.year:
+
+                        # Constraint 2.2: Check minimal spacing defined for ANY two courses
+                        if delta_days < m_days_any:
+                            issues.append(
+                                ValidationIssue(
+                                    "GENERAL_SPACING_CONFLICT",
+                                    f"Courses {left.course.course_id} and {right.course.course_id} "
+                                    f"are {delta_days} days apart (minimum {m_days_any} required)."
+                                )
+                            )
+                            # Break inner loop to prevent logging duplicate issues for the same pair
+                            break
+
+                        # Constraint 2.1: Check minimal spacing defined for MANDATORY courses
+                        both_obligatory = (
+                                l_aff.requirement_type == RequirementType.OBLIGATORY
+                                and r_aff.requirement_type == RequirementType.OBLIGATORY
+                        )
+                        if both_obligatory and delta_days < k_days_mandatory:
+                            issues.append(
+                                ValidationIssue(
+                                    "MANDATORY_SPACING_CONFLICT",
+                                    f"Mandatory courses {left.course.course_id} and {right.course.course_id} "
+                                    f"are {delta_days} days apart (minimum {k_days_mandatory} required)."
+                                )
+                            )
+                            break
+
+def _check_advanced_constraints(
+        assignments: List[ScheduledCourse],
+        issues: List[ValidationIssue],
+        max_elective_conflicts: int,
+        min_mandatory_span: int,
+        max_daily_exams: int
+) -> None:
+    """
+    Independently validates the final generated matrix against advanced capacity and span constraints.
+    Appends descriptive ValidationIssues if any threshold rules are violated.
+    """
+    # 1. Evaluate Daily Exam Cap Constraint
+    date_counts = {}
+    for a in assignments:
+        date_counts[a.exam_date] = date_counts.get(a.exam_date, 0) + 1
+        if date_counts[a.exam_date] > max_daily_exams:
+            issues.append(
+                ValidationIssue(
+                    "DAILY_CAP_EXCEEDED",
+                    f"Date {a.exam_date} has {date_counts[a.exam_date]} exams (max allowed: {max_daily_exams})."
+                )
+            )
+
+    # Prepare data structures for Span and Conflict evaluation
+    cohort_mandatory_dates = {}
+    program_elective_dates = {}
+
+    for a in assignments:
+        for aff in a.course.affiliations:
+            # Group dates for the Mandatory Span constraint
+            if aff.requirement_type == RequirementType.OBLIGATORY:
+                cohort_key = (aff.program_id, aff.year)
+                if cohort_key not in cohort_mandatory_dates:
+                    cohort_mandatory_dates[cohort_key] = []
+                cohort_mandatory_dates[cohort_key].append(a.exam_date)
+
+            # Group dates for the Elective Conflicts constraint
+            elif aff.requirement_type == RequirementType.ELECTIVE:
+                prog_date_key = (aff.program_id, a.exam_date)
+                program_elective_dates[prog_date_key] = program_elective_dates.get(prog_date_key, 0) + 1
+
+    # 2. Evaluate Mandatory Span Constraint
+    for (prog_id, year), dates in cohort_mandatory_dates.items():
+        if len(dates) > 1:
+            span = abs((max(dates) - min(dates)).days)
+            if span < min_mandatory_span:
+                issues.append(
+                    ValidationIssue(
+                        "MANDATORY_SPAN_TOO_SHORT",
+                        f"Program {prog_id} Year {year} has a mandatory exam span of {span} days (min required: {min_mandatory_span})."
+                    )
+                )
+
+    # 3. Evaluate Elective Conflicts Constraint
+    program_conflicts = {}
+    for (prog_id, date_val), count in program_elective_dates.items():
+        if count > 1:
+            # Combinatorics formula to find total number of unique overlapping pairs
+            conflicts = (count * (count - 1)) // 2
+            program_conflicts[prog_id] = program_conflicts.get(prog_id, 0) + conflicts
+
+    for prog_id, total_conflicts in program_conflicts.items():
+        if total_conflicts > max_elective_conflicts:
+            issues.append(
+                ValidationIssue(
+                    "ELECTIVE_CONFLICTS_EXCEEDED",
+                    f"Program {prog_id} has {total_conflicts} elective conflicts (max allowed: {max_elective_conflicts})."
+                )
+            )

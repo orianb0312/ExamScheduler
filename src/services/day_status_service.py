@@ -3,9 +3,22 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from src.models.scheduling import DateExclusion, ExamPeriod
+
+
+# Fixed key order for the constraint runtime file. Every constraint is always
+# written, so a missing chunk means a corrupt file rather than "disabled".
+CONSTRAINT_KEY_ORDER: tuple[str, ...] = (
+    "min_days_between_mandatory",
+    "min_days_between_any",
+    "max_elective_conflicts",
+    "min_days_before_last_mandatory",
+    "max_exams_per_day",
+)
+
+CONSTRAINT_DISABLED_MARKER = "-"
 
 
 def copy_exam_period(period: ExamPeriod) -> ExamPeriod:
@@ -65,6 +78,23 @@ def format_exam_periods(periods: Iterable[ExamPeriod]) -> str:
 
     if not records:
         return ""
+    return "\n".join(f"$$$$\n{record}" for record in records) + "\n"
+
+
+def format_constraints(parameters: Mapping[str, int]) -> str:
+    """Render constraint values into the $$$$ chunk format.
+
+    Each constraint becomes one chunk: first line is the key, second line is
+    the value, or "-" when the constraint is disabled (absent from parameters).
+    Every constraint is always written so the reader can rely on all five
+    chunks being present.
+    """
+    records = []
+    for key in CONSTRAINT_KEY_ORDER:
+        value = parameters.get(key)
+        value_line = CONSTRAINT_DISABLED_MARKER if value is None else str(value)
+        records.append(f"{key}\n{value_line}")
+
     return "\n".join(f"$$$$\n{record}" for record in records) + "\n"
 
 

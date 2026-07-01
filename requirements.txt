@@ -1,4 +1,7 @@
 PyQt6>=6.7
 pytest>=9.0
+pytest-qt>=4.5.0
 pytest-qt
 pytest-socket
+reportlab>=4.0
+pypdf>=4.0

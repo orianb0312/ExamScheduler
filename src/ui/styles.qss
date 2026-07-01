@@ -162,6 +162,153 @@ QListWidget#programSelector::indicator {
     height: 16px;
 }
 
+QPushButton#sortOptionsButton {
+    background: #26344f;
+    color: #d8e6ff;
+    border: 1px solid #5b82ba;
+    border-radius: 14px;
+    padding: 6px 14px;
+    font-weight: 700;
+}
+
+QPushButton#sortOptionsButton:hover {
+    background: #304260;
+    color: #ffffff;
+}
+
+QWidget#sortOptionsPanel {
+    background: #171a21;
+    border-left: 1px solid #465268;
+}
+
+QLabel#sortPanelTitle {
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+QLabel#sortPanelSubtitle {
+    color: #aeb8c7;
+    font-size: 12px;
+}
+
+QLabel#sortPriorityBadge {
+    color: #d8e6ff;
+    background: #2f6feb;
+    border: 1px solid #6da6ff;
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QPushButton#sortResetButton {
+    background: #252b36;
+    color: #f1f3f5;
+    border: 1px solid #596579;
+    border-radius: 12px;
+    padding: 5px 12px;
+    font-weight: 600;
+}
+
+QPushButton#sortResetButton:hover {
+    background: #303746;
+}
+
+QPushButton#sortCloseButton {
+    background: #222836;
+    color: #d7dfec;
+    border: 1px solid #596579;
+    border-radius: 15px;
+    padding: 0;
+    font-weight: 700;
+}
+
+QPushButton#sortCloseButton:hover {
+    background: #313a4c;
+    color: #ffffff;
+}
+
+QScrollArea#sortCriteriaScroll {
+    background: #171a21;
+    border: none;
+}
+
+QScrollArea#sortCriteriaScroll > QWidget > QWidget {
+    background: #171a21;
+}
+
+QWidget#sortCriteriaStack {
+    background: #171a21;
+}
+
+QWidget#sortCriteriaCard {
+    background: #252b36;
+    border: 1px solid #3c4554;
+    border-radius: 8px;
+}
+
+QWidget#sortCriteriaCard:hover {
+    border-color: #5d6c83;
+    background: #2d333e;
+}
+
+QWidget#sortCriteriaCard[dragging="true"] {
+    border-color: #72a7ff;
+    background: #303b4e;
+}
+
+QWidget#sortCriteriaCard[inactive="true"] {
+    background: #20252e;
+    border-color: #333c4b;
+}
+
+QLabel#sortDragHandle {
+    color: #7f8998;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel#sortRankCircle {
+    color: #ffffff;
+    background: #3a4658;
+    border: 1px solid #68758a;
+    border-radius: 13px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+QLabel#sortCriterionTitle {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+QLabel#sortCriterionDescription {
+    color: #adb7c5;
+    font-size: 11px;
+}
+
+QPushButton#sortArrowButton {
+    background: #1f2430;
+    color: #d6dde8;
+    border: 1px solid #465166;
+    border-radius: 5px;
+    padding: 0;
+    font-weight: 700;
+}
+
+QPushButton#sortArrowButton:hover {
+    background: #2b3342;
+    color: #ffffff;
+}
+
+QPushButton#sortArrowButton:disabled {
+    color: #667181;
+    background: #1b2029;
+    border-color: #313947;
+}
+
 QPlainTextEdit {
     background: #25272d;
     color: #f1f3f5;
@@ -200,8 +347,14 @@ QPushButton#primaryButton:hover {
 }
 
 QPushButton#load_button,
-QPushButton#browseButton {
+QPushButton#browseButton,
+QPushButton#compactButton {
     font-weight: 500;
+}
+
+QPushButton#compactButton {
+    min-width: 96px;
+    padding: 5px 8px;
 }
 
 QPushButton#load_button {
@@ -298,7 +451,7 @@ QLabel#navTitleLabel {
 
 QPushButton#navTab,
 QPushButton#navTabActive {
-    min-width: 88px;
+    min-width: 56px;
     min-height: 58px;
     border-radius: 0;
     border: none;
@@ -472,4 +625,170 @@ QScrollBar::handle:horizontal:hover {
 QFrame#homeImagePanel {
     background: transparent;
     margin-top: 6px;
+}
+
+QLabel#aiCopilotTitle {
+    font-size: 16px;
+    font-weight: 700;
+    color: #dcecff;
+}
+
+QLabel#aiCopilotRulesSummary {
+    color: #aebbd0;
+    font-size: 11px;
+    padding: 1px 2px 3px 2px;
+}
+
+QPushButton#aiCopilotClearRules {
+    background: transparent;
+    color: #ffb5b0;
+    border: 1px solid #7b4c52;
+    border-radius: 10px;
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+QPushButton#aiCopilotClearRules:hover {
+    background: #4a2f35;
+    color: #ffd7d4;
+    border-color: #a86269;
+}
+
+QPushButton#aiCopilotClearRules:disabled {
+    background: transparent;
+    color: #6f7785;
+    border-color: #454c59;
+}
+
+QTextEdit#aiCopilotDisplay {
+    background: #25272d;
+    color: #f1f3f5;
+    border: 1px solid #4b505b;
+    border-radius: 4px;
+    padding: 8px;
+    selection-background-color: #3d5f93;
+    selection-color: #ffffff;
+}
+
+QLineEdit#aiCopilotInput {
+    min-height: 34px;
+}
+
+QPushButton#aiCopilotSend {
+    background: #3b78e7;
+    color: #ffffff;
+    border: 1px solid #3b78e7;
+    border-radius: 4px;
+    font-weight: 600;
+    padding: 6px 14px;
+}
+
+QPushButton#aiCopilotSend:hover {
+    background: #4f8cff;
+    border-color: #4f8cff;
+}
+
+QWidget#constraintRow {
+    background: transparent;
+}
+
+QLabel#constraintTitle {
+    background: transparent;
+    font-size: 14px;
+    font-weight: 600;
+    color: #f1f3f5;
+}
+
+QLabel#constraintDescription {
+    background: transparent;
+    font-size: 12px;
+    color: #c6ccd5;
+}
+
+QLabel#constraintKLabel {
+    background: transparent;
+    font-size: 11px;
+    font-weight: 600;
+    color: #d7dce2;
+}
+
+QLineEdit#constraintKInput:disabled {
+    color: #8b929d;
+    background: #292b31;
+    border-color: #454a54;
+}
+
+QLineEdit#constraintKInput[invalid="true"] {
+    border: 1px solid #c9605a;
+}
+
+QLabel#constraintError {
+    background: transparent;
+    color: #ff9d97;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+QWidget#constraintDivider {
+    background: #394456;
+}
+
+QCheckBox#constraintToggle::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid #5c626d;
+    background: #2b2d33;
+}
+
+QCheckBox#constraintToggle::indicator:hover {
+    border-color: #72a7ff;
+}
+
+QCheckBox#constraintToggle::indicator:checked {
+    background: #3b78e7;
+    border-color: #3b78e7;
+}
+
+QCheckBox#constraintToggle::indicator:disabled {
+    background: #292b31;
+    border-color: #454a54;
+}
+
+QLabel#constraintSaveStatus {
+    background: transparent;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 0;
+}
+
+QLabel#constraintSaveStatus[state="success"] {
+    color: #7ed3ff;
+}
+
+QLabel#constraintSaveStatus[state="error"] {
+    color: #ff9d97;
+}
+QWidget#loadingView {
+    background: #1f2024;
+}
+
+QProgressBar#loadingProgress {
+    background: #2b2d33;
+    border: 1px solid #5c626d;
+    border-radius: 4px;
+    text-align: center;
+    color: transparent;
+}
+
+QProgressBar#loadingProgress::chunk {
+    background-color: #3b78e7;
+    border-radius: 3px;
+}
+
+QLabel#loadingLogLabel {
+    color: #aeb7c6;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
 }
