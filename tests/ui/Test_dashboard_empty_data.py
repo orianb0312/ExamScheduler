@@ -70,7 +70,7 @@ def test_chart_hover_on_empty_data_does_not_crash(qtbot):
 
 
 def test_dashboard_builds_with_default_empty_state(qtbot):
-    """A freshly built dashboard shows safe placeholders and disabled actions."""
+    """A freshly built dashboard shows placeholders and clickable empty actions."""
     dashboard = ExamSchedulerDashboard()
     qtbot.addWidget(dashboard)
 
@@ -79,8 +79,14 @@ def test_dashboard_builds_with_default_empty_state(qtbot):
     assert dashboard.gap_card.value_label.text() == "No data"
     assert dashboard.health_card.value_label.text() == "No batch"
     assert dashboard.pagination_label.text() == "No schedules to display"
-    assert not dashboard.previous_button.isEnabled()
-    assert not dashboard.next_button.isEnabled()
+    assert dashboard.previous_button.isEnabled()
+    assert dashboard.next_button.isEnabled()
+    assert dashboard.previous_button.toolTip() == (
+        "Generate schedules before viewing the best schedule."
+    )
+    assert dashboard.next_button.toolTip() == (
+        "Generate schedules before requesting the next batch."
+    )
 
 
 def test_dashboard_paints_with_empty_chart_and_pagination(qtbot):

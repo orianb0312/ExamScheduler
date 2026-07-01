@@ -85,7 +85,7 @@ def test_input_panel_uses_dashboard_shell_layout(tmp_path, qtbot):
         button.text()
         for button in panel.findChildren(QPushButton)
         if button.objectName() in {"navTab", "navTabActive"}
-    ] == ["Dashboard", "Programs", "Courses", "Calendar", "Settings", "Schedules"]
+    ] == ["Dashboard", "Programs", "Calendar", "Settings", "Schedules"]
 
 
 def test_generate_footer_is_available_on_programs_and_settings_only(tmp_path, qtbot):
@@ -168,9 +168,20 @@ def test_input_panel_keeps_calendar_action_in_dashboard_nav(tmp_path, qtbot):
     assert panel.run_button.parent() is panel
 
 
+def _mark_panel_data_loaded(panel: InputPanel) -> None:
+    panel.notify_data_loaded(
+        LoadedSchedulerInput(
+            courses=(),
+            exam_periods=(),
+            programs=(),
+        )
+    )
+
+
 def test_input_panel_passes_selected_programs_to_scheduler_config(tmp_path, qtbot):
     panel = InputPanel(project_root=tmp_path)
     qtbot.addWidget(panel)
+    _mark_panel_data_loaded(panel)
     panel.replace_program_list(["83101", "83102", "83108"])
     panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
     panel.program_selector.item(2).setCheckState(Qt.CheckState.Checked)
@@ -197,6 +208,7 @@ def test_input_panel_blocks_generation_when_constraint_settings_are_invalid(
 ):
     panel = InputPanel(project_root=tmp_path)
     qtbot.addWidget(panel)
+    _mark_panel_data_loaded(panel)
     panel.replace_program_list(["83101"])
     panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
 

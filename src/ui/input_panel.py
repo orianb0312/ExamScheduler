@@ -61,6 +61,7 @@ class InputPanel(QWidget):
     """
 
     run_requested = pyqtSignal(CliRunConfig)
+    run_without_loaded_data_requested = pyqtSignal()
     cancel_requested = pyqtSignal()
     data_load_requested = pyqtSignal(str, str, str, str)
     view_calendar_requested = pyqtSignal()
@@ -78,6 +79,7 @@ class InputPanel(QWidget):
         self._run_config_builder = SchedulerRunConfigBuilder(self._scheduler_input_state)
         self._dashboard_analytics = DashboardAnalyticsService()
         self.selected_programs_vm = SelectedProgramsViewModel()
+        self._has_loaded_input_data = False
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["complete-count", "period", "complete-write", "auto"])
@@ -93,7 +95,6 @@ class InputPanel(QWidget):
         self.nav_tabs = {
             "Dashboard": self._nav_button("Dashboard"),
             "Programs": self._nav_button("Programs", active=True),
-            "Courses": self._nav_button("Courses", enabled=False),
             "Calendar": self._nav_button("Calendar", enabled=False),
             "Settings": self._nav_button("Settings"),
             "Schedules": self._nav_button("Schedules", enabled=False),
@@ -1115,10 +1116,12 @@ class InputPanel(QWidget):
         self.file_loader.show_load_success(course_count, period_count, program_count, message)
 
     def set_data_load_error(self, message: str) -> None:
+        self._has_loaded_input_data = False
         self.set_exam_calendar_available(False)
         self.file_loader.show_load_error(message)
 
     def notify_data_loaded(self, loaded_data: LoadedSchedulerInput) -> None:
+        self._has_loaded_input_data = True
 
         self.selected_programs_vm.update_available_programs(loaded_data)
         self._scheduler_input_state.set_courses(loaded_data.courses)
@@ -1224,6 +1227,10 @@ class InputPanel(QWidget):
         )
 
     def _emit_run_requested(self) -> None:
+        if not self._has_loaded_input_data:
+            self.run_without_loaded_data_requested.emit()
+            return
+
         # Constraint errors are part of the run form, so check them before building files.
         if not self._validate_constraints_before_run():
             return

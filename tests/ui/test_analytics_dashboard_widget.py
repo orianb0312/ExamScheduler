@@ -15,7 +15,7 @@ from src.services.schedule_output_service import (
 )
 from src.sorting.schedule_priority import MANDATORY_MIN_GAP
 from src.ui.dashboard_view import ExamSchedulerDashboard
-from src.ui.main_window import MainWindow
+from src.ui.main_window import MainWindow, NO_DASHBOARD_SCHEDULE_MESSAGE
 
 
 class _FakeProcessRunner(QObject):
@@ -130,8 +130,8 @@ def test_dashboard_tab_refreshes_for_best_schedule_so_far(
     assert not hasattr(window.output_view, "analytics_dashboard")
     assert window.input_panel.analytics_dashboard.total_card.value_label.text() == "No schedules"
     assert window.input_panel.analytics_dashboard.pagination_label.text() == "No schedules to display"
-    assert not window.input_panel.analytics_dashboard.previous_button.isEnabled()
-    assert not window.input_panel.analytics_dashboard.next_button.isEnabled()
+    assert window.input_panel.analytics_dashboard.previous_button.isEnabled()
+    assert window.input_panel.analytics_dashboard.next_button.isEnabled()
 
     window.output_view.add_systems([_system()])
     window.input_panel.show_dashboard_page()
@@ -186,6 +186,43 @@ def test_dashboard_tab_refreshes_for_best_schedule_so_far(
     assert dashboard.insights.winning_card.body_label.text() == "Winning"
     assert dashboard.insights.bottleneck_card.body_label.text() == "Bottleneck"
     assert dashboard.pagination_label.text() == "Displaying Chunk 2 | Schedules 1,001 - 2,000"
+
+
+def test_dashboard_actions_without_schedules_show_message(
+    tmp_path,
+    qtbot: QtBot,
+) -> None:
+    runners: list[_FakeProcessRunner] = []
+
+    def create_runner(parent) -> _FakeProcessRunner:
+        runner = _FakeProcessRunner(parent)
+        runners.append(runner)
+        return runner
+
+    window = MainWindow(
+        project_root=tmp_path,
+        process_runner_factory=create_runner,
+    )
+    qtbot.addWidget(window)
+    window.input_panel.show_dashboard_page()
+
+    dashboard = window.input_panel.analytics_dashboard
+    assert dashboard.previous_button.isEnabled()
+    assert dashboard.next_button.isEnabled()
+
+    qtbot.mouseClick(dashboard.previous_button, Qt.MouseButton.LeftButton)
+
+    assert window.input_panel.is_dashboard_page_visible()
+    assert not window.input_panel.is_schedules_page_visible()
+    assert window._toast.message_label.text() == NO_DASHBOARD_SCHEDULE_MESSAGE
+
+    window._toast.hide()
+    qtbot.mouseClick(dashboard.next_button, Qt.MouseButton.LeftButton)
+
+    assert runners[0].sent_lines == []
+    assert window.input_panel.is_dashboard_page_visible()
+    assert not window.input_panel.is_schedules_page_visible()
+    assert window._toast.message_label.text() == NO_DASHBOARD_SCHEDULE_MESSAGE
 
 
 def test_dashboard_uses_best_schedule_so_far_without_extra_sort_or_full_copy(

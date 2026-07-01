@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 from PyQt6.QtCore import QObject, QDate, Qt, pyqtSignal
-from PyQt6.QtWidgets import QLabel, QPushButton
+from PyQt6.QtWidgets import QLabel, QMessageBox, QPushButton
 from pytestqt.qtbot import QtBot
 
 from src.ui import main_window as main_window_module
@@ -26,7 +26,11 @@ from src.ui.calendar_view_panel import (
     _MonthGrid,
     _PeriodSection,
 )
-from src.ui.main_window import MainWindow, NO_EXAM_SCHEDULES_MESSAGE
+from src.ui.main_window import (
+    MainWindow,
+    NO_EXAM_SCHEDULES_MESSAGE,
+    NO_INPUT_DATA_MESSAGE,
+)
 from src.ui.view_models import (
     ExamPeriodViewModel,
     ExclusionViewModel,
@@ -73,6 +77,23 @@ class _FakeProcessRunner(QObject):
 
     def send_input_line(self, line: str) -> None:
         self.sent_lines.append(line)
+
+
+def _mark_input_data_loaded(window: MainWindow) -> None:
+    loaded_data = LoadedSchedulerInput(
+        courses=(),
+        exam_periods=(
+            ExamPeriod(
+                semester=Semester.FALL,
+                term=Term.ALEPH,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 3),
+            ),
+        ),
+        programs=(),
+    )
+    window._file_loading_service._loaded_data = loaded_data
+    window.input_panel.notify_data_loaded(loaded_data)
 
 
 def test_exam_period_view_model_logic(simple_period: ExamPeriodViewModel) -> None:
@@ -298,6 +319,7 @@ def test_generate_schedules_starts_process_runner_boundary(tmp_path, qtbot: QtBo
         process_runner_factory=create_runner,
     )
     qtbot.addWidget(window)
+    _mark_input_data_loaded(window)
     window.input_panel.replace_program_list(["83101"])
     window.input_panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
 
@@ -310,6 +332,40 @@ def test_generate_schedules_starts_process_runner_boundary(tmp_path, qtbot: QtBo
     assert window._stack.currentWidget() is window.loading_view
     assert not window.input_panel.run_button.isEnabled()
     assert window.input_panel.program_selector.isEnabled()
+
+
+def test_generate_schedules_without_loaded_data_shows_toast(
+    tmp_path,
+    qtbot: QtBot,
+    monkeypatch,
+) -> None:
+    created_runners: list[_FakeProcessRunner] = []
+
+    def create_runner(parent) -> _FakeProcessRunner:
+        runner = _FakeProcessRunner(parent)
+        created_runners.append(runner)
+        return runner
+
+    window = MainWindow(
+        project_root=tmp_path,
+        process_runner_factory=create_runner,
+    )
+    qtbot.addWidget(window)
+    warnings: list[tuple] = []
+
+    def fake_warning(*args, **kwargs):
+        warnings.append(args)
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(QMessageBox, "warning", fake_warning)
+
+    qtbot.mouseClick(window.input_panel.run_button, Qt.MouseButton.LeftButton)
+
+    assert created_runners[0].started_config is None
+    assert warnings == []
+    assert window._stack.currentWidget() is window.input_panel
+    assert window.input_panel.run_button.isEnabled()
+    assert window._toast.message_label.text() == NO_INPUT_DATA_MESSAGE
 
 
 def test_back_from_output_stays_on_input_after_lazy_process_finishes(
@@ -328,6 +384,7 @@ def test_back_from_output_stays_on_input_after_lazy_process_finishes(
         process_runner_factory=create_runner,
     )
     qtbot.addWidget(window)
+    _mark_input_data_loaded(window)
     window.input_panel.replace_program_list(["83101"])
     window.input_panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
 
@@ -362,20 +419,7 @@ def test_calendar_edit_after_lazy_results_stops_waiting_scheduler(
         process_runner_factory=create_runner,
     )
     qtbot.addWidget(window)
-    window.input_panel.notify_data_loaded(
-        LoadedSchedulerInput(
-            courses=(),
-            exam_periods=(
-                ExamPeriod(
-                    semester=Semester.FALL,
-                    term=Term.ALEPH,
-                    start_date=date(2026, 1, 1),
-                    end_date=date(2026, 1, 3),
-                ),
-            ),
-            programs=(),
-        )
-    )
+    _mark_input_data_loaded(window)
     window.input_panel.replace_program_list(["83101"])
     window.input_panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
 

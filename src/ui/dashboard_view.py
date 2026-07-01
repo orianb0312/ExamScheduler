@@ -595,8 +595,23 @@ class ExamSchedulerDashboard(QWidget):
         self._sync_action_buttons()
 
     def _sync_action_buttons(self) -> None:
-        self.previous_button.setEnabled(self._has_results)
-        self.next_button.setEnabled(self._can_request_more)
+        is_empty = not self._has_results
+        self.previous_button.setEnabled(True)
+        self.next_button.setEnabled(is_empty or self._can_request_more)
+        self.previous_button.setToolTip(
+            "Open the best generated schedule."
+            if self._has_results
+            else "Generate schedules before viewing the best schedule."
+        )
+        self.next_button.setToolTip(
+            "Generate the next batch of schedule systems."
+            if self._can_request_more
+            else (
+                "Generate schedules before requesting the next batch."
+                if is_empty
+                else "No next schedule batch is available yet."
+            )
+        )
 
     def set_pagination(
         self,

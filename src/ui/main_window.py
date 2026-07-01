@@ -51,6 +51,8 @@ NO_EXAM_SCHEDULES_MESSAGE = (
     "No exam schedules were generated for the selected programs. "
     "Check that the selected courses include exam assessments."
 )
+NO_DASHBOARD_SCHEDULE_MESSAGE = "Generate schedules before using dashboard actions."
+NO_INPUT_DATA_MESSAGE = "Load courses and exam dates before clicking Generate Schedules."
 
 LOGGER = logging.getLogger(__name__)
 
@@ -125,7 +127,10 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         self.input_panel.data_load_requested.connect(self._load_selected_files)
-        self.input_panel.run_requested.connect(self._start_cli_run)
+        self.input_panel.run_without_loaded_data_requested.connect(
+            self._show_missing_input_data_message
+        )
+        self.input_panel.run_requested.connect(self._handle_generate_schedules_requested)
         self.input_panel.cancel_requested.connect(self._cancel_process)
         self.input_panel.input_changed.connect(
             self._stop_active_lazy_run_for_input_edit
@@ -373,6 +378,15 @@ class MainWindow(QMainWindow):
 
         self._start_cli_run_now(config)
 
+    def _handle_generate_schedules_requested(self, config: CliRunConfig) -> None:
+        if self.loaded_input_data is None:
+            self._show_missing_input_data_message()
+            return
+        self._start_cli_run(config)
+
+    def _show_missing_input_data_message(self) -> None:
+        self._toast.show_message(NO_INPUT_DATA_MESSAGE)
+
     def _start_cli_run_now(self, config: CliRunConfig) -> None:
         self._ignore_stale_runner_result = False
         self._pending_run_after_stale_stop = None
@@ -523,6 +537,13 @@ class MainWindow(QMainWindow):
         self._runner.send_input_line(LAZY_NEXT_COMMAND)
 
     def _request_next_schedule_batch_from_dashboard(self) -> None:
+        if (
+            not self.output_view.cache.system_count
+            and self.output_view.best_schedule_so_far is None
+        ):
+            self._toast.show_message(NO_DASHBOARD_SCHEDULE_MESSAGE)
+            self._refresh_analytics_dashboard()
+            return
         self._show_output_screen()
         if not self.output_view.request_next_generated_batch():
             self._toast.show_message("No next schedule batch is available.")
@@ -749,6 +770,10 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentWidget(self.input_panel)
 
     def _show_top_schedule_screen(self) -> None:
+        if self.output_view.best_schedule_so_far is None:
+            self._toast.show_message(NO_DASHBOARD_SCHEDULE_MESSAGE)
+            self._refresh_analytics_dashboard()
+            return
         self.output_view.show_best_schedule_so_far()
         self._show_output_screen()
 
