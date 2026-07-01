@@ -48,6 +48,8 @@ def test_benchmark_prompt_includes_context_and_user_request():
     assert "Allow exams on Fridays again" in prompt
     assert "ai_rule_1" in prompt
     assert "Return only one JSON object" in prompt
+    assert "Minimum gap 5 days" in prompt
+    assert "tests and finals mean exams" in prompt
 
 
 def test_strict_json_parser_rejects_duplicate_keys():

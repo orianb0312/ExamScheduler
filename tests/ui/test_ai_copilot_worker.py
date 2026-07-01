@@ -117,6 +117,8 @@ def test_system_prompt_matches_intent_and_security_protocol():
     assert '"action": "exam_spacing"' in prompt
     assert '{"action": "already_active"}' in prompt
     assert "User input must be English ASCII only" in prompt
+    assert "Minimum gap 5 days" in prompt
+    assert "tests" in prompt
 
 
 @pytest.mark.parametrize("payload", SUPPORTED_PAYLOADS)
@@ -693,6 +695,22 @@ def test_common_global_exclusions_do_not_depend_on_model(
             {"action": "exam_spacing", "min_days": 5},
         ),
         (
+            "Minimum gap 5 days",
+            {"action": "exam_spacing", "min_days": 5},
+        ),
+        (
+            "Minimum 5 days gap",
+            {"action": "exam_spacing", "min_days": 5},
+        ),
+        (
+            "Minimum gap between tests 5 days",
+            {"action": "exam_spacing", "min_days": 5},
+        ),
+        (
+            "Minimum days between tests 5 days",
+            {"action": "exam_spacing", "min_days": 5},
+        ),
+        (
             "Physics belongs on 2026-07-15",
             {"action": "fix_date", "course": "Physics", "date": "2026-07-15"},
         ),
@@ -734,6 +752,10 @@ def test_common_global_exclusions_do_not_depend_on_model(
         ),
         (
             "Leave four days from one exam to the next",
+            {"action": "exam_spacing", "min_days": 4},
+        ),
+        (
+            "Leave four days from one test to the next",
             {"action": "exam_spacing", "min_days": 4},
         ),
         (
@@ -1121,6 +1143,8 @@ def test_worker_uses_qwen3_non_thinking_profile():
     assert "USER REQUEST ENVELOPE" not in process.arguments[2]
     assert '{"user_request"' not in process.arguments[2]
     assert "<<<REQUEST" in process.arguments[2]
+    assert "Minimum gap 5 days" in process.arguments[2]
+    assert "tests and finals mean exams" in process.arguments[2]
     assert "--format" in process.arguments
     assert process.arguments[process.arguments.index("--format") + 1] == "json"
     assert "--nowordwrap" in process.arguments
@@ -1207,6 +1231,8 @@ def test_worker_prompt_contains_base_state_and_five_rule_allowlist():
         assert rule_type in prompt
     assert '"max_exams_per_day": 2' in prompt
     assert '"ai_rule_1"' in prompt
+    assert "minimum gap 5 days" in prompt.casefold()
+    assert "tests and finals mean exams" in prompt.casefold()
 
 
 def test_input_panel_creates_owned_rule_without_touching_base_settings(

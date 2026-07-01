@@ -202,6 +202,26 @@
       "match": "exact"
     },
     {
+      "id": "exam_spacing_minimum_gap_terse",
+      "category": "supported_exam_spacing",
+      "request": "Minimum gap 5 days",
+      "expected": {
+        "action": "exam_spacing",
+        "min_days": 5
+      },
+      "match": "exact"
+    },
+    {
+      "id": "exam_spacing_tests_synonym",
+      "category": "supported_exam_spacing",
+      "request": "Minimum days between tests 5 days",
+      "expected": {
+        "action": "exam_spacing",
+        "min_days": 5
+      },
+      "match": "exact"
+    },
+    {
       "id": "model_fix_date_belongs_iso",
       "category": "model_semantic_supported",
       "request": "Physics belongs on 2026-07-15",
