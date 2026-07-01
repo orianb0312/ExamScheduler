@@ -1,5 +1,5 @@
 #define AppName "ExamScheduler"
-#define AppVersion "1.0.0"
+#define AppVersion "3.4.1"
 #ifndef SourceRoot
   #define SourceRoot "..\dist\ExamSchedulerInstaller\payload"
 #endif
@@ -15,8 +15,10 @@ AppPublisher=ExamScheduler
 DefaultDirName={localappdata}\ExamScheduler
 DefaultGroupName=ExamScheduler
 DisableProgramGroupPage=yes
+SetupIconFile={#SourceRoot}\app\src\ui\assets\exam_scheduler.ico
+UninstallDisplayIcon={app}\app\src\ui\assets\exam_scheduler.ico
 OutputDir={#OutputRoot}
-OutputBaseFilename=ExamScheduler-Setup-Offline-DualModel
+OutputBaseFilename=ExamScheduler-Setup-Offline-DualModel-v3.4.1
 DiskSpanning=yes
 DiskSliceSize=2100000000
 Compression=lzma2/fast
@@ -52,8 +54,8 @@ Source: "{#SourceRoot}\models\llama\*"; DestDir: "{app}\ollama\models"; Componen
 Source: "{#SourceRoot}\models\qwen\*"; DestDir: "{app}\ollama\models"; Components: models\qwen; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\ExamScheduler"; Filename: "{app}\Start-ExamScheduler.cmd"; WorkingDir: "{app}"
-Name: "{autodesktop}\ExamScheduler"; Filename: "{app}\Start-ExamScheduler.cmd"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\ExamScheduler"; Filename: "{app}\Start-ExamScheduler.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\app\src\ui\assets\exam_scheduler.ico"
+Name: "{autodesktop}\ExamScheduler"; Filename: "{app}\Start-ExamScheduler.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\app\src\ui\assets\exam_scheduler.ico"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checkedonce

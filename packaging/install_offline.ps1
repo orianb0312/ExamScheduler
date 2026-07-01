@@ -20,6 +20,7 @@ $AppDir = Join-Path $InstallRoot "app"
 $VenvDir = Join-Path $InstallRoot ".venv"
 $LaunchPs1 = Join-Path $InstallRoot "Start-ExamScheduler.ps1"
 $LaunchCmd = Join-Path $InstallRoot "Start-ExamScheduler.cmd"
+$IconPath = Join-Path $AppDir "src\ui\assets\exam_scheduler.ico"
 
 function Copy-Directory {
     param(
@@ -134,6 +135,9 @@ if (-not $SkipShortcut) {
         $shortcut.TargetPath = $LaunchCmd
         $shortcut.WorkingDirectory = $InstallRoot
         $shortcut.Description = "Launch ExamScheduler"
+        if (Test-Path -LiteralPath $IconPath) {
+            $shortcut.IconLocation = "$IconPath,0"
+        }
         $shortcut.Save()
     }
 }

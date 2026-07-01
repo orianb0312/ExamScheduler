@@ -15,6 +15,7 @@ $OllamaExe = Join-Path $InstallRoot "ollama\ollama.exe"
 $OllamaModelsDir = Join-Path $InstallRoot "ollama\models"
 $LaunchPs1 = Join-Path $InstallRoot "Start-ExamScheduler.ps1"
 $LaunchCmd = Join-Path $InstallRoot "Start-ExamScheduler.cmd"
+$IconPath = Join-Path $AppDir "src\ui\assets\exam_scheduler.ico"
 
 if (-not (Test-Path -LiteralPath $AppDir)) {
     throw "Installed app directory is missing: $AppDir"
@@ -78,6 +79,9 @@ if (-not $SkipShortcut) {
         $shortcut.TargetPath = $LaunchCmd
         $shortcut.WorkingDirectory = $InstallRoot
         $shortcut.Description = "Launch ExamScheduler"
+        if (Test-Path -LiteralPath $IconPath) {
+            $shortcut.IconLocation = "$IconPath,0"
+        }
         $shortcut.Save()
     }
 }
