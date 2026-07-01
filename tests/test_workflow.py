@@ -409,6 +409,132 @@ def test_run_complete_lazy_stream_workflow_waits_for_next_command(tmp_path):
     assert "Complete System #1" in second_page_stdout.getvalue()
     assert "Complete System #2" in second_page_stdout.getvalue()
 
+    auto_stdout = StringIO()
+    auto_stderr = StringIO()
+    auto_result = run_complete_lazy_stream_workflow(
+        output_config=output_config,
+        batch_size=1,
+        time_limit_seconds=30.0,
+        input_stream=StringIO(""),
+        output_stream=auto_stdout,
+        progress_stream=auto_stderr,
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+    )
+    auto_output = auto_stdout.getvalue()
+
+    assert auto_result.auto_limit_seconds == 30.0
+    assert auto_result.written_system_count == 1
+    assert auto_result.truncated is True
+    assert "Auto time limit: 30.00 seconds" in auto_output
+    assert "Complete System #1" in auto_output
+    assert "Complete System #2" not in auto_output
+    assert "before all batches were requested" in auto_stderr.getvalue()
+
+    auto_next_stdout = StringIO()
+    auto_next_result = run_complete_lazy_stream_workflow(
+        output_config=output_config,
+        batch_size=1,
+        time_limit_seconds=30.0,
+        input_stream=StringIO("NEXT\n"),
+        output_stream=auto_next_stdout,
+        progress_stream=StringIO(),
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+    )
+    auto_next_output = auto_next_stdout.getvalue()
+
+    assert auto_next_result.auto_limit_seconds == 30.0
+    assert auto_next_result.written_system_count == 2
+    assert "Complete System #1" in auto_next_output
+    assert "Complete System #2" in auto_next_output
+
+
+def test_time_limited_lazy_stream_honors_sorting_file(tmp_path):
+    course_file = tmp_path / "courses.txt"
+    dates_file = tmp_path / "dates.txt"
+    user_file = tmp_path / "programs.txt"
+    sorting_file = tmp_path / "sorting.txt"
+    output_config = tmp_path / "config.json"
+
+    course_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "Alpha",
+                "10001",
+                "Dr. A",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+                "$$$$",
+                "Beta",
+                "10002",
+                "Dr. B",
+                "83101,1,FALL,Obligatory",
+                "Exam",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dates_file.write_text(
+        "\n".join(
+            [
+                "$$$$",
+                "FALL,Aleph",
+                "01-01-2026, 04-01-2026",
+                "04-01-2026 Blocked",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_file.write_text("83101", encoding="utf-8")
+    sorting_file.write_text("$$$$\nsorting_priority\n3.1\n", encoding="utf-8")
+    output_config.write_text(
+        json.dumps(
+            {
+                "source_type": "file",
+                "file": {
+                    "course_file": str(course_file),
+                    "dates_file": str(dates_file),
+                    "user_file": str(user_file),
+                    "sorting_file": str(sorting_file),
+                },
+                "output_settings": {
+                    "base_directory": str(tmp_path / "output"),
+                    "master_filename": "workflow_schedule",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    stdout = StringIO()
+    result = run_complete_lazy_stream_workflow(
+        output_config=output_config,
+        batch_size=1,
+        time_limit_seconds=30.0,
+        input_stream=StringIO(""),
+        output_stream=stdout,
+        progress_stream=StringIO(),
+        course_file=course_file,
+        dates_file=dates_file,
+        user_file=user_file,
+        sorting_file=sorting_file,
+    )
+
+    first_system = stdout.getvalue().split("Complete System #1", 1)[1].split(
+        "*" * 70,
+        1,
+    )[0]
+
+    assert result.complete_system_count == 6
+    assert result.written_system_count == 1
+    assert "2026-01-01" in first_system
+    assert "2026-01-03" in first_system
+    assert "2026-01-02" not in first_system
+
 
 def test_workflow_rejects_invalid_constraints_file_override(tmp_path):
     course_file = tmp_path / "courses.txt"

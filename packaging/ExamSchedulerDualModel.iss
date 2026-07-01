@@ -1,5 +1,5 @@
 #define AppName "ExamScheduler"
-#define AppVersion "3.4.1"
+#define AppVersion "3.4.2"
 #ifndef SourceRoot
   #define SourceRoot "..\dist\ExamSchedulerInstaller\payload"
 #endif
@@ -18,7 +18,7 @@ DisableProgramGroupPage=yes
 SetupIconFile={#SourceRoot}\app\src\ui\assets\exam_scheduler.ico
 UninstallDisplayIcon={app}\app\src\ui\assets\exam_scheduler.ico
 OutputDir={#OutputRoot}
-OutputBaseFilename=ExamScheduler-Setup-Offline-DualModel-v3.4.1
+OutputBaseFilename=ExamScheduler-Setup-Offline-DualModel-v3.4.2
 DiskSpanning=yes
 DiskSliceSize=2100000000
 Compression=lzma2/fast

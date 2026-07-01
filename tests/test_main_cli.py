@@ -85,6 +85,33 @@ def test_cli_modes_still_complete_successfully(tmp_path):
         assert "Traceback" not in result.stderr
 
 
+def test_cli_auto_lazy_forwards_time_limit(tmp_path):
+    config_path = _write_minimal_scheduler_input(tmp_path)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(MAIN_SCRIPT),
+            "--mode",
+            "auto",
+            "--output-config",
+            str(config_path),
+            "--time-limit",
+            "5",
+            "--lazy-schedules",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Auto time limit: 5.00 seconds" in result.stdout
+    assert "Complete System #1" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
 def test_cli_complete_write_exports_deterministic_analytics(tmp_path):
     config_path = _write_minimal_scheduler_input(tmp_path)
     sorting_file = tmp_path / "sorting.txt"

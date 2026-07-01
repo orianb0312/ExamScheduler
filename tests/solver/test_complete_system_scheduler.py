@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import date
 
 from src.output.output_manager import TextOutputManager
@@ -6,11 +7,13 @@ from src.models.academic import Course, Exam, ProgramAffiliation
 from src.models.enums import RequirementType, Semester, Term
 from src.models.scheduling import ExamPeriod
 from src.rules.academic_conflict_rule import AcademicConflictRule
+from src.rules.advanced_constraints_rule import AdvancedConstraintsRule
 from src.solver.complete_scheduler import (
     DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE,
     CompleteSystemScheduler,
     DiskAssignmentStore,
     PeriodScheduleSet,
+    ScheduleGenerationTimedOut,
 )
 from src.sorting.schedule_priority import MANDATORY_MIN_GAP
 
@@ -28,6 +31,14 @@ def _courses():
     return [
         Course(10001, "Algorithms", "Dr. A", Exam(), [_affiliation()]),
         Course(10002, "Databases", "Dr. B", Exam(), [_affiliation()]),
+    ]
+
+
+def _three_mandatory_courses():
+    return [
+        Course(10001, "Algorithms", "Dr. A", Exam(), [_affiliation()]),
+        Course(10002, "Databases", "Dr. B", Exam(), [_affiliation()]),
+        Course(10003, "Physics", "Dr. C", Exam(), [_affiliation()]),
     ]
 
 
@@ -82,6 +93,41 @@ def test_complete_system_count_multiplies_period_counts():
     assert result.period_schedule_counts == [2, 2]
     assert result.complete_system_count == 4
     assert result.written_system_count == 0
+
+
+def test_mandatory_span_does_not_prune_valid_partial_assignments():
+    scheduler = CompleteSystemScheduler([
+        AcademicConflictRule(),
+        AdvancedConstraintsRule(
+            max_elective_conflicts=99,
+            min_mandatory_span=2,
+            max_daily_exams=99,
+        ),
+    ])
+
+    result = scheduler.count_complete_systems([
+        (_wide_period(), _three_mandatory_courses()),
+    ])
+
+    assert result.period_schedule_counts == [24]
+    assert result.complete_system_count == 24
+
+
+def test_on_demand_stream_keeps_valid_mandatory_span_completions():
+    scheduler = CompleteSystemScheduler([
+        AcademicConflictRule(),
+        AdvancedConstraintsRule(
+            max_elective_conflicts=99,
+            min_mandatory_span=2,
+            max_daily_exams=99,
+        ),
+    ])
+
+    stream = scheduler.stream_complete_systems_on_demand([
+        (_wide_period(), _three_mandatory_courses()),
+    ])
+
+    assert sum(1 for _system in stream.systems) == 24
 
 
 def test_disk_assignment_store_round_trips_assignments_after_spooling():
@@ -295,3 +341,44 @@ def test_complete_system_stream_does_not_rebuild_when_next_batch_is_requested():
     assert next(batches)[0].number == 1
     assert next(batches)[0].number == 2
     assert scheduler.build_count == 1
+
+
+def test_on_demand_complete_system_stream_matches_exact_prefix():
+    scheduler = CompleteSystemScheduler([AcademicConflictRule()])
+    courses = _courses()
+    period_sets = [
+        (_wide_period(), courses),
+        (_period(Term.BET, 2), courses),
+    ]
+
+    exact = [
+        system.text
+        for system in scheduler.stream_complete_systems(
+            period_sets,
+            max_systems=3,
+        ).systems
+    ]
+    on_demand = [
+        system.text
+        for system in scheduler.stream_complete_systems_on_demand(
+            period_sets,
+            max_systems=3,
+        ).systems
+    ]
+
+    assert on_demand == exact
+
+
+def test_on_demand_complete_system_stream_honors_deadline():
+    scheduler = CompleteSystemScheduler([AcademicConflictRule()])
+    stream = scheduler.stream_complete_systems_on_demand(
+        [(_wide_period(), _courses())],
+        deadline=time.perf_counter() - 1.0,
+    )
+
+    try:
+        next(stream.systems)
+    except ScheduleGenerationTimedOut:
+        pass
+    else:
+        raise AssertionError("on-demand stream should stop at an expired deadline")

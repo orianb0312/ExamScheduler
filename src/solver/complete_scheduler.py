@@ -12,7 +12,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Dict, Generator, Iterable, Iterator, List, Optional, Protocol, Sequence, Set
+from typing import Callable, Dict, Generator, Iterable, Iterator, List, Optional, Protocol, Sequence, Set
 
 from src.output.output_manager import TextOutputManager
 from src.interfaces import ISchedulingRule
@@ -30,6 +30,12 @@ DEFAULT_ASSIGNMENT_STORE_MEMORY_LIMIT_BYTES = 8 * 1024 * 1024
 DEFAULT_FORMAT_CACHE_SIZE = 4096
 DEFAULT_OUTPUT_BATCH_CHAR_LIMIT = 16 * 1024 * 1024
 DEFAULT_OUTPUT_BUFFER_BYTES = 16 * 1024 * 1024
+
+_Deadline = float | None | Callable[[], float | None]
+
+
+class ScheduleGenerationTimedOut(TimeoutError):
+    """Raised when a time-limited stream reaches its generation deadline."""
 
 
 @dataclass(frozen=True)
@@ -550,6 +556,39 @@ class CompleteSystemScheduler:
             _schedule_sets=schedule_sets,
         )
 
+    def stream_complete_systems_on_demand(
+        self,
+        period_course_sets: Sequence[tuple[ExamPeriod, List[Course]]],
+        max_systems: Optional[int] = None,
+        deadline: _Deadline = None,
+    ) -> CompleteSystemStream:
+        """
+        Return a first-ready stream without materializing every period schedule.
+
+        Time-limited desktop auto runs use this path so the first UI batch can
+        be emitted as soon as enough valid systems are found. Exact totals are
+        calculated by the workflow separately, after the first batch has been
+        released to the UI.
+        """
+        schedule_sets = [
+            PeriodScheduleSet(period=period, courses=courses, schedules=[])
+            for period, courses in period_course_sets
+        ]
+        systems = self._iter_generated_complete_systems_on_demand(
+            schedule_sets,
+            max_systems=max_systems,
+            deadline=deadline,
+        )
+        return CompleteSystemStream(
+            period_course_counts=[
+                len(schedule_set.courses) for schedule_set in schedule_sets
+            ],
+            period_schedule_counts=[0 for _schedule_set in schedule_sets],
+            complete_system_count=0,
+            systems=systems,
+            _schedule_sets=(),
+        )
+
     def write_complete_systems(
         self,
         period_course_sets: Sequence[tuple[ExamPeriod, List[Course]]],
@@ -848,7 +887,8 @@ class CompleteSystemScheduler:
         }
 
         for rule in self.rules:
-            if not rule.is_valid(state):
+            validator = getattr(rule, "is_partial_valid", rule.is_valid)
+            if not validator(state):
                 return True
         return False
 
@@ -965,16 +1005,28 @@ class CompleteSystemScheduler:
 
         attempt = current_assignment.copy()
         attempt[course_index] = exam_date
-        return self._rules_accept_assignment(attempt)
+        return self._rules_accept_assignment(
+            attempt,
+            is_complete=len(attempt) == len(self._course_keys),
+        )
 
-    def _rules_accept_assignment(self, assignment: Dict[int, date]) -> bool:
+    def _rules_accept_assignment(
+        self,
+        assignment: Dict[int, date],
+        is_complete: bool = True,
+    ) -> bool:
         state = {
             self._course_keys[course_index]: exam_date
             for course_index, exam_date in assignment.items()
         }
 
         for rule in self.rules:
-            if not rule.is_valid(state):
+            validator = rule.is_valid if is_complete else getattr(
+                rule,
+                "is_partial_valid",
+                rule.is_valid,
+            )
+            if not validator(state):
                 return False
         return True
 
@@ -1056,6 +1108,267 @@ class CompleteSystemScheduler:
                     break
         finally:
             self._close_schedule_sets(schedule_sets)
+
+    def _iter_generated_complete_systems_on_demand(
+        self,
+        schedule_sets: Sequence[PeriodScheduleSet],
+        max_systems: Optional[int] = None,
+        deadline: _Deadline = None,
+    ) -> Iterator[GeneratedCompleteSystem]:
+        if max_systems is not None and max_systems <= 0:
+            return
+
+        period_blocks: List[str] = []
+        system_number = 0
+
+        def recurse(period_index: int) -> Iterator[GeneratedCompleteSystem]:
+            nonlocal system_number
+            self._raise_if_deadline_expired(deadline)
+
+            if period_index >= len(schedule_sets):
+                system_number += 1
+                yield GeneratedCompleteSystem(
+                    number=system_number,
+                    text=self._format_complete_system(system_number, period_blocks),
+                )
+                return
+
+            schedule_set = schedule_sets[period_index]
+            for assignment in self._iter_period_assignments_on_demand(
+                schedule_set,
+                deadline=deadline,
+            ):
+                period_blocks.append(
+                    self._format_period_schedule(schedule_set, assignment)
+                )
+                yield from recurse(period_index + 1)
+                period_blocks.pop()
+
+                if max_systems is not None and system_number >= max_systems:
+                    return
+
+        yield from recurse(0)
+
+    def _iter_period_assignments_on_demand(
+        self,
+        schedule_set: PeriodScheduleSet,
+        deadline: _Deadline = None,
+    ) -> Iterator[Dict[int, date]]:
+        courses = schedule_set.courses
+        if not courses:
+            self._raise_if_deadline_expired(deadline)
+            yield {}
+            return
+
+        course_keys = [
+            _CourseKey(index, course) for index, course in enumerate(courses)
+        ]
+        available_dates = self._get_available_dates(schedule_set.period)
+        if not available_dates:
+            return
+
+        conflict_graph = self._build_conflict_graph_for_keys(courses, course_keys)
+        components = self._get_connected_components(courses, conflict_graph)
+        yield from self._iter_component_products_on_demand(
+            components,
+            available_dates,
+            conflict_graph,
+            course_keys,
+            deadline,
+        )
+
+    def _iter_component_products_on_demand(
+        self,
+        components: Sequence[List[int]],
+        available_dates: List[date],
+        conflict_graph: Dict[int, Set[int]],
+        course_keys: Sequence[_CourseKey],
+        deadline: _Deadline,
+    ) -> Iterator[Dict[int, date]]:
+        assignment: Dict[int, date] = {}
+
+        def recurse(component_index: int) -> Iterator[Dict[int, date]]:
+            self._raise_if_deadline_expired(deadline)
+            if component_index >= len(components):
+                yield assignment.copy()
+                return
+
+            component = components[component_index]
+            for solution in self._solve_component_on_demand(
+                component,
+                available_dates,
+                conflict_graph,
+                course_keys,
+                deadline,
+            ):
+                assignment.update(solution)
+                yield from recurse(component_index + 1)
+                for course_index in solution:
+                    assignment.pop(course_index, None)
+
+        yield from recurse(0)
+
+    def _solve_component_on_demand(
+        self,
+        component: List[int],
+        available_dates: List[date],
+        conflict_graph: Dict[int, Set[int]],
+        course_keys: Sequence[_CourseKey],
+        deadline: _Deadline,
+    ) -> Iterator[Dict[int, date]]:
+        current_assignment: Dict[int, date] = {}
+
+        def backtrack() -> Iterator[Dict[int, date]]:
+            self._raise_if_deadline_expired(deadline)
+            if len(current_assignment) == len(component):
+                yield current_assignment.copy()
+                return
+
+            course_index = self._select_next_course_mrv_on_demand(
+                component,
+                available_dates,
+                conflict_graph,
+                current_assignment,
+                course_keys,
+                deadline,
+            )
+
+            for exam_date in available_dates:
+                self._raise_if_deadline_expired(deadline)
+                if self._can_assign_on_demand(
+                    course_index,
+                    exam_date,
+                    conflict_graph,
+                    current_assignment,
+                    course_keys,
+                ):
+                    current_assignment[course_index] = exam_date
+                    yield from backtrack()
+                    del current_assignment[course_index]
+
+        yield from backtrack()
+
+    def _select_next_course_mrv_on_demand(
+        self,
+        component: List[int],
+        available_dates: List[date],
+        conflict_graph: Dict[int, Set[int]],
+        current_assignment: Dict[int, date],
+        course_keys: Sequence[_CourseKey],
+        deadline: _Deadline,
+    ) -> int:
+        unassigned = [
+            course_index
+            for course_index in component
+            if course_index not in current_assignment
+        ]
+        return min(
+            unassigned,
+            key=lambda course_index: (
+                self._count_valid_dates_on_demand(
+                    course_index,
+                    available_dates,
+                    conflict_graph,
+                    current_assignment,
+                    course_keys,
+                    deadline,
+                ),
+                -len(conflict_graph[course_index]),
+            ),
+        )
+
+    def _count_valid_dates_on_demand(
+        self,
+        course_index: int,
+        available_dates: List[date],
+        conflict_graph: Dict[int, Set[int]],
+        current_assignment: Dict[int, date],
+        course_keys: Sequence[_CourseKey],
+        deadline: _Deadline,
+    ) -> int:
+        count = 0
+        for exam_date in available_dates:
+            self._raise_if_deadline_expired(deadline)
+            if self._can_assign_on_demand(
+                course_index,
+                exam_date,
+                conflict_graph,
+                current_assignment,
+                course_keys,
+            ):
+                count += 1
+        return count
+
+    def _can_assign_on_demand(
+        self,
+        course_index: int,
+        exam_date: date,
+        conflict_graph: Dict[int, Set[int]],
+        current_assignment: Dict[int, date],
+        course_keys: Sequence[_CourseKey],
+    ) -> bool:
+        if any(
+            current_assignment.get(conflicting_course) == exam_date
+            for conflicting_course in conflict_graph[course_index]
+        ):
+            return False
+
+        attempt = current_assignment.copy()
+        attempt[course_index] = exam_date
+        return self._rules_accept_assignment_for_keys(
+            attempt,
+            course_keys,
+            is_complete=len(attempt) == len(course_keys),
+        )
+
+    def _build_conflict_graph_for_keys(
+        self,
+        courses: List[Course],
+        course_keys: Sequence[_CourseKey],
+    ) -> Dict[int, Set[int]]:
+        graph = {index: set() for index in range(len(courses))}
+        dummy_date = date(2099, 1, 1)
+
+        for left in range(len(courses)):
+            for right in range(left + 1, len(courses)):
+                state = {
+                    course_keys[left]: dummy_date,
+                    course_keys[right]: dummy_date,
+                }
+                if any(
+                    not getattr(rule, "is_partial_valid", rule.is_valid)(state)
+                    for rule in self.rules
+                ):
+                    graph[left].add(right)
+                    graph[right].add(left)
+
+        return graph
+
+    def _rules_accept_assignment_for_keys(
+        self,
+        assignment: Dict[int, date],
+        course_keys: Sequence[_CourseKey],
+        is_complete: bool = True,
+    ) -> bool:
+        state = {
+            course_keys[course_index]: exam_date
+            for course_index, exam_date in assignment.items()
+        }
+        for rule in self.rules:
+            validator = rule.is_valid if is_complete else getattr(
+                rule,
+                "is_partial_valid",
+                rule.is_valid,
+            )
+            if not validator(state):
+                return False
+        return True
+
+    @staticmethod
+    def _raise_if_deadline_expired(deadline: _Deadline) -> None:
+        deadline_value = deadline() if callable(deadline) else deadline
+        if deadline_value is not None and time.perf_counter() >= deadline_value:
+            raise ScheduleGenerationTimedOut
 
     def _iter_ordered_complete_system_indexes(
         self,

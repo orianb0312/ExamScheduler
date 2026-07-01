@@ -224,7 +224,8 @@ class Scheduler:
         }
 
         for rule in self.rules:
-            if not rule.is_valid(state):
+            validator = getattr(rule, "is_partial_valid", rule.is_valid)
+            if not validator(state):
                 return True
         return False
 
@@ -353,16 +354,28 @@ class Scheduler:
 
         attempt = current_assignment.copy()
         attempt[course_index] = exam_date
-        return self._rules_accept_assignment(attempt)
+        return self._rules_accept_assignment(
+            attempt,
+            is_complete=len(attempt) == len(self._course_keys),
+        )
 
-    def _rules_accept_assignment(self, assignment: Dict[int, date]) -> bool:
+    def _rules_accept_assignment(
+        self,
+        assignment: Dict[int, date],
+        is_complete: bool = True,
+    ) -> bool:
         state = {
             self._course_keys[course_index]: exam_date
             for course_index, exam_date in assignment.items()
         }
 
         for rule in self.rules:
-            if not rule.is_valid(state):
+            validator = rule.is_valid if is_complete else getattr(
+                rule,
+                "is_partial_valid",
+                rule.is_valid,
+            )
+            if not validator(state):
                 return False
         return True
 

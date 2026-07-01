@@ -1,5 +1,6 @@
 import json
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,7 @@ from src.solver.complete_scheduler import (
     DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE,
     CompleteSystemResult,
     CompleteSystemScheduler,
+    ScheduleGenerationTimedOut,
 )
 from src.solver.period_scheduler import Scheduler
 
@@ -435,6 +437,7 @@ def run_complete_lazy_stream_workflow(
         period_indexes: Optional[Sequence[int]] = None,
         max_systems: Optional[int] = None,
         batch_size: int = DEFAULT_COMPLETE_SYSTEM_BATCH_SIZE,
+        time_limit_seconds: float | None = None,
         input_stream: TextIO | None = None,
         output_stream: TextIO | None = None,
         progress_stream: TextIO | None = None,
@@ -464,48 +467,137 @@ def run_complete_lazy_stream_workflow(
         courses, periods, selected_programs, period_indexes
     )
     rules = _build_workflow_rules(parsed_data, output_config, kwargs)
+    sort_priority = parsed_data.get("sorting_node") or []
 
     progress_stream.write("Preparing lazy complete-system stream...\n")
     progress_stream.flush()
 
-    stream = CompleteSystemScheduler(rules=rules).stream_complete_systems(
-        period_course_sets,
-        max_systems=max_systems,
-        sort_priority=parsed_data.get("sorting_node") or [],
-    )
-    try:
-        _write_stream_summary(output_stream, stream, time_limit_seconds=None)
+    scheduler = CompleteSystemScheduler(rules=rules)
+    total_is_exact = time_limit_seconds is None or bool(sort_priority)
+    batch_deadline: float | None = None
+    exact_count_result: CompleteSystemResult | None = None
+    count_thread: threading.Thread | None = None
+    output_lock = threading.Lock()
 
-        batches = stream.iter_batches(batch_size=batch_size)
+    def current_batch_deadline() -> float | None:
+        return batch_deadline
+
+    def write_stdout(text: str) -> None:
+        with output_lock:
+            output_stream.write(text)
+            output_stream.flush()
+
+    def write_exact_count_update(result: CompleteSystemResult) -> None:
+        lines = [
+            f"Total complete systems: {result.complete_system_count:,}\n",
+            "Period schedule counts: "
+            + ", ".join(f"{count:,}" for count in result.period_schedule_counts)
+            + "\n\n",
+        ]
+        write_stdout("".join(lines))
+
+    def calculate_exact_count() -> None:
+        nonlocal exact_count_result
+        try:
+            progress_stream.write("Calculating exact complete-system total...\n")
+            progress_stream.flush()
+            result = CompleteSystemScheduler(rules=rules).count_complete_systems(
+                period_course_sets
+            )
+            exact_count_result = result
+            write_exact_count_update(result)
+            progress_stream.write(
+                f"Exact total ready: {result.complete_system_count:,} complete systems.\n"
+            )
+            progress_stream.flush()
+        except Exception as exc:
+            progress_stream.write(f"Exact total calculation failed: {exc}\n")
+            progress_stream.flush()
+
+    def start_exact_count_worker() -> None:
+        nonlocal count_thread
+        if total_is_exact or count_thread is not None:
+            return
+        count_thread = threading.Thread(
+            target=calculate_exact_count,
+            name="complete-system-total-counter",
+            daemon=True,
+        )
+        count_thread.start()
+
+    if total_is_exact:
+        stream = scheduler.stream_complete_systems(
+            period_course_sets,
+            max_systems=max_systems,
+            sort_priority=sort_priority,
+        )
+    else:
+        stream = scheduler.stream_complete_systems_on_demand(
+            period_course_sets,
+            max_systems=max_systems,
+            deadline=current_batch_deadline,
+        )
+
+    timed_out = False
+    try:
+        _write_stream_summary(
+            output_stream,
+            stream,
+            time_limit_seconds=time_limit_seconds,
+            total_is_exact=total_is_exact,
+        )
+
+        systems = iter(stream.systems)
         written_count = 0
         exhausted = False
 
         def write_next_batch() -> None:
-            nonlocal written_count, exhausted
+            nonlocal batch_deadline, written_count, exhausted, timed_out
+
+            batch = []
+            if time_limit_seconds is not None:
+                batch_deadline = time.perf_counter() + max(0.0, time_limit_seconds - 0.25)
 
             try:
-                batch = next(batches)
-            except StopIteration:
-                exhausted = True
-                output_stream.write(f"{BATCH_END_MARKER}\n")
-                output_stream.flush()
+                while len(batch) < batch_size:
+                    if (
+                        batch_deadline is not None
+                        and time.perf_counter() >= batch_deadline
+                    ):
+                        exhausted = True
+                        timed_out = True
+                        break
+                    try:
+                        batch.append(next(systems))
+                    except StopIteration:
+                        exhausted = True
+                        break
+                    except ScheduleGenerationTimedOut:
+                        exhausted = True
+                        timed_out = True
+                        break
+            finally:
+                batch_deadline = None
+
+            if not batch:
+                write_stdout(f"{BATCH_END_MARKER}\n")
                 return
 
             written_count = batch[-1].number
-            output_stream.write("".join(system.text for system in batch))
-            output_stream.write(f"{BATCH_END_MARKER}\n")
-            output_stream.flush()
+            write_stdout("".join(system.text for system in batch) + f"{BATCH_END_MARKER}\n")
 
             progress_stream.write(
-                f"Batch ready: {written_count:,} of "
-                f"{stream.complete_system_count:,} complete systems cached.\n"
+                f"Batch ready: {written_count:,}"
+                f"{_format_total_suffix(stream, total_is_exact)} "
+                "complete systems cached.\n"
             )
             progress_stream.flush()
 
-            if written_count >= stream.complete_system_count:
+            if total_is_exact and written_count >= stream.complete_system_count:
                 exhausted = True
 
         write_next_batch()
+        start_exact_count_worker()
 
         while not exhausted:
             command = input_stream.readline()
@@ -519,25 +611,43 @@ def run_complete_lazy_stream_workflow(
                 break
     finally:
         stream.close()
+        if count_thread is not None:
+            count_thread.join(timeout=0.05)
 
     elapsed_seconds = time.perf_counter() - started_at
-    truncated = written_count < stream.complete_system_count
+    complete_system_count = (
+        stream.complete_system_count
+        if total_is_exact
+        else exact_count_result.complete_system_count
+        if exact_count_result is not None
+        else written_count
+    )
+    truncated = (
+        timed_out
+        or (not total_is_exact and not exhausted)
+        or (total_is_exact and written_count < stream.complete_system_count)
+    )
     progress_stream.write(
         "Lazy stream finished: "
-        f"{written_count:,} of {stream.complete_system_count:,} complete systems "
+        f"{written_count:,}{_format_total_suffix(stream, total_is_exact)} "
+        "complete systems "
         f"in {elapsed_seconds:.2f} seconds.\n"
     )
+    if timed_out:
+        progress_stream.write("Lazy stream stopped at the auto time limit.\n")
+    elif time_limit_seconds is not None and not exhausted:
+        progress_stream.write("Lazy stream stopped before all batches were requested.\n")
     progress_stream.flush()
 
     return CompleteSystemResult(
         output_path=None,
         period_course_counts=stream.period_course_counts,
         period_schedule_counts=stream.period_schedule_counts,
-        complete_system_count=stream.complete_system_count,
+        complete_system_count=complete_system_count,
         written_system_count=written_count,
         elapsed_seconds=elapsed_seconds,
         truncated=truncated,
-        auto_limit_seconds=None,
+        auto_limit_seconds=time_limit_seconds,
     )
 
 
@@ -630,21 +740,42 @@ def _run_complete_stream_workflow(
     )
 
 
-def _write_stream_summary(stream_output: TextIO, stream, time_limit_seconds: float | None) -> None:
+def _write_stream_summary(
+    stream_output: TextIO,
+    stream,
+    time_limit_seconds: float | None,
+    total_is_exact: bool = True,
+) -> None:
     stream_output.write("OFFICIAL UNIVERSITY COMPLETE EXAM SYSTEMS\n")
     stream_output.write("=" * 65 + "\n")
-    stream_output.write(f"Total complete systems: {stream.complete_system_count:,}\n")
+    if total_is_exact:
+        stream_output.write(f"Total complete systems: {stream.complete_system_count:,}\n")
+    else:
+        stream_output.write(
+            "Total complete systems: calculating in background\n"
+        )
     stream_output.write(
         "Period course counts: "
         + ", ".join(f"{count:,}" for count in stream.period_course_counts)
         + "\n"
     )
-    stream_output.write(
-        "Period schedule counts: "
-        + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
-        + "\n"
-    )
+    if total_is_exact:
+        stream_output.write(
+            "Period schedule counts: "
+            + ", ".join(f"{count:,}" for count in stream.period_schedule_counts)
+            + "\n"
+        )
+    else:
+        stream_output.write(
+            "Period schedule counts: generated on demand for the visible batch\n"
+        )
     if time_limit_seconds is not None:
         stream_output.write(f"Auto time limit: {time_limit_seconds:.2f} seconds\n")
     stream_output.write("\n")
     stream_output.flush()
+
+
+def _format_total_suffix(stream, total_is_exact: bool) -> str:
+    if not total_is_exact:
+        return ""
+    return f" of {stream.complete_system_count:,}"

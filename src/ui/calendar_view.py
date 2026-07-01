@@ -446,10 +446,15 @@ class OutputView(QWidget):
         if schedule is None:
             self.schedule_label.setText("No schedule selected")
         else:
-            total = self._schedule_total or self.cache.system_count
-            self.schedule_label.setText(
-                f"{self.pagination_bar.current_page} of {_format_compact_count(total)} schedules"
-            )
+            if self._schedule_total is None and self.can_request_more:
+                self.schedule_label.setText(
+                    f"{self.pagination_bar.current_page} schedules loaded"
+                )
+            else:
+                total = self._schedule_total or self.cache.system_count
+                self.schedule_label.setText(
+                    f"{self.pagination_bar.current_page} of {_format_schedule_count(total)} schedules"
+                )
         self._set_selected_schedule(schedule)
 
     def _set_selected_schedule(self, schedule: ScheduleSystem | None) -> None:
@@ -482,8 +487,8 @@ class OutputView(QWidget):
         super().keyPressEvent(event)
 
 
-def _format_compact_count(value: int) -> str:
-    """Keep very large schedule totals readable in the output header."""
+def _format_schedule_count(value: int) -> str:
+    """Keep large schedule totals readable without losing the real count source."""
     units = (
         (1_000_000_000, "B"),
         (1_000_000, "M"),

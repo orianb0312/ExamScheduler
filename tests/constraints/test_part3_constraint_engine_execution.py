@@ -139,6 +139,21 @@ def _req_2_4_case() -> ConstraintEngineCase:
     )
 
 
+def _req_2_4_three_mandatory_case() -> ConstraintEngineCase:
+    return ConstraintEngineCase(
+        requirement="2.4",
+        courses=(
+            _course(94101, "Mandatory Alpha", RequirementType.OBLIGATORY),
+            _course(94102, "Mandatory Beta", RequirementType.OBLIGATORY),
+            _course(94103, "Mandatory Gamma", RequirementType.OBLIGATORY),
+        ),
+        selected_programs=(83101,),
+        period=_fall_period(1, 4),
+        constraints={"min_days_before_last_mandatory": 2},
+        expected_schedule_count=24,
+    )
+
+
 def _req_2_5_case() -> ConstraintEngineCase:
     return ConstraintEngineCase(
         requirement="2.5",
@@ -170,6 +185,7 @@ PART3_CASES = (
     pytest.param(_req_2_2_case, id="req_2_2_any_spacing"),
     pytest.param(_req_2_3_case, id="req_2_3_elective_conflicts"),
     pytest.param(_req_2_4_case, id="req_2_4_mandatory_span"),
+    pytest.param(_req_2_4_three_mandatory_case, id="req_2_4_no_partial_pruning"),
     pytest.param(_req_2_5_case, id="req_2_5_daily_cap"),
 )
 

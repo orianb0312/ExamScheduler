@@ -14,13 +14,14 @@ from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QStackedWidget
 
-from src.process_protocol import LAZY_NEXT_COMMAND, LAZY_STOP_COMMAND
+from src.process_protocol import BATCH_END_MARKER, LAZY_NEXT_COMMAND, LAZY_STOP_COMMAND
 from src.services.cli_run_service import CliRunConfig, resolve_cli_output_file
 from src.services.file_loading_service import (
     FileLoadingError,
     FileLoadingService,
     LoadedSchedulerInput,
 )
+from src.services.internal_data_store import InternalDataStore
 from src.services.schedule_calendar_service import ScheduleCalendarDataService
 from src.services.schedule_output_service import (
     ScheduleOutputDataAdapter,
@@ -69,7 +70,7 @@ class MainWindow(QMainWindow):
         process_runner_factory: ProcessRunnerFactory | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("ExamScheduler v3.4.1")
+        self.setWindowTitle("ExamScheduler v3.4.2")
         self.resize(1200, 760)
         self.setMinimumSize(820, 620)
 
@@ -85,7 +86,11 @@ class MainWindow(QMainWindow):
         # Tests can inject a fake runner, while the real app still uses QProcess.
         runner_factory = process_runner_factory or ProcessRunner
         self._runner = runner_factory(self)
-        self._file_loading_service = FileLoadingService()
+        self._file_loading_service = FileLoadingService(
+            internal_store=InternalDataStore(
+                self._project_root / ".exam_scheduler_cache" / "processed_input.json"
+            )
+        )
         self._active_run_config: CliRunConfig | None = None
         self._selected_schedule: ScheduleSystem | None = None
         self._stay_on_input_after_lazy_stop = False
@@ -426,6 +431,9 @@ class MainWindow(QMainWindow):
         self.input_panel.set_running(False)
         self.output_view.set_running(False)
         self.output_view.set_more_available(False)
+        if self._stack.currentWidget() is self.loading_view:
+            self.input_panel.show_program_page()
+            self._stack.setCurrentWidget(self.input_panel)
 
     def _handle_started(self) -> None:
         # Disable input controls and prepare output screens for execution state
@@ -443,8 +451,9 @@ class MainWindow(QMainWindow):
         if schedule_total is not None:
             self.output_view.set_schedule_total(schedule_total)
 
+        raw_systems = self._parser.feed(text)
         systems = _systems_with_scheduled_exams(
-            self._output_adapter.convert(self._parser.feed(text))
+            self._output_adapter.convert(raw_systems)
         )
         self.output_view.add_systems(systems)
 
@@ -460,6 +469,8 @@ class MainWindow(QMainWindow):
             self.output_view.set_stream_progress(self.output_view.cache.system_count)
             self.output_view.set_more_available(True)
             self._refresh_analytics_dashboard()
+        elif self._handle_empty_lazy_batch(text, raw_systems):
+            return
         elif not _looks_like_schedule_output(text):
             self.output_view.append_log(text)
 
@@ -467,7 +478,33 @@ class MainWindow(QMainWindow):
         if self._ignore_stale_runner_result:
             return
 
+        self.loading_view.set_status(text)
         self.output_view.append_log(text)
+
+    def _handle_empty_lazy_batch(
+        self,
+        text: str,
+        raw_systems: list[ScheduleSystem],
+    ) -> bool:
+        if (
+            self._active_run_config is None
+            or not self._active_run_config.lazy_schedules
+            or BATCH_END_MARKER not in text
+            or self.output_view.cache.system_count
+        ):
+            return False
+
+        if not raw_systems and self.output_view.schedule_total is not None:
+            return False
+
+        self._stay_on_input_after_lazy_stop = True
+        self.input_panel.set_running(False)
+        self.output_view.set_running(False)
+        self.output_view.set_more_available(False)
+        self._show_no_exam_schedules_toast()
+        if self._runner.is_running():
+            self._runner.send_input_line(LAZY_STOP_COMMAND)
+        return True
 
     def _handle_finished(self, exit_code: int, status: str) -> None:
         if self._ignore_stale_runner_result:
@@ -478,6 +515,9 @@ class MainWindow(QMainWindow):
             self.input_panel.set_running(False)
             self.output_view.set_running(False)
             self.output_view.set_more_available(False)
+            if self._stack.currentWidget() is self.loading_view:
+                self.input_panel.show_program_page()
+                self._stack.setCurrentWidget(self.input_panel)
             self._refresh_analytics_dashboard()
             if pending_run is not None:
                 self._start_cli_run_now(pending_run)
@@ -517,6 +557,9 @@ class MainWindow(QMainWindow):
         if self._ignore_stale_runner_result:
             self.input_panel.set_running(False)
             self.output_view.set_more_available(False)
+            if self._stack.currentWidget() is self.loading_view:
+                self.input_panel.show_program_page()
+                self._stack.setCurrentWidget(self.input_panel)
             return
 
         self.input_panel.set_running(False)

@@ -1,18 +1,1 @@
-[
-  {
-    "rule_id": "ai_rule_1",
-    "description": "Minimum 5 days between exams",
-    "rule_type": "exam_spacing",
-    "parameters": {
-      "min_days": 5
-    }
-  },
-  {
-    "rule_id": "ai_rule_2",
-    "description": "Exclude Friday from exam scheduling",
-    "rule_type": "exclude_day",
-    "parameters": {
-      "weekday": "Friday"
-    }
-  }
-]
+[]

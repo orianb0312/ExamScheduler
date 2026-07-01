@@ -42,6 +42,18 @@ class AdvancedConstraintsRule(ISchedulingRule):
 
         return True
 
+    def is_partial_valid(self, attempt_state: Dict[Course, date]) -> bool:
+        """
+        Validate only constraints that cannot become valid again after adding more exams.
+        """
+        if not self._check_daily_cap(attempt_state):
+            return False
+
+        if not self._check_elective_conflicts(attempt_state):
+            return False
+
+        return True
+
     def _check_daily_cap(self, attempt_state: Dict[Course, date]) -> bool:
         """
         Validates that no calendar date exceeds the maximum allowed number of exams (max_daily_exams).

@@ -11,8 +11,9 @@ Run from the project root:
 Use the pytest summary as the source of truth for the current number of tests
 and the current runtime.
 
-Current verified result: 276 tests passed, with 1 network-isolation warning, in
-11.50 seconds.
+Current verified result on July 1, 2026: the full pytest suite passed in the
+local submission environment. Use the command output from the latest run as the
+exact count and runtime.
 
 `pytest.ini` keeps test discovery consistent, including capitalized files such
 as `tests/parser/TestFileparser.py`.

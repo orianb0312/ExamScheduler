@@ -18,6 +18,64 @@ The chatbot might not recognize every possible user input.
 
 If a valid request is rejected, unclear, or not understood, the user should rephrase it using the examples in this guide. This limitation is expected because the chatbot uses natural-language interpretation and strict validation to avoid unsafe or incorrect scheduling changes.
 
+Important grading note:
+
+The AI Copilot is intentionally strict. It should create a rule only when the request maps to one of the supported AI rule types below. A sentence can be related to exams and still be rejected if the scheduler does not support that rule.
+
+## Quick Start For New Users
+
+Write one rule at a time in short English.
+
+Best style:
+
+```text
+Action + target + date/day/number
+```
+
+Good examples:
+
+```text
+Schedule Physics on 2026-07-15
+No exams on Thursday
+No exams in January
+Professor Cohen unavailable on 2026-07-15
+Limit program 83101 to 2 exams a day
+Minimum gap 5 days
+```
+
+Bad style:
+
+```text
+Make the schedule better
+Make Physics comfortable
+Do the best arrangement
+Give Physics enough time
+10 free days before Physics exams
+```
+
+Why these are bad:
+
+- They are vague, subjective, or not mapped to a supported AI rule.
+- Some requests sound valid to a human but require a solver rule that does not exist.
+- The chatbot may reject unclear requests instead of guessing.
+
+## Supported AI Rule Cheat Sheet
+
+The chatbot can create only these AI rule types:
+
+| User goal | AI action | Required information |
+| --- | --- | --- |
+| Put one course exam on an exact date | `fix_date` | Course name and exact date |
+| Block a weekday or exact date | `exclude_day` | Weekday or exact date, optionally a course |
+| Block a month or date range | `exclude_period` | Month or start/end dates, optionally course/lecturer/program |
+| Mark a lecturer unavailable | `lecturer_unavailable` | Lecturer name and date/weekday/month |
+| Limit daily exams for one program | `program_limit` | Numeric program ID and maximum exams per day |
+| Keep exams separated by days | `exam_spacing` | Minimum number of days between exams |
+| Remove a chatbot-created rule | `revert_rule` | Existing `ai_rule_*` ID or matching allowed wording |
+| Ask about rule support/status | `system_inquiry` | Topic such as supported rules or active AI rules |
+
+If a request does not fit this list, it is unsupported even if it is about exams.
+
 ## Recommended Usage
 
 Use short, direct English requests.
@@ -58,6 +116,19 @@ Expected result:
 ```json
 {"action": "fix_date", "course": "Physics", "date": "2026-07-15"}
 ```
+
+Bad or unsupported examples:
+
+```text
+Schedule Physics soon
+Schedule Physics tomorrow
+Make Physics before the other exams
+```
+
+Reason:
+
+- The chatbot needs an exact date. Relative dates may require clarification.
+- Ordering one course before other unspecified exams is not supported as a fixed-date rule.
 
 ### Exclude Day or Date
 
@@ -175,6 +246,22 @@ Notes:
 
 - `gap`, `spacing`, `buffer`, `minimum gap`, `minimum days`, and `days between` all refer to exam spacing.
 - `tests` and `finals` are treated as exam-related words.
+- This rule is global. It applies to exam spacing generally, not only to one specific course.
+
+Bad or unsupported examples:
+
+```text
+10 free days before Physics exams
+Make Physics 1 with 10 days before the exam
+Give students 10 study days before each Physics exam
+No other exams during the 10 days before Physics
+```
+
+Reason:
+
+- These ask for a course-specific preparation buffer.
+- The current scheduler does not support a `course_preparation_buffer` AI rule.
+- Use `Minimum gap 10 days` only if the intended rule is a global gap between exams.
 
 ## Rule Management
 
@@ -206,6 +293,12 @@ Explain base rules
 
 ## Invalid or Unsupported Examples
 
+The chatbot has three different rejection categories:
+
+- Unrelated text: not about exam scheduling.
+- Unsupported scheduling text: about exams, but not supported by the current AI rule list.
+- Unsafe text: prompt injection, security testing, code execution, or hidden prompt extraction.
+
 The chatbot should reject requests that are unrelated to exam scheduling.
 
 Invalid examples:
@@ -226,7 +319,19 @@ Schedule every exam in room 101
 Create the perfect schedule
 Make hard exams easier
 Find the easiest schedule
+10 free days before Physics exams
+Make Physics 1 with 10 days before the exam
+No exams during the 10 days before Physics
+Make the schedule comfortable for students
+Put Physics before all difficult exams
 ```
+
+Why these are unsupported:
+
+- Room scheduling is not an AI Copilot rule.
+- Perfect/easy/comfortable schedules are subjective and not a supported rule.
+- Course-specific preparation buffers are not supported.
+- Relative ordering against unspecified exams is not supported.
 
 ## Security and PenTest Examples
 

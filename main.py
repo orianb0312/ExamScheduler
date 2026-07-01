@@ -318,6 +318,7 @@ def main() -> int:
         run_complete_lazy_stream_workflow(
             output_config=args.output_config,
             period_indexes=args.period_index,
+            time_limit_seconds=args.time_limit,
             input_stream=sys.stdin,
             output_stream=sys.stdout,
             progress_stream=sys.stderr,

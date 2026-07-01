@@ -11,7 +11,7 @@ from pytestqt.qtbot import QtBot
 from src.ui import main_window as main_window_module
 from src.models.enums import Semester, Term
 from src.models.scheduling import ExamPeriod
-from src.process_protocol import LAZY_STOP_COMMAND
+from src.process_protocol import BATCH_END_MARKER, LAZY_STOP_COMMAND
 from src.services.cli_run_service import CliRunConfig
 from src.services.file_loading_service import LoadedSchedulerInput
 from src.services.schedule_output_service import (
@@ -458,6 +458,38 @@ def test_calendar_edit_after_lazy_results_stops_waiting_scheduler(
     assert window.input_panel.run_button.text() == "Generate Schedules"
 
 
+def test_input_edit_during_loading_leaves_loading_screen(
+    tmp_path,
+    qtbot: QtBot,
+) -> None:
+    created_runners: list[_FakeProcessRunner] = []
+
+    def create_runner(parent) -> _FakeProcessRunner:
+        runner = _FakeProcessRunner(parent)
+        created_runners.append(runner)
+        return runner
+
+    window = MainWindow(
+        project_root=tmp_path,
+        process_runner_factory=create_runner,
+    )
+    qtbot.addWidget(window)
+    _mark_input_data_loaded(window)
+    window.input_panel.replace_program_list(["83101"])
+    window.input_panel.program_selector.item(0).setCheckState(Qt.CheckState.Checked)
+
+    qtbot.mouseClick(window.input_panel.run_button, Qt.MouseButton.LeftButton)
+    runner = created_runners[0]
+
+    assert window._stack.currentWidget() is window.loading_view
+    window._stop_active_lazy_run_for_input_edit()
+
+    assert runner.sent_lines == [LAZY_STOP_COMMAND]
+    assert window._stack.currentWidget() is window.input_panel
+    assert window.input_panel.run_button.isEnabled()
+    assert window.input_panel.run_button.text() == "Generate Schedules"
+
+
 def test_global_ai_exclude_day_marks_calendar_day_excluded(
     tmp_path,
     qtbot: QtBot,
@@ -566,6 +598,28 @@ def test_output_view_label_compacts_large_total_count(qtbot: QtBot) -> None:
         qtbot.mouseClick(view.pagination_bar.next_button, Qt.MouseButton.LeftButton)
 
     assert view.schedule_label.text() == "4 of 4.9M schedules"
+
+    view.set_schedule_total(76_000)
+
+    assert view.schedule_label.text() == "4 of 76K schedules"
+
+
+def test_output_view_label_updates_lazy_count_when_exact_total_arrives(qtbot: QtBot) -> None:
+    view = OutputView()
+    qtbot.addWidget(view)
+
+    view.add_systems([
+        ScheduleSystem(number=number, text=f"Schedule #{number}")
+        for number in range(1, 2001)
+    ])
+    view.set_more_available(True)
+    view.pagination_bar.set_current_page(1001)
+
+    assert view.schedule_label.text() == "1001 schedules loaded"
+
+    view.set_schedule_total(1_031_164_080)
+
+    assert view.schedule_label.text() == "1001 of 1B schedules"
 
 
 def test_output_view_page_ruler_click_selects_schedule(qtbot: QtBot) -> None:
@@ -1175,6 +1229,72 @@ def test_finished_run_with_only_empty_systems_shows_no_schedule_message(
 
     window._toast.close_button.click()
     qtbot.waitUntil(window._toast.isHidden, timeout=1000)
+
+
+def test_empty_lazy_batch_leaves_loading_and_stops_waiting_scheduler(
+    tmp_path,
+    qtbot: QtBot,
+) -> None:
+    created_runners: list[_FakeProcessRunner] = []
+
+    def create_runner(parent) -> _FakeProcessRunner:
+        runner = _FakeProcessRunner(parent)
+        created_runners.append(runner)
+        return runner
+
+    window = MainWindow(
+        project_root=tmp_path,
+        process_runner_factory=create_runner,
+    )
+    qtbot.addWidget(window)
+    _mark_input_data_loaded(window)
+    runner = created_runners[0]
+    runner.running = True
+    window._active_run_config = CliRunConfig(
+        project_root=tmp_path,
+        mode="auto",
+        stream_schedules=True,
+        lazy_schedules=True,
+    )
+    window._handle_started()
+
+    window._handle_stdout(
+        "Total complete systems: 0\n"
+        f"{BATCH_END_MARKER}\n"
+    )
+
+    assert window._stack.currentWidget() is window.input_panel
+    assert window._toast.message_label.text() == NO_EXAM_SCHEDULES_MESSAGE
+    assert window.input_panel.run_button.isEnabled()
+    assert runner.sent_lines == [LAZY_STOP_COMMAND]
+
+
+def test_lazy_batch_with_only_empty_systems_leaves_loading(
+    tmp_path,
+    qtbot: QtBot,
+) -> None:
+    window = MainWindow(project_root=tmp_path)
+    qtbot.addWidget(window)
+    _mark_input_data_loaded(window)
+    window._active_run_config = CliRunConfig(
+        project_root=tmp_path,
+        mode="auto",
+        stream_schedules=True,
+        lazy_schedules=True,
+    )
+    window._handle_started()
+
+    window._handle_stdout(
+        "Total complete systems: 1\n"
+        "Complete System #1\n"
+        "=== SEMESTER: FALL ===\n"
+        "  [TERM: Aleph]\n"
+        f"{BATCH_END_MARKER}\n"
+    )
+
+    assert window.output_view.cache.system_count == 0
+    assert window._stack.currentWidget() is window.input_panel
+    assert window._toast.message_label.text() == NO_EXAM_SCHEDULES_MESSAGE
 
 
 def _calendar_cells_by_day(view) -> dict[int, _DayCell]:
