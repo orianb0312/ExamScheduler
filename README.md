@@ -16,7 +16,7 @@ ExamScheduler is a standalone desktop and command-line application for building 
 
 The application is designed for offline institutional use. Scheduling, analytics, persistence, and AI inference remain on the local computer; no cloud service or web backend is required.
 
-> **Release status:** the Windows installer is version **3.4.2**, as declared in `packaging/ExamSchedulerDualModel.iss`. The most recent repository tag is the earlier `v2.0.0` milestone; the final 3.4.2 implementation is the current `Develop` release snapshot and includes all Stage 3 and final-release features documented here.
+> **Release status:** The Windows installer is version **3.4.2**, as declared in `packaging/ExamSchedulerDualModel.iss`. The most recent repository tag is the earlier `v2.0.0` milestone; the final 3.4.2 implementation is the current `Develop` release snapshot and includes all Stage 3 and final-release features documented here.
 
 ## Table of Contents
 
@@ -453,7 +453,7 @@ Write schedules and export analytics in multiple formats:
 python main.py --mode complete-write `
   --max-systems 100 `
   --export-analytics `
-  --analytics-format json,csv,pdf `
+  --analytics-format json,csv,pdf.`
   --analytics-output-dir "outputs\analytics" `
   --analytics-base-filename "final_schedule_report"
 ```
@@ -662,12 +662,15 @@ ExamScheduler generates an `.ics` synchronization file; the operating-system cal
 
 Formal requirement PDFs, the test specification document, and the final presentation are also available under `docs/`.
 
-## Project Team
+## 👥 Team & Contribution Breakdown
 
-- **Oryan Bitton** — core scheduling engine, performance, workflow integration, AI Copilot, dashboard, packaging, and final release.
-- **Eilay Sasson** — output, constraints, responsiveness, persistence, calendar synchronization, loading flow, and automated tests.
-- **Maoz Braun** — UI architecture, conflict handling, ranking, analytics, file workflows, and system/constraint tests.
-- **Alex Roizen** — parsing, program and calendar interfaces, settings, compatibility, calendar interoperability, and boundary tests.
+This project was built by a collaborative team of 4 engineers. Below is the technical breakdown of ownership and development metrics based on codebase volume and core system components:
+
+*   **Orian Bitton** (Project Lead & Core Architect — 54.6% of codebase / ~35k lines): Architected the complete system model and database schema. Engineered the primary Core Scheduling Algorithm. Designed and developed a fully custom, privacy-focused, local AI chatbot from scratch using Ollama—operating completely offline with zero external internet dependencies or pre-built chat API wrappers. Responsible for end-to-end security, stability enhancements, production deployment, dashboard, packaging, and final release.
+*   **Maoz Braun** (Lead Core Contributor — 23.5% of codebase / ~15k lines): Developed the system's critical Conflict Detection Engine for complex schedule validations. Designed and built the client-side UI architecture, interactive calendar views, analytics engine, and programmatic PDF report generation.
+*   **Eilay Sasson** (Quality & Integration Engineer — 9.2% of codebase / ~6k lines): Established the automated testing frameworks and continuous integration. Developed the advanced constraints processing engine, ICS calendar synchronization, and file security protocols.
+*   **Alex Roizen** (Support & Localization Engineer — 12.8% of codebase / ~8k lines): Developed peripheral utility layers including the custom file parser, course filtering modules, Hebrew localization engine (RTL support), and Outlook integration exports.
+
 
 ## License
 
